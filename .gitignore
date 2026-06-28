@@ -1,0 +1,20 @@
+# Project place file
+/ESCAPELAVA.rbxlx
+/ESCAPELAVA.rbxl
+/*.rbxlx
+/*.rbxl
+
+# Roblox Studio lock files
+/*.rbxlx.lock
+/*.rbxl.lock
+
+# Rojo sourcemap
+sourcemap.json
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
