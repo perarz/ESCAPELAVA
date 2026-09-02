@@ -20,6 +20,7 @@ local TweenService = game:GetService("TweenService")
 
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local ButtonFX = require(script.Parent.ButtonFX)
 
 local ShopController = {}
 
@@ -89,12 +90,26 @@ local function setupShop()
 		return
 	end
 
-	local button = hud:WaitForChild("ShopButton", 5)
+	-- ShopButton siedzi teraz w kontenerze HUD.SideButtons (UIListLayout, fix nachodzenia
+	-- przycisków na dużych ekranach) — NIE jest już bezpośrednim dzieckiem HUD. Szukamy
+	-- rekurencyjnie; krótki retry na wypadek opóźnionej replikacji subtree.
+	local container = hud:FindFirstChild("ShopButton", true)
+	if not container then
+		local t0 = os.clock()
+		repeat task.wait() until hud:FindFirstChild("ShopButton", true) or os.clock() - t0 > 5
+		container = hud:FindFirstChild("ShopButton", true)
+	end
 	local menu = hud:WaitForChild("ShopMenu", 5)
-	if not button or not menu then
+	if not container or not menu then
 		warn("[ShopController] ShopButton lub ShopMenu nie istnieje")
 		return
 	end
+
+	-- ShopButton w Studio może być Frame (kontener) z child'em ImageButton (klikalna ikona),
+	-- albo bezpośrednio GuiButton. Click bindujemy na pierwszy GuiButton w drzewie,
+	-- hover/tween animujemy na całym kontenerze (cały Frame z tekstem rośnie razem z ikoną).
+	local clickTarget: GuiButton? = if container:IsA("GuiButton") then container :: GuiButton
+		else container:FindFirstChildWhichIsA("GuiButton", true)
 
 	-- CloseButton może siedzieć płytko pod ShopMenu lub zagłębione (np. w header Frame).
 	-- Rekursywny find żeby Kacper mógł przebudowywać layout w Studio bez kodu.
@@ -110,47 +125,19 @@ local function setupShop()
 
 	renderOffers(offers :: ScrollingFrame, template :: Frame)
 
-	-- Toggle menu — akceptuje TextButton i ImageButton (Kacper zmienił styling)
-	if button:IsA("GuiButton") then
-		button.Activated:Connect(function()
+	if clickTarget then
+		clickTarget.Activated:Connect(function()
 			menu.Visible = not menu.Visible
 		end)
-
-		-- Hover effect: powiększenie + lekka rotacja.
-		-- Pivot rotacji = center ikonki (żeby children — TextLabel "SHOP" — obracali się
-		-- razem z ikonką wokół tego samego punktu, a nie swingowali po łuku z górno-lewego rogu).
-		local guiButton = button :: GuiButton
-		local absSize = guiButton.AbsoluteSize
-		local oldAnchor = guiButton.AnchorPoint
-		local oldPosition = guiButton.Position
-		guiButton.AnchorPoint = Vector2.new(0.5, 0.5)
-		guiButton.Position = UDim2.new(
-			oldPosition.X.Scale, oldPosition.X.Offset + absSize.X * (0.5 - oldAnchor.X),
-			oldPosition.Y.Scale, oldPosition.Y.Offset + absSize.Y * (0.5 - oldAnchor.Y)
-		)
-
-		local originalSize = guiButton.Size
-		local originalRotation = guiButton.Rotation
-		local hoverSize = UDim2.new(
-			originalSize.X.Scale * 1.1, originalSize.X.Offset * 1.1,
-			originalSize.Y.Scale * 1.1, originalSize.Y.Offset * 1.1
-		)
-		local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-
-		guiButton.MouseEnter:Connect(function()
-			TweenService:Create(guiButton, tweenInfo, {
-				Size = hoverSize,
-				Rotation = originalRotation - 5,
-			}):Play()
-		end)
-		guiButton.MouseLeave:Connect(function()
-			TweenService:Create(guiButton, tweenInfo, {
-				Size = originalSize,
-				Rotation = originalRotation,
-			}):Play()
-		end)
 	else
-		warn("[ShopController] HUD.ShopButton nie jest GuiButton (TextButton/ImageButton) — nie będzie klikalne")
+		warn("[ShopController] HUD.ShopButton nie zawiera żadnego GuiButton — nie będzie klikalne")
+	end
+
+	-- Hover FX na całym kafelku: BG (wizualny tile, rodzic przycisku) jeśli istnieje,
+	-- fallback sam przycisk. Obrót + rozjaśnienie — feedback "to jest klikalne".
+	local tile = hud:FindFirstChild("ShopbuttonBG", true) or container
+	if tile and tile:IsA("GuiObject") then
+		ButtonFX.applyTileHover(tile)
 	end
 
 	-- Akceptuje TextButton i ImageButton (Kacper zmienił styling header'a → ImageButton X)
@@ -176,9 +163,6 @@ local function setupShop()
 end
 
 function ShopController.init()
-	-- Podpinamy ShopResult listener PRZED setupShop (yieldy na WaitForChild),
-	-- bo server może fire'ować ShopResult w innych momentach.
-	-- Actually setupShop podpina ShopResult; ten init.client robi require + init().
 	setupShop()
 end
 

@@ -1,7 +1,7 @@
 --!strict
 -- Server bootstrap. Kolejność zależności:
---   Remotes (folder) → PlaceholderMap (geometria) → LavaService (Lava part)
---   → PlayerService (slot na getAliveCountProvider) → GameLoopService.start()
+--   Remotes (folder) → LavaService (Lava part) → PlayerService (getAliveCountProvider)
+--   → GameLoopService.start()
 -- Brak _G. Komunikacja przez require + BindableEvents w GameLoopService.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,23 +17,40 @@ local GameLoopService = require(script.Services.GameLoopService)
 local CashService = require(script.Services.CashService)
 local ItemService = require(script.Services.ItemService)
 local ShopService = require(script.Services.ShopService)
+local DebrisService = require(script.Services.DebrisService)
+local StructureService = require(script.Services.StructureService)
+local DestructionService = require(script.Services.DestructionService)
 local BombService = require(script.Services.BombService)
 local MapService = require(script.Services.MapService)
 local PushService = require(script.Services.PushService)
 local CashPickupService = require(script.Services.CashPickupService)
 local BridgeService = require(script.Services.BridgeService)
+local HeadTrackingService = require(script.Services.HeadTrackingService)
+local AntiCheatService = require(script.Services.AntiCheatService)
+local RewardsService = require(script.Services.RewardsService)
+local LeaderstatsService = require(script.Services.LeaderstatsService)
+local DailyRewardsService = require(script.Services.DailyRewardsService)
+local DevService = require(script.Services.DevService)
 -- Ragdoll: toolbox ARTFVL ragdoll (folder w Workspace.Ragdoll Script... → StarterGui → PlayerGui)
 
 -- KOLEJNOŚĆ MA ZNACZENIE:
 --   PlayerDataService najpierw — Cash/Item zarejestrują się jako subscribers PRZED
 --   pierwszym PlayerAdded, żeby nie zgubić eventu "loaded".
---   BombService po ItemService — rejestruje się jako use handler.
 --   MapService snapshot PRZED pierwszą rundą (bomby nie zdążą zmodyfikować mapy
 --   zanim zrobimy clone) — w praktyce wszystko init przed GameLoopService.start().
---   CashPickupService po LavaService — attachLavaListener czeka na LavaPart.
+--   CashPickupService po LavaService — czyta wysokość lawy z Workspace.Lava.LavaPart
+--   (magnet tick kasuje cash zalany lawą), więc part musi już istnieć.
 PlayerDataService.init()
 CashService.init()
 ItemService.init()
+-- Debris → Structure → Destruction → Bomb. System v2: DESTRUCTION_PLAN.md.
+-- Debris pierwszy (rejestr gruzu, collision group, pętla usypiania), Structure przed
+-- Destruction (musi mieć zeskanowane pasma filarów zanim padnie pierwszy filar),
+-- wszystko przed BombService — zanim jakakolwiek bomba może wybuchnąć.
+-- StructureService.init robi pierwszy skan; kolejne same lecą na COUNTDOWN.
+DebrisService.init()
+StructureService.init()
+DestructionService.init()
 BombService.init()
 LavaService.init()
 PlayerService.init()
@@ -42,6 +59,12 @@ MapService.init()
 PushService.init()
 CashPickupService.init()
 BridgeService.init()
+HeadTrackingService.init()
+AntiCheatService.init()
+RewardsService.init()
+LeaderstatsService.init()
+DailyRewardsService.init()
+DevService.init()
 
 -- Replikuj aktualny state do nowych graczy żeby HUD nie utknął na default tekście
 -- (klient yielduje na WaitForChild HUD i może minąć pierwszy setState).

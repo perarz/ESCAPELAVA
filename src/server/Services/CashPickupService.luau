@@ -107,7 +107,7 @@ local function takeSpawnSnapshot()
 
 	local spawns, foundPath = findSpawnsFolder(map)
 	if not spawns then
-		warn(("[Cash] nie znalazłem CashSpawns w Workspace.Map.Locked ani Workspace.Map — cash nie będzie spawnował"):format())
+		warn("[Cash] nie znalazłem CashSpawns w Workspace.Map.Locked ani Workspace.Map — cash nie będzie spawnował")
 		return
 	end
 
@@ -226,14 +226,10 @@ local function prepareCashInstance(template: Instance?, position: Vector3): Base
 	rootPart:SetAttribute("Collected", false)
 
 	-- Pomocnik: szybki getter pozycji w heartbeat bez rozróżniania Model/Part.
+	-- (Dla BasePart instance == rootPart, więc finalna nazwa to "Cash" — jak wcześniej.)
 	rootPart.Name = "CashRoot"
-	if instance:IsA("Model") then
-		instance.Name = "Cash"
-		instance.Parent = getOrCreateActiveFolder()
-	else
-		instance.Name = "Cash"
-		instance.Parent = getOrCreateActiveFolder()
-	end
+	instance.Name = "Cash"
+	instance.Parent = getOrCreateActiveFolder()
 
 	return rootPart
 end
@@ -339,11 +335,21 @@ local function magnetTick()
 	if #alivePlayers == 0 then return end
 
 	local rangeSq = Config.Cash.MagnetRange * Config.Cash.MagnetRange
+	-- Poziom lawy liczony RAZ na tick — cash zalany lawą znika w tym samym przebiegu,
+	-- w którym i tak iterujemy po paczkach. Wcześniej robił to osobny listener Touched
+	-- wpięty w LavaPart; przy gruzie z wybuchów ten listener kosztował tysiące wywołań
+	-- na sekundę, a odpalał się dla wszystkiego, nie tylko dla cashu.
+	local lavaY = lavaCurrentY()
 
 	for _, cashInstance in ipairs(folder:GetChildren()) do
 		local root = getRootPart(cashInstance)
 		if not root then continue end
 		if root:GetAttribute("Collected") then continue end
+
+		if root.Position.Y < lavaY then
+			cashInstance:Destroy()
+			continue
+		end
 
 		-- Najbliższy alive w MagnetRange wygrywa (deterministycznie distance²).
 		local bestPlayer: Player? = nil
@@ -361,32 +367,6 @@ local function magnetTick()
 			collect(cashInstance, root, bestPlayer)
 		end
 	end
-end
-
-local function attachLavaListener()
-	-- Cash dotyka lawy → silent destroy. Wpięcie do LavaPart.Touched: bezpieczne, lawa
-	-- istnieje przez całą żywotność serwera. Workaround: lawa może być re-stworzona po
-	-- restore? Nie — LavaService.createLavaPart() robi to raz w init. Pojedyncze connect.
-	local lavaFolder = Workspace:FindFirstChild("Lava")
-	if not lavaFolder then return end
-	local lavaPart = lavaFolder:WaitForChild("LavaPart", 10)
-	if not lavaPart or not lavaPart:IsA("BasePart") then return end
-
-	lavaPart.Touched:Connect(function(otherPart: BasePart)
-		-- Czy `otherPart` należy do cash'a? Sprawdź czy ancestor jest pod ActiveCash.
-		local folder = activeFolder
-		if not folder then return end
-		if not otherPart:IsDescendantOf(folder) then return end
-
-		-- Znajdź najwyższego ancestor który JEST bezpośrednim dzieckiem ActiveCash i destroy.
-		local cashInstance: Instance = otherPart
-		while cashInstance.Parent and cashInstance.Parent ~= folder do
-			cashInstance = cashInstance.Parent
-		end
-		if cashInstance.Parent == folder then
-			cashInstance:Destroy()
-		end
-	end)
 end
 
 local function startRound()
@@ -441,9 +421,6 @@ function CashPickupService.init()
 			endRound()
 		end
 	end)
-
-	-- Lava listener po init (lawa może jeszcze nie istnieć w boot moment).
-	task.spawn(attachLavaListener)
 end
 
 return CashPickupService

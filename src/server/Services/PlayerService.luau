@@ -3,13 +3,13 @@
 -- Zarządza spawn/respawn i trackuje żywych. Wstrzykuje getAliveCount do GameLoopService.
 --
 -- KONTRAKT NAZW (Kacper buduje w Studio):
---   Workspace.Map.Spawn (BasePart) — punkt respu / teleportu do lobby; Position+offset = pozycja gracza
---   Workspace.SpawnPoints (Folder)
---     └── *  (dowolne BasePart'y) — punkty spawn na rundę; kod losuje z puli
+--   Workspace.Map.<dowolnie>.Spawn (BasePart) — punkt respu / teleportu do lobby
+--   Workspace.Map.Locked.SpawnPoints (Folder, recursive)
+--     └── *  (dowolne BasePart'y, np. "Spawn") — punkty spawn na rundę; kod losuje z puli
 --
 -- Filozofia: CharacterAutoLoads = false. Każdy spawn jest jawny:
 --   - LOBBY/POST_ROUND  → wszyscy w Workspace.Map.Spawn
---   - ROUND start       → load + teleport na losowy Workspace.SpawnPoints/*
+--   - ROUND start       → load + teleport na losowy Map.Locked.SpawnPoints/*
 --   - Death w ROUND     → respawn z powrotem do Workspace.Map.Spawn (aliveSet -= player)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,6 +19,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local GameLoopService = require(script.Parent.GameLoopService)
+local KillService = require(script.Parent.KillService)
 
 local PlayerService = {}
 
@@ -54,13 +55,14 @@ local function getLobbyTargetPosition(): Vector3
 end
 
 local function getRoundSpawnPool(): { Vector3 }
-	-- Preferowany: Workspace.SpawnPoints/* (pula punktów dla multiplayera)
-	-- Fallback 1: Workspace.Map.Spawn (jedna pozycja, dla małej mapy / testów)
-	-- Fallback 2: Config.Spawn.FallbackRoundPosition (Vector3 z Configa)
+	-- Preferowany: Workspace.Map.Locked.SpawnPoints/* (pula punktów dla multiplayera,
+	--   pod Locked żeby bomba ich nie ruszała i MapService nie snapshotował)
+	-- Fallback 1: Workspace.SpawnPoints/* (legacy root-level folder)
+	-- Fallback 2: Workspace.Map.Spawn (jedna pozycja, dla małej mapy / testów)
+	-- Fallback 3: Config.Spawn.FallbackRoundPosition (Vector3 z Configa)
 	local pool: { Vector3 } = {}
 
-	local folder = Workspace:FindFirstChild("SpawnPoints")
-	if folder then
+	local function harvest(folder: Instance)
 		for _, child in ipairs(folder:GetChildren()) do
 			if child:IsA("BasePart") then
 				table.insert(pool, child.Position + Vector3.new(0, child.Size.Y / 2 + 3, 0))
@@ -68,21 +70,29 @@ local function getRoundSpawnPool(): { Vector3 }
 		end
 	end
 
+	local map = Workspace:FindFirstChild("Map")
+	if map then
+		-- recursive — Kacper trzyma SpawnPoints pod Map.Locked
+		local folder = map:FindFirstChild("SpawnPoints", true)
+		if folder then harvest(folder) end
+	end
+
 	if #pool == 0 then
-		local map = Workspace:FindFirstChild("Map")
-		if map then
-			-- recursive — Spawn może być pod Map.Locked
-			local sp = map:FindFirstChild("Spawn", true)
-			if sp and sp:IsA("BasePart") then
-				table.insert(pool, sp.Position + Vector3.new(0, sp.Size.Y / 2 + 3, 0))
-			end
+		local folder = Workspace:FindFirstChild("SpawnPoints")
+		if folder then harvest(folder) end
+	end
+
+	if #pool == 0 and map then
+		local sp = map:FindFirstChild("Spawn", true)
+		if sp and sp:IsA("BasePart") then
+			table.insert(pool, sp.Position + Vector3.new(0, sp.Size.Y / 2 + 3, 0))
 		end
 	end
 
 	if #pool == 0 then
 		if not warnedNoSpawns then
 			warnedNoSpawns = true
-			warn("[PlayerService] brak round spawn (Workspace.SpawnPoints i Workspace.Map.Spawn) — używam fallback Config")
+			warn("[PlayerService] brak round spawn (Map.Locked.SpawnPoints, Workspace.SpawnPoints, Map.Spawn) — używam fallback Config")
 		end
 		table.insert(pool, Config.Spawn.FallbackRoundPosition)
 	end
@@ -110,6 +120,15 @@ function PlayerService.isAlive(player: Player): boolean
 	return aliveSet[player] == true
 end
 
+function PlayerService.getAliveList(): { Player }
+	-- Snapshot listy żywych (dla RewardsService — wyliczenie winnerów przed cleanup).
+	local list: { Player } = {}
+	for p in pairs(aliveSet) do
+		table.insert(list, p)
+	end
+	return list
+end
+
 local function disconnectDied(player: Player)
 	local conn = diedConns[player]
 	if conn then
@@ -133,10 +152,18 @@ local function sendToLobby(player: Player)
 	end
 end
 
-local function onDeath(player: Player)
+local function onDeath(player: Player, hum: Humanoid?)
 	if not aliveSet[player] then return end
 	aliveSet[player] = nil
 	disconnectDied(player)
+
+	-- Kill credit — jeśli attacker był tagged w oknie czasu, dostaje $. Fires PlayerKilled.
+	if hum then
+		KillService.processDeath(player, hum)
+	end
+
+	-- Klient (HudVisibilityController) pokazuje sklep spectatorowi po śmierci.
+	Remotes.AliveChanged:FireClient(player, false)
 	Remotes.PlayerDied:FireAllClients(player, "round")
 
 	task.defer(function()
@@ -150,7 +177,7 @@ local function hookHumanoid(player: Player, character: Model)
 	if not hum or not hum:IsA("Humanoid") then return end
 	disconnectDied(player)
 	diedConns[player] = hum.Died:Connect(function()
-		onDeath(player)
+		onDeath(player, hum)
 	end)
 end
 
@@ -185,14 +212,35 @@ local function sendEveryoneToRound()
 	end
 
 	local pool = shuffled(getRoundSpawnPool())
+
+	-- LoadCharacter w pcall PER GRACZ. Bez tego jeden błąd (padnięty avatar, gracz
+	-- wychodzący w tej samej klatce) przerywał CAŁĄ pętlę: reszta zostawała w aliveSet
+	-- jako żywa, ale nigdy nie lądowała na mapie — runda nie mogła skończyć się wcześniej,
+	-- bo licznik żywych nigdy nie schodził do zera.
+	local spawned: { { char: Model, pos: Vector3 } } = {}
 	for i, player in ipairs(players) do
 		local pos = pool[((i - 1) % #pool) + 1]
-		player:LoadCharacter()
+		local ok, err = pcall(function()
+			player:LoadCharacter()
+		end)
 		local char = player.Character
-		if char then
-			teleportCharacter(char, pos)
+		if ok and char then
+			table.insert(spawned, { char = char, pos = pos })
+			Remotes.AliveChanged:FireClient(player, true)
 		else
+			if not ok then
+				warn(("[PlayerService] LoadCharacter %s nie powiódł się: %s"):format(player.Name, tostring(err)))
+			end
 			aliveSet[player] = nil
+		end
+	end
+
+	-- Jedna klatka na fizykę dla WSZYSTKICH, nie jedna na gracza. Przy 20 graczach stary
+	-- wariant rozciągał spawn na ~20 klatek i część graczy była w rundzie wcześniej niż reszta.
+	task.wait()
+	for _, entry in ipairs(spawned) do
+		if entry.char.Parent then
+			entry.char:PivotTo(CFrame.new(entry.pos))
 		end
 	end
 end

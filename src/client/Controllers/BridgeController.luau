@@ -7,7 +7,13 @@
 -- aktywuje — chcemy żeby server potwierdził alive + count zanim klient zacznie pokazywać UI.
 --
 -- Mouse position: raycast z kamery przez mouse Position (Mouse.Hit może być nieprawidłowe
--- gdy klikasz na sufit; raycast filtruje character + ActiveBridges + ActiveCash).
+-- gdy klikasz na sufit; raycast filtruje character + ghost + ActiveCash). ActiveBridges
+-- nie są wykluczone — kursor LĄDUJE na postawionych mostach (stacking + extending).
+--
+-- Kontrakt pozycji: kursor = ANCHOR = bliższa krawędź mostu (krótka). Centrum mostu liczone
+-- jako anchor + length/2 wzdłuż +Z lokalnej osi (po rotacji Y). Dzięki temu most rozciąga
+-- się OD kursora w kierunku gdzie obrócony, a kursor nigdy nie musi być nad przepaścią.
+-- Klient wysyła do serwera anchorPos + rotationY; server liczy centrum tym samym wzorem.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,6 +24,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local CooldownBarController = require(script.Parent.CooldownBarController)
 
 local BridgeController = {}
 
@@ -32,6 +39,7 @@ local rotationY = 0
 local ghost: BasePart? = nil
 local renderConn: RBXScriptConnection? = nil
 local inputConn: RBXScriptConnection? = nil
+local lastBuildAt = 0
 local clickDebounce = false
 
 local function getDef()
@@ -69,9 +77,10 @@ local function getHRP(): BasePart?
 	return nil
 end
 
-local function computeTargetPosition(def: any): (Vector3, boolean)
-	-- Raycast z kamery przez mouse position. Filter: character, ghost, ActiveCash, ActiveBridges.
-	-- Hit found → mouse pozycja na powierzchni, hit Y. Nie znalezione → 100 stud przed kamerą.
+local function computeAnchorPosition(def: any): (Vector3, boolean)
+	-- Raycast z kamery przez mouse position. Filter: character, ghost, ActiveCash.
+	-- ActiveBridges NIE wykluczane — chcemy żeby kursor lądował NA istniejących mostach
+	-- (stacking + extending). Hit Y + thickness/2 = anchor (bliższa krawędź mostu).
 	local cam = Workspace.CurrentCamera
 	if not cam then return Vector3.new(0, 50, 0), false end
 
@@ -83,19 +92,29 @@ local function computeTargetPosition(def: any): (Vector3, boolean)
 	if ghost then table.insert(excludeList, ghost) end
 	local activeCash = Workspace:FindFirstChild("ActiveCash")
 	if activeCash then table.insert(excludeList, activeCash) end
-	local activeBridges = Workspace:FindFirstChild("ActiveBridges")
-	if activeBridges then table.insert(excludeList, activeBridges) end
 	rayParams.FilterDescendantsInstances = excludeList
 
 	local maxDist = 300
 	local result = Workspace:Raycast(unitRay.Origin, unitRay.Direction * maxDist, rayParams)
 	if result then
-		-- Most środkiem pivota Y, więc unosi się o thickness/2 nad uderzonej powierzchni.
-		local hitPos = result.Position + Vector3.new(0, def.thickness * 0.5, 0)
-		return hitPos, true
+		-- Anchor Y = powierzchnia trafienia + thickness/2 (most siada spodem na powierzchni).
+		local anchorPos = result.Position + Vector3.new(0, def.thickness * 0.5, 0)
+		return anchorPos, true
 	end
 	-- Brak hit → fallback 80 stud przed kamerą
 	return unitRay.Origin + unitRay.Direction * 80, false
+end
+
+local function forwardFromRotY(rotY: number): Vector3
+	-- Świat-space kierunek lokalnej osi +Z części po rotacji Y wokół (0,1,0).
+	-- Zgodne z CFrame.Angles(0, rad(rotY), 0):VectorToWorldSpace(Vector3.new(0,0,1)).
+	local rad = math.rad(rotY)
+	return Vector3.new(math.sin(rad), 0, math.cos(rad))
+end
+
+local function anchorToCenter(anchorPos: Vector3, rotY: number, def: any): Vector3
+	-- Anchor = bliższa krawędź mostu (gdzie kursor). Centrum = anchor + length/2 wzdłuż +Z.
+	return anchorPos + forwardFromRotY(rotY) * (def.length * 0.5)
 end
 
 local function isInRange(pos: Vector3, def: any): boolean
@@ -104,10 +123,21 @@ local function isInRange(pos: Vector3, def: any): boolean
 	return (pos - hrp.Position).Magnitude <= def.maxBuildDistance
 end
 
+local function initialRotationFromCamera(): number
+	-- Most domyślnie rozciąga się w stronę gdzie patrzy kamera (gracz nie musi obracać R
+	-- żeby dostać sensowny początkowy kąt). Projekcja look na płaszczyznę XZ → atan2.
+	local cam = Workspace.CurrentCamera
+	if not cam then return 0 end
+	local look = cam.CFrame.LookVector
+	local hx, hz = look.X, look.Z
+	if hx * hx + hz * hz < 1e-4 then return 0 end  -- kamera prawie pionowo
+	return math.deg(math.atan2(hx, hz))
+end
+
 local function enterBuildMode()
 	if active then return end
 	active = true
-	rotationY = 0
+	rotationY = initialRotationFromCamera()
 
 	local def = getDef()
 	if not def then
@@ -122,10 +152,12 @@ local function enterBuildMode()
 	-- RenderStepped: follow mouse + rotation + range color
 	renderConn = RunService.RenderStepped:Connect(function()
 		if not ghost or not active then return end
-		local pos, _hit = computeTargetPosition(def)
-		ghost.CFrame = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotationY), 0)
-		-- Visual feedback: zielony in range, czerwony out of range
-		ghost.Color = isInRange(pos, def)
+		local anchorPos, _hit = computeAnchorPosition(def)
+		local centerPos = anchorToCenter(anchorPos, rotationY, def)
+		ghost.CFrame = CFrame.new(centerPos) * CFrame.Angles(0, math.rad(rotationY), 0)
+		-- Visual feedback: distance check liczony od anchor (= miejsca gdzie gracz "kładzie"),
+		-- nie od centrum mostu. Inaczej długi most byłby zawsze "za daleko".
+		ghost.Color = isInRange(anchorPos, def)
 			and Config.Bridge.GhostColorOK
 			or Config.Bridge.GhostColorBad
 	end)
@@ -142,12 +174,18 @@ local function enterBuildMode()
 			clickDebounce = true
 			task.delay(0.15, function() clickDebounce = false end)
 
-			local pos, _hit = computeTargetPosition(def)
-			if not isInRange(pos, def) then
+			local anchorPos, _hit = computeAnchorPosition(def)
+			if not isInRange(anchorPos, def) then
 				-- Klient wie że za daleko — nie spammujemy server. Visual już czerwony.
 				return
 			end
-			Remotes.BuildBridge:FireServer(pos, rotationY)
+			local now = os.clock()
+			local cd = Config.RateLimits.BridgeBuild
+			if now - lastBuildAt < cd then return end
+			lastBuildAt = now
+			-- Server dostaje ANCHOR (bliższa krawędź) + rotationY, sam wylicza centrum.
+			Remotes.BuildBridge:FireServer(anchorPos, rotationY)
+			CooldownBarController.trigger("bridge", cd)
 		end
 	end)
 end

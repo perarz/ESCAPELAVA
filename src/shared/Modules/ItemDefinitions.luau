@@ -12,22 +12,39 @@ ItemDefinitions.bomb = {
 	-- Inventory nowy schema: { itemId = count } — gracz może mieć dowolnie dużo per item type.
 	-- maxStack tylko jako sanity cap (przyszłe — gdyby balans wymagał).
 	maxStack = 9999,
-	cooldown = 2,           -- sekundy między rzutami (per gracz, server-side)
+	-- Cooldown rzutu jest w Config.RateLimits.BombThrow (server enforce + klient mirror).
 	-- Throw mechanics:
 	throwSpeed = 60,        -- stud/s forward (kierunek LookVector lub mouseDir)
 	throwLift = 20,         -- stud/s upward — lekki łuk
 	fuse = 2.5,             -- sekundy zanim eksploduje (zawsze, niezależnie od kolizji)
-	selfImmuneTime = 0.3,   -- sek, bomb nie dotyka rzucającego (żeby nie eksplodowała na nim)
-	-- Detonation:
+	-- Zachowanie po dropie: bomba ma szybko przystanąć, nie odjeżdżać z miejsca celu.
+	-- Kula toczy się w Robloxie bez końca (brak rolling resistance), stąd ręczne tłumienie.
+	-- NIE freeze — bomba dalej jest fizyczna.
+	bounciness = 0.05,      -- elasticity; default 0.5 → bomba skakała po lądowaniu
+	rollDamping = 0.90,     -- mnożnik prędkości per klatkę (60Hz) gdy bomba PRZY ZIEMI
+	                        -- (raycast). Mniejszy = szybciej staje (0.90 ≈ stop w ~0.5s).
+	                        -- 1 = tłumienie wyłączone. W locie nietykane — rzut pełnej długości.
+	-- Detonation (gracze — BombService.applyDamageAndKnockback):
 	blastRadius = 22,       -- stud (damage zasięg dla humanoidów)
 	damagePercent = 0.5,    -- 50% MaxHealth w epicentrum (skaluje liniowo do 0)
 	knockbackForce = 450,   -- velocity stud/s w epicentrum
 	knockbackMinT = 0.35,   -- min multiplier — nawet daleko gracz dostanie push 35% × force
-	-- Destrukcja środowiska (lokalna — tylko parts blisko epicentrum):
-	destructionRadius = 12, -- stud (parts w tym radius dostaną unanchor + impulse)
-	destructionImpulse = 60,-- siła odpychania partów od centrum
 	ragdollDuration = 2,    -- sek, PlatformStand=true (postać leci jak ragdoll)
-	destroyJoints = true,   -- Explosion.DestroyJointRadiusPercent=1 → rozłącza Snap/Weld
+	-- Destrukcja geometrii (system v2 — DestructionService, plan: DESTRUCTION_PLAN.md).
+	-- Tu tylko "jak mocna jest TA bomba"; kształt wyrzutu, cięcie i budżety = Config.Destruction.
+	-- nil/brak tabeli = item nie rusza otoczenia.
+	destruction = {
+		radius = 24,      -- zasięg działania na geometrię (dystans do POWIERZCHNI parta)
+		damage = 160,     -- dmg strukturalny w epicentrum, liniowo do 0 na krawędzi.
+		                  -- Wall HP=100 → niszczy ściany do ~9 stud, dalej tylko rani
+		                  -- (attribute DestrHP; kolejna bomba w to samo miejsce dobija).
+		                  -- 2026-08-12: próba nerfu do 130 + sufit wyrwy popsuła ściany
+		                  -- (za małe odpryski) — przywrócone do 160 i sufit skasowany.
+		impulse = 95,     -- prędkość gruzu w epicentrum (stud/s)
+		minImpulseT = 0.1, -- floor falloffu impulsu — krawędź ma drgnąć, nie stać
+		glassRadius = 60, -- szyby (Material Glass) tłuką się w TYM promieniu — także na
+		                  -- sąsiednich budynkach, bez occlusion (fala "przez okna")
+	},
 	-- icon = "rbxassetid://..."  -- placeholder Day 4+
 }
 

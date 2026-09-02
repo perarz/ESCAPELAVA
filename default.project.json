@@ -2,81 +2,255 @@
   "name": "ESCAPELAVA",
   "tree": {
     "$className": "DataModel",
-
-    "ReplicatedStorage": {
-      "Shared": {
-        "$path": "src/shared"
-      }
-    },
-
-    "ServerScriptService": {
-      "Server": {
-        "$path": "src/server"
-      }
-    },
-
-    "StarterPlayer": {
-      "StarterPlayerScripts": {
-        "Client": {
-          "$path": "src/client"
-        }
-      }
-    },
-
-    "Workspace": {
-      "$properties": {
-        "FilteringEnabled": true
-      },
-      "Baseplate": {
-        "$className": "Part",
-        "$properties": {
-          "Anchored": true,
-          "Color": [
-            0.38823,
-            0.37254,
-            0.38823
-          ],
-          "Locked": true,
-          "Position": [
-            0,
-            -10,
-            0
-          ],
-          "Size": [
-            512,
-            20,
-            512
-          ]
-        }
-      },
-      "Map": {
-        "$className": "Folder"
-      },
-      "Lava": {
-        "$className": "Folder"
-      },
-      "SpawnPoints": {
-        "$className": "Folder"
-      },
-      "ItemSpawns": {
-        "$className": "Folder"
-      }
-    },
     "Lighting": {
       "$properties": {
         "Ambient": [
-          0,
-          0,
-          0
+          0.0,
+          0.0,
+          0.0
         ],
-        "Brightness": 2,
+        "Brightness": 2.0,
+        "ColorShift_Bottom": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "ColorShift_Top": [
+          0.6784313917160034,
+          0.5764706134796143,
+          0.42352941632270813
+        ],
+        "EnvironmentDiffuseScale": 0.19200000166893005,
+        "EnvironmentSpecularScale": 0.15399999916553497,
+        "ExposureCompensation": 0.10000000149011612,
+        "FogColor": [
+          0.7529411911964417,
+          0.7529411911964417,
+          0.7529411911964417
+        ],
+        "GeographicLatitude": 60.0,
         "GlobalShadows": true,
-        "Technology": "Voxel"
+        "OutdoorAmbient": [
+          0.6000000238418579,
+          0.6000000238418579,
+          0.6941176652908325
+        ],
+        "Outlines": false,
+        "PrioritizeLightingQuality": true,
+        "ShadowSoftness": 1.0,
+        "Tags": {
+          "SharedString": ""
+        },
+        "Technology": "ShadowMap",
+        "TimeOfDay": "12:12:00"
+      }
+    },
+    "ReplicatedStorage": {
+      "Shared": {
+        "$properties": {
+          "Tags": {
+            "SharedString": ""
+          }
+        },
+        "$path": "src/shared"
+      },
+      "$properties": {
+        "Tags": {
+          "SharedString": ""
+        }
+      }
+    },
+    "ServerScriptService": {
+      "Server": {
+        "$properties": {
+          "Tags": {
+            "SharedString": ""
+          }
+        },
+        "$path": "src/server"
+      },
+      "$properties": {
+        "Tags": {
+          "SharedString": ""
+        }
       }
     },
     "SoundService": {
       "$properties": {
-        "RespectFilteringEnabled": true
+        "DefaultListenerLocation": "Camera",
+        "DiffractionEnabled": {
+          "Bool": true
+        },
+        "ListenerCFrame": {
+          "CFrame": {
+            "position": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "orientation": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          }
+        },
+        "ListenerType": {
+          "Enum": 0
+        },
+        "OcclusionEnabled": {
+          "Bool": true
+        },
+        "RespectFilteringEnabled": true,
+        "ReverbEnabled": {
+          "Bool": true
+        },
+        "Tags": {
+          "SharedString": ""
+        }
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$properties": {
+            "Tags": {
+              "SharedString": ""
+            }
+          },
+          "$path": "src/client"
+        },
+        "$properties": {
+          "Tags": {
+            "SharedString": ""
+          }
+        }
+      },
+      "$properties": {
+        "AvatarJointUpgrade_SerializedRollout": "Enabled",
+        "CameraMaxZoomDistance": 15.0,
+        "CameraMinZoomDistance": 8.0,
+        "CharacterBreakJointsOnDeath": false,
+        "CharacterUseJumpPower": false,
+        "EnableMouseLockOption": false,
+        "PlayerModuleStatus": {
+          "Int32": 0
+        },
+        "Tags": {
+          "SharedString": ""
+        }
+      }
+    },
+    "Workspace": {
+      "ItemSpawns": {
+        "$className": "Folder",
+        "$properties": {
+          "Tags": {
+            "SharedString": ""
+          }
+        }
+      },
+      "Lava": {
+        "$className": "Folder",
+        "$properties": {
+          "Tags": {
+            "SharedString": ""
+          }
+        }
+      },
+      "Map": {
+        "$className": "Folder",
+        "$properties": {
+          "Tags": {
+            "SharedString": ""
+          }
+        }
+      },
+      "SpawnPoints": {
+        "$className": "Folder",
+        "$properties": {
+          "Tags": {
+            "SharedString": ""
+          }
+        }
+      },
+      "$properties": {
+        "EnableSLIMAvatars": {
+          "Enum": 0
+        },
+        "FilteringEnabled": true,
+        "ImprovedAnimationConstraint": {
+          "Enum": 0
+        },
+        "ImprovedPhysicsReplication": {
+          "Enum": 0
+        },
+        "LayeredClothingCacheOptimizations": {
+          "Enum": 0
+        },
+        "MeshStreamingAndImprovedLods": {
+          "Enum": 0
+        },
+        "NextGenerationReplication": {
+          "Enum": 0
+        },
+        "PlayerScriptsUseInputActionSystem": {
+          "Enum": 0
+        },
+        "SignalBehavior": "Deferred",
+        "StreamOutBehavior": "Opportunistic",
+        "StreamingEnabled": true,
+        "StreamingIntegrityMode": "PauseOutsideLoadedArea",
+        "Tags": {
+          "SharedString": ""
+        },
+        "UseFixedSimulation": {
+          "Enum": 0
+        },
+        "ValidateEnabledProximityPrompt": {
+          "Enum": 0
+        },
+        "WorldPivotData": {
+          "OptionalCFrame": {
+            "position": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "orientation": [
+              [
+                1.0,
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                1.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0,
+                1.0
+              ]
+            ]
+          }
+        }
+      },
+      "$attributes": {
+        "Rojo_Target_CurrentCamera": "05f2de3f20f27f880a511566000003b9"
       }
     }
   }

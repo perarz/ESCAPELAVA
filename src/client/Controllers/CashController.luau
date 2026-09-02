@@ -171,9 +171,9 @@ end
 
 local function easedAlpha(rawT: number): number
 	-- TweenService GetValue: identyczna interpolacja jak normalne TweenInfo.
-	-- Back EaseOut: lekki overshoot na końcu (cash "wskakuje" do gracza), czujesz
-	-- elastyczność bez bujającego się elastic'a który by przesunął cash dwa razy w bok.
-	return TweenService:GetValue(math.clamp(rawT, 0, 1), Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	-- Sine.InOut: gentle acceleration + gentle deceleration, brak overshootu — najbardziej
+	-- smooth feel. Cash "płynnie" leci po łuku zamiast wskakiwać sztywno na końcu.
+	return TweenService:GetValue(math.clamp(rawT, 0, 1), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
 end
 
 local function makeGhost(): (Instance?, BasePart?)
@@ -208,6 +208,34 @@ local function computeArcLift(distance: number): number
 	return math.clamp(frac, Config.Cash.PickupArcMinLift, Config.Cash.PickupArcMaxLift)
 end
 
+local function attachPickupTrail(root: BasePart)
+	-- Złota wstęga za cashem w locie. Trail ciągnie się między dwoma attachmentami
+	-- (pionowy odstęp = szerokość wstęgi) i wygasa sam — ginie razem z ghostem.
+	local cfg = Config.Cash.PickupTrail
+	if not cfg.Enabled then return end
+
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(0, cfg.AttachmentSpread, 0)
+	a0.Parent = root
+	local a1 = Instance.new("Attachment")
+	a1.Position = Vector3.new(0, -cfg.AttachmentSpread, 0)
+	a1.Parent = root
+
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Color = ColorSequence.new(cfg.ColorStart, cfg.ColorEnd)
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, cfg.StartTransparency),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.WidthScale = NumberSequence.new(1, 0) -- wstęga zwęża się ku ogonowi
+	trail.Lifetime = cfg.Lifetime
+	trail.FaceCamera = true
+	trail.LightEmission = cfg.LightEmission
+	trail.Parent = root
+end
+
 local function animatePickup(targetPlayer: Player, fromPos: Vector3)
 	local char = targetPlayer.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -216,6 +244,7 @@ local function animatePickup(targetPlayer: Player, fromPos: Vector3)
 	local ghostInstance, ghostRoot = makeGhost()
 	if not ghostInstance or not ghostRoot then return end
 
+	attachPickupTrail(ghostRoot)
 	ghostInstance.Parent = Workspace
 
 	-- Server podaje `fromPos` = pozycja anchored cash (baza, bez hover offsetu). Klient
@@ -271,13 +300,16 @@ local function animatePickup(targetPlayer: Player, fromPos: Vector3)
 end
 
 function CashController.init()
-	startIdleAnimation()
-
+	-- Listener PRZED yieldem (zasada 9). startIdleAnimation yielduje na WaitForChild
+	-- (do 30s) — synchronicznie blokowałby CAŁY łańcuch initów kontrolerów w init.client
+	-- (Movement, CooldownBar, KillFeed...) przy wolnej replikacji ActiveCash.
 	Remotes.CashCollected.OnClientEvent:Connect(function(player: Player, fromPosition: Vector3)
 		if typeof(player) ~= "Instance" or not player:IsA("Player") then return end
 		if typeof(fromPosition) ~= "Vector3" then return end
 		animatePickup(player, fromPosition)
 	end)
+
+	task.spawn(startIdleAnimation)
 end
 
 return CashController

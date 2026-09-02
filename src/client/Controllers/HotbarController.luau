@@ -16,8 +16,10 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 
@@ -31,6 +33,8 @@ local inventory: { [string]: number } = {}
 local slotToItem: { [number]: string? } = {}
 local selectedSlot: number? = nil
 local slotButtons: { [number]: TextButton } = {}
+-- Debounce EquipItem/UnequipItem (mirror Config.RateLimits.EquipItem — server enforces).
+local lastEquipAt = 0
 
 local function rebuildSlotMapping()
 	-- Pierwsze N item types z ItemDefinitions.shopOrder (które gracz ma) → sloty 1..N
@@ -69,8 +73,31 @@ local function refreshSlot(slot: number)
 	end
 
 	if stroke and stroke:IsA("UIStroke") then
-		stroke.Thickness = (selectedSlot == slot) and 3 or 0
+		-- Biały stroke = "to trzymasz w ręku". Animowany thickness zamiast skoku 0→3.
+		local selected = (selectedSlot == slot)
+		stroke.Color = Color3.fromRGB(255, 255, 255)
+		stroke.Transparency = 0
+		TweenService:Create(stroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Thickness = selected and 3 or 0,
+		}):Play()
 	end
+end
+
+local function popSlot(slot: number)
+	-- "Pop" slotu przy equipie — chwilowe powiększenie z Back easing (soczysty feedback).
+	local btn = slotButtons[slot]
+	if not btn then return end
+	local scale = btn:FindFirstChild("EquipPop")
+	if not scale or not scale:IsA("UIScale") then
+		scale = Instance.new("UIScale")
+		scale.Name = "EquipPop"
+		scale.Parent = btn
+	end
+	local uiScale = scale :: UIScale
+	uiScale.Scale = 1.12
+	TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1,
+	}):Play()
 end
 
 local function refreshAll()
@@ -81,6 +108,14 @@ local function refreshAll()
 end
 
 local function setSelected(slot: number?)
+	-- Klik na PUSTY slot = no-op. Bez tego UI zaznaczało pusty slot (stroke), a serwer
+	-- dalej trzymał poprzedni Tool w ręku — desync między tym co widać a tym co jest.
+	if slot ~= nil and slot ~= selectedSlot and not slotToItem[slot] then return end
+
+	local now = os.clock()
+	if now - lastEquipAt < Config.RateLimits.EquipItem then return end
+	lastEquipAt = now
+
 	if slot == selectedSlot then
 		-- Klik na ten sam slot = deselect (schowaj Tool)
 		selectedSlot = nil
@@ -91,6 +126,7 @@ local function setSelected(slot: number?)
 		local itemId = slot and slotToItem[slot]
 		if itemId then
 			Remotes.EquipItem:FireServer(itemId)
+			popSlot(slot :: number)
 		end
 	end
 	refreshAll()
@@ -126,14 +162,6 @@ function HotbarController.init()
 		ensureSelectionValid()
 	end)
 
-	-- UseItemResult feedback (success → slot się zaktualizuje przez InventoryChanged, error → log)
-	Remotes.UseItemResult.OnClientEvent:Connect(function(success: boolean, _slot: number, reason: string?)
-		if not success then
-			-- TODO: pokaż mały toast w UI; na razie print
-			print(("[Hotbar] use FAIL — %s"):format(tostring(reason)))
-		end
-	end)
-
 	local playerGui = localPlayer:WaitForChild("PlayerGui")
 	local hud = playerGui:WaitForChild("HUD", 10)
 	if not hud then
@@ -147,12 +175,27 @@ function HotbarController.init()
 		return
 	end
 
+	local hoverTI = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	for slot = 1, 5 do
 		local btn = hotbar:FindFirstChild("Slot" .. slot)
 		if btn and btn:IsA("TextButton") then
 			slotButtons[slot] = btn
 			btn.Activated:Connect(function()
 				setSelected(slot)
+			end)
+
+			-- Hover: rozjaśnienie tła slotu (subtelne "jestem klikalny").
+			local baseBg = btn.BackgroundColor3
+			local hoverBg = Color3.new(
+				math.min(baseBg.R * 1.3 + 0.05, 1),
+				math.min(baseBg.G * 1.3 + 0.05, 1),
+				math.min(baseBg.B * 1.3 + 0.05, 1)
+			)
+			btn.MouseEnter:Connect(function()
+				TweenService:Create(btn, hoverTI, { BackgroundColor3 = hoverBg }):Play()
+			end)
+			btn.MouseLeave:Connect(function()
+				TweenService:Create(btn, hoverTI, { BackgroundColor3 = baseBg }):Play()
 			end)
 		end
 	end

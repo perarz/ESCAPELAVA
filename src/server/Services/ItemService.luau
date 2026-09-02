@@ -1,37 +1,30 @@
 --!strict
 -- ItemService.luau
--- Inventory per gracz (5 slotów). Persystencja przez PlayerDataService.
+-- Inventory per gracz. Persystencja przez PlayerDataService.
 --
--- Slot schema: data.inventory[slotIndex] = { itemId = "bomb", count = 2 } or nil
--- Slot indexes: 1..MAX_SLOTS
---
--- API:
---   ItemService.getInventory(player) -> { [slot] = { itemId, count } }
---   ItemService.give(player, itemId, count) -> ok: boolean, reason: string?
---   ItemService.consume(player, slot, count) -> ok: boolean (do użycia w ItemService.use lub bombService)
-
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
-local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
-local PlayerDataService = require(script.Parent.PlayerDataService)
-
-local ItemService = {}
-
-local USE_RATE_LIMIT = 0.2 -- sek minimum między UseItem (anti-spam, niezależne od per-item cooldown)
-local lastUseAt: { [Player]: number } = {}
-local lastUseByItem: { [Player]: { [string]: number } } = {} -- per gracz, per itemId
-
 -- Inventory schema: data.inventory = { [itemId] = count }
 -- Każdy item type ma jeden "slot" z total count. Unlimited stack per type.
 -- Hotbar UI mapuje pierwsze N item types na 5 fizycznych slotów po kolei.
+--
+-- Użycie itemów NIE idzie przez ItemService — każdy item ma własny remote + service
+-- (bomba: ThrowBomb→BombService, most: BuildBridge→BridgeService). Stary generic
+-- dispatcher UseItem został wycięty jako dead code (nic go nie wołało).
+--
+-- API:
+--   ItemService.getInventory(player) -> { [itemId] = count }
+--   ItemService.getCount(player, itemId) -> number
+--   ItemService.give(player, itemId, count) -> ok: boolean, reason: string?
+--   ItemService.consume(player, itemId, count) -> ok: boolean
 
-local useHandlers: { [string]: (Player, string, Vector3) -> (boolean, string?) } = {}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-function ItemService.registerUseHandler(itemId: string, handler: (Player, string, Vector3) -> (boolean, string?))
-	useHandlers[itemId] = handler
-end
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
+local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
+local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local Dev = require(ReplicatedStorage.Shared.Modules.Dev)
+local PlayerDataService = require(script.Parent.PlayerDataService)
+
+local ItemService = {}
 
 local function log(player: Player, action: string, itemId: string, count: number, total: number)
 	print(("[Item] %s %s %s x%d → total=%d"):format(player.Name, action, itemId, count, total))
@@ -63,7 +56,22 @@ local function migrateInventory(data: any)
 	data.inventory = newInv
 end
 
+-- TRYB DEV: syntetyczne inventory — wszystkie itemy ze sklepu po InfiniteItemCount.
+-- Wstrzykiwane w JEDNYM miejscu (snapshot), więc getCount / getInventory / replikacja
+-- do hotbara widzą to samo automatycznie. NIC nie jest zapisywane: prawdziwe
+-- `data.inventory` deva zostaje nietknięte i wraca po wyłączeniu Config.Dev.Enabled.
+local function devInventory()
+	local inv = {}
+	for _, itemId in ipairs(ItemDefinitions.shopOrder) do
+		inv[itemId] = Config.Dev.InfiniteItemCount
+	end
+	return inv
+end
+
 local function snapshot(player: Player)
+	if Dev.hasInfiniteItems(player) then
+		return devInventory()
+	end
 	local data = PlayerDataService.get(player)
 	if not data then return {} end
 	migrateInventory(data)
@@ -90,7 +98,11 @@ function ItemService.give(player: Player, itemId: string, count: number): (boole
 	if not def then return false, "unknown_item" end
 
 	local newTotal = 0
-	PlayerDataService.update(player, function(data)
+	-- Wynik update MUSI być propagowany. Gdy dane gracza nie są jeszcze załadowane
+	-- (cache pusty — join w trakcie retry DataStore), update nic nie zapisuje. Wcześniej
+	-- give i tak zwracało true, więc caller (sklep, nagroda, dev product) był przekonany
+	-- że gracz dostał item, a log drukował total=0.
+	local ok = PlayerDataService.update(player, function(data)
 		migrateInventory(data)
 		local current = data.inventory[itemId] or 0
 		local newAmount = math.min(current + count, def.maxStack)
@@ -98,6 +110,10 @@ function ItemService.give(player: Player, itemId: string, count: number): (boole
 		newTotal = newAmount
 		return data
 	end)
+	if not ok then
+		warn(("[Item] give FAIL %s %s x%d — dane gracza niezaładowane"):format(player.Name, itemId, count))
+		return false, "data_not_loaded"
+	end
 
 	log(player, "give", itemId, count, newTotal)
 	replicate(player)
@@ -107,9 +123,20 @@ end
 -- Usuwa N sztuk konkretnego itemu.
 function ItemService.consume(player: Player, itemId: string, count: number): boolean
 	assert(count > 0)
+
+	-- Dev: zużycie jest no-opem, ale MUSI zwrócić true — cała reszta (BombService.throw,
+	-- BridgeService.build) traktuje `false` jako "abort, nie rzucaj". Bez replikacji:
+	-- syntetyczne inventory się nie zmieniło, więc hotbar nie ma czego odświeżać.
+	if Dev.hasInfiniteItems(player) then
+		local def = ItemDefinitions.get(itemId)
+		return def ~= nil
+	end
+
 	local ok = false
 	local newTotal = 0
-	PlayerDataService.update(player, function(data)
+	-- Brak danych w cache = brak mutacji; bez tego guardu consume zwracało false z powodu
+	-- `ok`, ale bez rozróżnienia "nie miał itemu" od "dane się nie załadowały".
+	local updated = PlayerDataService.update(player, function(data)
 		migrateInventory(data)
 		local current = data.inventory[itemId] or 0
 		if current < count then
@@ -125,70 +152,15 @@ function ItemService.consume(player: Player, itemId: string, count: number): boo
 		ok = true
 		return data
 	end)
+	if not updated then
+		warn(("[Item] consume FAIL %s %s x%d — dane gracza niezaładowane"):format(player.Name, itemId, count))
+		return false
+	end
 	if ok then
 		log(player, "consume", itemId, count, newTotal)
 		replicate(player)
 	end
 	return ok
-end
-
--- Dispatcher: użycie itemu po itemId. Klient fires UseItem(itemId, direction) → tu trafia.
-function ItemService.use(player: Player, itemId: any, direction: any): (boolean, string?)
-	local now = os.clock()
-	local last = lastUseAt[player] or 0
-	if now - last < USE_RATE_LIMIT then
-		return false, "rate_limited"
-	end
-	lastUseAt[player] = now
-
-	if type(itemId) ~= "string" then
-		return false, "invalid_payload"
-	end
-	if typeof(direction) ~= "Vector3" then
-		return false, "invalid_direction"
-	end
-	if direction.Magnitude < 0.01 or direction.Magnitude > 1000 then
-		return false, "invalid_direction"
-	end
-
-	local def = ItemDefinitions.get(itemId)
-	if not def then return false, "unknown_item" end
-
-	if ItemService.getCount(player, itemId) <= 0 then
-		return false, "no_items"
-	end
-
-	lastUseByItem[player] = lastUseByItem[player] or {}
-	local lastForItem = lastUseByItem[player][itemId] or 0
-	if def.cooldown and now - lastForItem < def.cooldown then
-		return false, "cooldown"
-	end
-
-	local handler = useHandlers[itemId]
-	if not handler then return false, "no_handler" end
-
-	if not ItemService.consume(player, itemId, 1) then
-		return false, "consume_failed"
-	end
-
-	local ok, reason = handler(player, itemId, direction.Unit)
-	if ok then
-		lastUseByItem[player][itemId] = now
-	end
-	return ok, reason
-end
-
-local function onUseItem(player: Player, itemId: any, direction: any)
-	local ok, reason = ItemService.use(player, itemId, direction)
-	Remotes.UseItemResult:FireClient(player, ok, tostring(itemId), reason)
-	if not ok then
-		print(("[Item] use FAIL %s item=%s reason=%s"):format(player.Name, tostring(itemId), tostring(reason)))
-	end
-end
-
-local function onPlayerRemoving(player: Player)
-	lastUseAt[player] = nil
-	lastUseByItem[player] = nil
 end
 
 local initialized = false
@@ -206,9 +178,6 @@ function ItemService.init()
 			end)
 		end
 	end)
-
-	Remotes.UseItem.OnServerEvent:Connect(onUseItem)
-	Players.PlayerRemoving:Connect(onPlayerRemoving)
 end
 
 return ItemService

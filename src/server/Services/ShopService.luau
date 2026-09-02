@@ -68,18 +68,12 @@ local function buy(player: Player, itemId: any): (boolean, string?)
 
 	local spendOk = CashService.spend(player, def.price, "buy_" .. itemId)
 	if not spendOk then
-		-- Theoretycznie nie powinno się zdarzyć (sprawdziliśmy current >= price wyżej).
-		-- Jeśli się zdarzy (np. equal-time call), undo give żeby gracz nie dostał free itemu.
+		-- Teoretycznie nie powinno się zdarzyć (sprawdziliśmy current >= price wyżej).
+		-- Jeśli się zdarzy, undo give żeby gracz nie dostał free itemu.
+		-- (Poprzednia wersja skanowała inventory starym schematem slotowym i crashowała
+		-- na "attempt to index number" — nowy schemat to { [itemId] = count }.)
 		warn("[Shop] CRITICAL: spend failed after give succeeded — undoing give")
-		-- consume(player, slot, count) — ale nie wiemy w którym slocie wylądował.
-		-- Workaround: scan inventory, znajdź najnowszy itemId, consume 1.
-		local inv = ItemService.getInventory(player)
-		for slot, entry in pairs(inv) do
-			if entry.itemId == itemId then
-				ItemService.consume(player, slot, 1)
-				break
-			end
-		end
+		ItemService.consume(player, itemId, 1)
 		return false, "internal_error"
 	end
 

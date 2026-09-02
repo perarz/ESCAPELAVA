@@ -11,8 +11,8 @@
 --      i clone snapshot z powrotem do Map.
 --
 -- Co NIE jest snapshotowane (nieruszane przez restore):
---   - Workspace.Map.Locked (Baseplate, Spawn, geometria nieusuwalna — bomba ich nie tyka)
---   - Workspace.Lobby, Workspace.Lava, Workspace.SpawnPoints (osobne foldery pod Workspace)
+--   - Workspace.Map.Locked (Baseplate, Spawn, SpawnPoints, geometria nieusuwalna — bomba ich nie tyka)
+--   - Workspace.Lobby, Workspace.Lava (osobne foldery pod Workspace)
 --
 -- Timing: czekamy RESTORE_DELAY po RoundEnded, żeby PlayerService.sendSurvivorsToLobby
 -- (odpalany przez StateChanged → POST_ROUND, deferred BindableEvent) zdążył wyteleportować

@@ -7,27 +7,31 @@
 --   1. Klient klika hotbar slot z bridge_builder → HotbarController fires EquipItem("bridge_builder")
 --   2. Server BridgeService.onEquip → validate alive + count > 0 → fire BridgeBuildMode(true)
 --   3. Klient enters build mode (BridgeController) — ghost preview podąża za myszą, R obraca
---   4. Klient LMB → fires BuildBridge(position, rotationY)
---   5. Server validate (alive, count > 0, distance ≤ max, typecheck) → atomic consume → spawn
+--   4. Klient LMB → fires BuildBridge(anchorPos, rotationY); anchorPos = bliższa krawędź mostu
+--      (= pozycja kursora), NIE centrum. Server liczy centrum = anchor + length/2 wzdłuż +Z.
+--   5. Server validate (alive, count > 0, anchor-distance ≤ max, typecheck) → consume → spawn
 --   6. Po consume jeśli count == 0 → fire BridgeBuildMode(false) (forced exit), inaczej zostaje
 --   7. UnequipItem → BridgeService.onUnequip → fire BridgeBuildMode(false)
 --
 -- Most:
 --   - Anchored BasePart 10×1×2 (width × thickness × length) z ItemDefinitions.bridge_builder
 --   - Wood material, brown color (default; Kacper może podrzucić ReplicatedStorage.BridgeTemplate)
---   - W Workspace.ActiveBridges folder (osobno od Map żeby MapService nie tknął, ale TEŻ żeby
---     bombs.isProtected NIE pomijał — chcemy żeby bomba mogła wybić most)
+--   - W Workspace.ActiveBridges folder (osobno od Map, żeby MapService go nie tknął)
 --   - Cleanup po RoundEnded (jak ActiveCash)
 --
--- Decyzja "bomba niszczy most": NIE dodaję ActiveBridges do isProtected w BombService.
--- Bomba unanchorzuje most + impulse — gracz może go zrzucić w lawę PvP sabotaż.
+-- DECYZJA DESIGNOWA "bomba niszczy most" jest nadal aktualna, ale od 2026-08-11 nie ma
+-- jej czym wykonać — destrukcja otoczenia została usunięta i idzie do napisania od nowa.
+-- Nowy system wybuchów MUSI omijać ActiveBridges przy budowaniu listy chronionych rzeczy,
+-- inaczej sabotaż PvP po cichu zniknie z gry (patrz też Locked=false przy spawnie mostu).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 
 local ItemService = require(script.Parent.ItemService)
 local PlayerService = require(script.Parent.PlayerService)
@@ -41,6 +45,10 @@ local ITEM_ID = "bridge_builder"
 
 local activeFolder: Folder? = nil
 local initialized = false
+-- Rate limit per gracz (anti-spam BuildBridge). Klient mirrors z Config.RateLimits.BridgeBuild.
+local lastBuildAt: { [Player]: number } = {}
+-- Rate limit EquipItem/UnequipItem — spam hotbar clickowania.
+local lastEquipAt: { [Player]: number } = {}
 
 local function log(player: Player, action: string, extra: string?)
 	print(("[Bridge] %s %s%s"):format(player.Name, action, extra and (" — " .. extra) or ""))
@@ -58,14 +66,6 @@ local function getOrCreateActiveFolder(): Folder
 	folder.Parent = Workspace
 	activeFolder = folder
 	return folder
-end
-
-local function getHRP(player: Player): BasePart?
-	local char = player.Character
-	if not char then return nil end
-	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if hrp and hrp:IsA("BasePart") then return hrp end
-	return nil
 end
 
 local function isValidVector3(v: any): boolean
@@ -103,6 +103,11 @@ local function makeBridgePart(position: Vector3, rotationY: number, def: any): B
 	bridge.Name = "Bridge"
 	bridge.Anchored = true
 	bridge.CanCollide = true
+	-- Locked=true to nasza konwencja "nie ruszaj tego" (tak chronimy Baseplate i lawę).
+	-- Gdyby Kacper przypadkiem zablokował BridgeTemplate w Studio — jedno kliknięcie
+	-- w menu kontekstowym — most stałby się nieusuwalny dla przyszłego systemu wybuchów
+	-- i sabotaż PvP przestałby działać po cichu. Wymuszamy przy każdym spawnie.
+	bridge.Locked = false
 	bridge.CFrame = CFrame.new(position) * CFrame.Angles(0, math.rad(rotationY), 0)
 	return bridge
 end
@@ -120,9 +125,16 @@ local function exitBuildMode(player: Player)
 	Remotes.BridgeBuildMode:FireClient(player, false)
 end
 
-local function handleBuildBridge(player: Player, position: any, rotationY: any)
-	-- Typecheck
-	if not isValidVector3(position) then
+local function handleBuildBridge(player: Player, anchorPos: any, rotationY: any)
+	-- Rate limit (anti-spam BuildBridge).
+	local now = os.clock()
+	if now - (lastBuildAt[player] or 0) < Config.RateLimits.BridgeBuild then
+		Remotes.BridgeResult:FireClient(player, false, "cooldown")
+		return
+	end
+
+	-- Typecheck (klient wysyła ANCHOR = bliższa krawędź mostu, nie centrum)
+	if not isValidVector3(anchorPos) then
 		Remotes.BridgeResult:FireClient(player, false, "invalid_position")
 		return
 	end
@@ -153,13 +165,15 @@ local function handleBuildBridge(player: Player, position: any, rotationY: any)
 	end
 
 	-- Distance check (anti-cheat — klient mógłby podać dowolną pozycję)
-	local hrp = getHRP(player)
+	-- Liczone od ANCHOR (gdzie gracz "kładzie" most), nie od centrum — inaczej most długi
+	-- byłby zawsze "za daleko" mimo że anchor tuż obok gracza.
+	local hrp = Utils.getRoot(player)
 	if not hrp then
 		Remotes.BridgeResult:FireClient(player, false, "no_character")
 		exitBuildMode(player)
 		return
 	end
-	local distance = ((position :: Vector3) - hrp.Position).Magnitude
+	local distance = ((anchorPos :: Vector3) - hrp.Position).Magnitude
 	if distance > def.maxBuildDistance then
 		Remotes.BridgeResult:FireClient(player, false, "too_far")
 		return  -- nie exit — klient widzi czerwony ghost i wie że za daleko
@@ -171,12 +185,20 @@ local function handleBuildBridge(player: Player, position: any, rotationY: any)
 		return
 	end
 
+	-- Rate limit start dopiero po consume (żeby odrzucone requesty nie blokowały gracza).
+	lastBuildAt[player] = now
+
+	-- Anchor → centrum (musi być spójne z BridgeController.anchorToCenter)
+	local rad = math.rad(rotationY :: number)
+	local forward = Vector3.new(math.sin(rad), 0, math.cos(rad))
+	local centerPos = (anchorPos :: Vector3) + forward * (def.length * 0.5)
+
 	-- Spawn fizyczny most
-	local bridge = makeBridgePart(position :: Vector3, rotationY :: number, def)
+	local bridge = makeBridgePart(centerPos, rotationY :: number, def)
 	bridge.Parent = getOrCreateActiveFolder()
 
 	Remotes.BridgeResult:FireClient(player, true, nil)
-	log(player, "built", ("pos=%s rotY=%d°"):format(tostring(position), math.floor(rotationY)))
+	log(player, "built", ("anchor=%s rotY=%d°"):format(tostring(anchorPos), math.floor(rotationY)))
 
 	-- Jeśli count po consume == 0 → forced exit build mode
 	if ItemService.getCount(player, ITEM_ID) <= 0 then
@@ -185,6 +207,10 @@ local function handleBuildBridge(player: Player, position: any, rotationY: any)
 end
 
 local function onEquipItem(player: Player, itemId: any)
+	local now = os.clock()
+	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem then return end
+	lastEquipAt[player] = now
+
 	if itemId == ITEM_ID then
 		enterBuildMode(player)
 	else
@@ -195,11 +221,16 @@ local function onEquipItem(player: Player, itemId: any)
 end
 
 local function onUnequipItem(player: Player)
+	local now = os.clock()
+	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem then return end
+	lastEquipAt[player] = now
 	exitBuildMode(player)
 end
 
 local function onPlayerRemoving(player: Player)
 	exitBuildMode(player)
+	lastBuildAt[player] = nil
+	lastEquipAt[player] = nil
 end
 
 local function cleanupAll()

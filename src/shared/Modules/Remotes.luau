@@ -17,12 +17,12 @@ local REMOTE_NAMES = {
 	"RoundEnded",         -- (survivors: {Player}, payload: table?)
 	"CashChanged",        -- FireClient: (balance: number, delta: number?, reason: string?)
 	"CashCollected",      -- FireAllClients: (player: Player, fromPosition: Vector3) — klient animuje pickup
-	"InventoryChanged",   -- FireClient: (inventory: {[slot]={itemId, count}})
+	"InventoryChanged",   -- FireClient: (inventory: {[itemId: string] = count: number})
 	"BuyItem",            -- klient→server: FireServer(itemId: string)
 	"ShopResult",         -- FireClient: (success: boolean, itemId: string, reason: string?)
-	"UseItem",            -- klient→server: FireServer(slot: number, direction: Vector3) — instant-use itemy (przyszłość)
-	"UseItemResult",      -- FireClient: (success: boolean, slot: number, reason: string?)
-	"EquipItem",          -- klient→server: FireServer(slot: number)
+	"EquipItem",          -- klient→server: FireServer(itemId: string) — dispatch po itemId,
+	                      --   każdy service equipowalnego itemu słucha i reaguje na SWÓJ id
+	                      --   (bomb→BombService, bridge_builder→BridgeService), reszta chowa swoje
 	"UnequipItem",        -- klient→server: FireServer()
 	"ThrowBomb",          -- klient→server: FireServer(direction: Vector3) — gdy ma BombTool equipped
 	"Push",               -- klient→server: FireServer() — F key, server pickuje cel w stożku przed graczem
@@ -30,6 +30,24 @@ local REMOTE_NAMES = {
 	"BuildBridge",        -- klient→server: FireServer(position: Vector3, rotationY: number)
 	"BridgeBuildMode",    -- server→klient: FireClient(active: boolean) — enter/exit build mode
 	"BridgeResult",       -- FireClient: (success: boolean, reason: string?) — feedback build
+	"HeadAim",            -- klient→server: FireServer(yaw: number, pitch: number) — radianach, throttled ~10Hz
+	                      -- server→klient: FireClient(sourcePlayer: Player, yaw: number, pitch: number) — broadcast do innych
+	"RoundWon",           -- FireAllClients: (winners: {Player}, rewardPerPlayer: number) — banner "NAME WON $X"
+	"PlayerKilled",       -- FireAllClients: (killer: Player, victim: Player, weapon: string, reward: number) — killfeed
+	"AliveChanged",       -- FireClient: (isAlive: boolean) — server-side aliveSet zmiana (round spawn=true, death=false)
+	"BombHit",            -- FireClient: (intensity: number 0..1) — trafiony wybuchem: screen shake + FOV punch
+	"BlastFX",            -- FireAllClients: (center: Vector3, radius: number, seed: number,
+	                      --   glassPanes: {{cf: CFrame, size: Vector3, color: Color3}}) —
+	                      --   klienci renderują CAŁE VFX wybuchu lokalnie (ExplosionFXController)
+	                      --   + kosmetyczne odłamki z seed i odłamki szyb (DebrisFXController)
+	"StructureFX",        -- FireAllClients: (kind: "creak"|"collapse", position: Vector3, magnitude: number)
+	                      --   kolaps sekcji budynku (StructureService): ostrzeżenie przed
+	                      --   zawaleniem / sam kolaps. Klient robi pył, dźwięk i wstrząs
+	"DevCommand",         -- klient→server: FireServer(command: string) — "skip" | "endRound".
+	                      --   Server waliduje Dev.isDev(player); tryb dev = Config.Dev.Enabled
+	"ClaimDaily",         -- klient→server: FireServer() — próba odbioru daily reward
+	"DailyRewardsInfo",   -- FireClient: (streak: number, claimedToday: boolean, secondsToNextDay: number)
+	                      --   streak = efektywny streak (0 gdy przerwany), klient liczy claimable day = streak+1
 }
 
 local function getRemotesFolder(): Folder

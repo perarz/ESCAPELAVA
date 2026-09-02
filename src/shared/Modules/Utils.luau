@@ -23,34 +23,4 @@ function Utils.getRoot(player: Player): BasePart?
 	return nil
 end
 
--- Zwraca Humanoid jeśli żywy.
-function Utils.getHumanoid(player: Player): Humanoid?
-	local char = player.Character
-	if not char then return nil end
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	if hum and hum.Health > 0 then
-		return hum
-	end
-	return nil
-end
-
--- Punkty rozsiane równomiernie po obwodzie kwadratu o danym radiusie.
-function Utils.getRingPositions(count: number, radius: number, y: number): { Vector3 }
-	local positions = {}
-	for i = 1, count do
-		local angle = (i / count) * math.pi * 2
-		local x = math.cos(angle) * radius
-		local z = math.sin(angle) * radius
-		table.insert(positions, Vector3.new(x, y, z))
-	end
-	return positions
-end
-
--- Bezpieczny iterator po Players.
-function Utils.eachPlayer(callback: (Player) -> ())
-	for _, p in ipairs(game:GetService("Players"):GetPlayers()) do
-		callback(p)
-	end
-end
-
 return Utils

@@ -1,0 +1,47 @@
+--!strict
+-- KillService.luau
+-- Tagowanie "kto ostatnio zaatakował danego humanoida" + credit kill$ gdy umrze.
+-- Attackery są zapisywane jako attributes na Humanoid — jeśli victim umiera w oknie
+-- Config.Rewards.KillCreditWindowSec sekund, attacker dostaje Config.Rewards.Kill $.
+--
+-- Public API:
+--   KillService.tag(hum, attacker, weapon: "bomb"/"push")
+--     — bomba wywołuje przy trafieniu, push wywołuje przy pchnięciu (nawet miss lawy)
+--   KillService.processDeath(victim, hum)
+--     — wywoływane przez PlayerService.onDeath, czyta attributes i creduje
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
+local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local CashService = require(script.Parent.CashService)
+
+local KillService = {}
+
+function KillService.tag(hum: Humanoid, attacker: Player, weapon: string)
+	if not hum or hum.Health <= 0 then return end
+	if not attacker or not attacker.Parent then return end
+	hum:SetAttribute("KillAttackerId", attacker.UserId)
+	hum:SetAttribute("KillWeapon", weapon)
+	hum:SetAttribute("KillTagTime", os.clock())
+end
+
+function KillService.processDeath(victim: Player, hum: Humanoid)
+	local attackerId = hum:GetAttribute("KillAttackerId")
+	local tagTime = hum:GetAttribute("KillTagTime")
+	if type(attackerId) ~= "number" or type(tagTime) ~= "number" then return end
+	if os.clock() - tagTime > Config.Rewards.KillCreditWindowSec then return end
+
+	local attacker = Players:GetPlayerByUserId(attackerId)
+	if not attacker or attacker == victim then return end
+
+	local weapon = hum:GetAttribute("KillWeapon")
+	local weaponStr = type(weapon) == "string" and weapon or "unknown"
+	local reward = Config.Rewards.Kill
+
+	CashService.add(attacker, reward, "kill_" .. weaponStr)
+	Remotes.PlayerKilled:FireAllClients(attacker, victim, weaponStr, reward)
+end
+
+return KillService

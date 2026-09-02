@@ -8,7 +8,11 @@
 --      na Character. Inventory NIE zmniejszane (gracz nadal "ma" bombę, tylko trzyma w ręku).
 --   3. Klient klika LMB na Tool → Tool.Activated → klient fires ThrowBomb(direction)
 --   4. Server: BombService.throw → consume z inventory, destroy Tool, spawn fizyczny projektyl,
---      fuse 2s LUB Touched → Explosion (damage 50%, knockback, ragdoll, joint destruction)
+--      fuse 2.5s → detonacja: DestructionService.detonate (geometria + VFX przez BlastFX)
+--      + damage/knockback/ragdoll graczy (tutaj)
+--
+-- Destrukcja otoczenia i wizualia wybuchu = system v2 (DESTRUCTION_PLAN.md). Ten service
+-- odpowiada za cykl życia ITEMU (equip → throw → fuse) i efekt na GRACZACH.
 --   5. Klient klika ten sam slot ponownie → fires UnequipItem → BombService.unequip → destroy Tool
 
 local Workspace = game:GetService("Workspace")
@@ -17,28 +21,30 @@ local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 local ItemService = require(script.Parent.ItemService)
-local PlayerDataService = require(script.Parent.PlayerDataService)
 local PlayerService = require(script.Parent.PlayerService)
+local KillService = require(script.Parent.KillService)
+local DestructionService = require(script.Parent.DestructionService)
+local AntiCheatService = require(script.Parent.AntiCheatService)
 -- Ragdoll: toolbox ARTFVL — PlayerGui.ragdoll.functions.ragdoll BindableFunction
 
 local BombService = {}
 
 -- Track aktualnie equipped Tool per gracz
 local equippedTools: { [Player]: Tool } = {}
+-- Rate limit per gracz — anti-spam ThrowBomb. Klient MUSI mirrorować tę samą wartość
+-- z Config.RateLimits.BombThrow, inaczej klient wysyła spam a server odrzuca.
+local lastThrowAt: { [Player]: number } = {}
+-- Rate limit EquipItem/UnequipItem — spam clickowanie hotbar = flicker Tool w rękach
+-- innych klientów + bandwidth. Klient (HotbarController) też trzyma osobny debounce.
+local lastEquipAt: { [Player]: number } = {}
 
 local function log(player: Player, action: string, extra: string?)
 	print(("[Bomb] %s %s%s"):format(player.Name, action, extra and (" — " .. extra) or ""))
-end
-
-local function getHRP(player: Player): BasePart?
-	local char = player.Character
-	if not char then return nil end
-	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if hrp and hrp:IsA("BasePart") then return hrp end
-	return nil
 end
 
 local function destroyEquipped(player: Player)
@@ -115,57 +121,81 @@ function BombService.unequip(player: Player): (boolean, string?)
 	return true, nil
 end
 
--- Chronione przed wybuchem:
---   1. Cokolwiek pod Workspace.Map.Locked (Kacper wrzuca tam geometrię nieusuwalną)
---   2. Cokolwiek z property Locked=true (Studio default na Baseplate; LavaPart, Lobby.Spawn
---      też mają — bez tego bomba unanchorowała lawę i ona "wariowała")
---   3. Cokolwiek pod Workspace.ActiveCash (cash pickup'y — bomba nie powinna ich rozrzucać,
---      bo magnet by nadal działał ale ścieżka do nich byłaby random po świecie)
--- Reszta (Map.Tower, dowolne parts) → bomba rozwala.
-local function isProtected(part: BasePart): boolean
-	if part.Locked then return true end
-	local map = Workspace:FindFirstChild("Map")
-	if map then
-		local locked = map:FindFirstChild("Locked")
-		if locked and part:IsDescendantOf(locked) then return true end
-	end
-	local activeCash = Workspace:FindFirstChild("ActiveCash")
-	if activeCash and part:IsDescendantOf(activeCash) then return true end
-	return false
+local DUST_TEXTURE = "rbxasset://textures/particles/smoke_main.dds"
+
+local function spawnLandingDust(position: Vector3)
+	-- Chmura kurzu przy ziemi (jaśniejszy brąz niż smoke wybuchu). Anchored invisible Part
+	-- jako emitter parent, burst 16 particli, Debris czyści po 1.5s.
+	local anchor = Instance.new("Part")
+	anchor.Name = "RagdollDustFX"
+	anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+	anchor.Position = position
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanQuery = false
+	anchor.CanTouch = false
+	anchor.Transparency = 1
+	anchor.Parent = Workspace
+	Debris:AddItem(anchor, 1.5)
+
+	local dust = Instance.new("ParticleEmitter")
+	dust.Texture = DUST_TEXTURE
+	dust.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(185, 170, 145)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(140, 128, 110)),
+	})
+	dust.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.5),
+		NumberSequenceKeypoint.new(0.4, 4),
+		NumberSequenceKeypoint.new(1, 6),
+	})
+	dust.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.35),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	dust.Lifetime = NumberRange.new(0.5, 0.9)
+	dust.Rate = 0
+	dust.SpreadAngle = Vector2.new(75, 75)   -- głównie w bok, nisko przy ziemi
+	dust.Speed = NumberRange.new(5, 11)
+	dust.VelocityInheritance = 0
+	dust.Rotation = NumberRange.new(0, 360)
+	dust.RotSpeed = NumberRange.new(-60, 60)
+	dust.Acceleration = Vector3.new(0, -3, 0)
+	dust.LightEmission = 0
+	dust.Parent = anchor
+	dust:Emit(16)
 end
 
-local function destroyJointsInRadius(center: Vector3, radius: number, impulseForce: number)
-	-- Rozsypuje budynki: destroy joints + unanchor + impulse na każdy part.
-	-- Skip protected (Baseplate, Lava, Lobby, SpawnPoints, humanoid character).
-	local parts = Workspace:GetPartBoundsInRadius(center, radius)
-	for _, part in ipairs(parts) do
-		-- Skip humanoid (gracze)
-		local model = part:FindFirstAncestorOfClass("Model")
-		if model and model:FindFirstChildOfClass("Humanoid") then continue end
-		-- Skip protected
-		if isProtected(part) then continue end
+local function monitorRagdollLanding(hrp: BasePart)
+	-- Wykryj pierwsze zetknięcie z ziemią po wystrzeleniu ragdollem → dust.
+	-- Server-side: character ma ownership klienta, ale velocity/pozycja replikują się —
+	-- wystarczy do triggera. Poll ~12Hz, timeout 3s. Nad lawą (CanQuery=false) raycast
+	-- nie trafi → brak dustu (poprawne, bo tam nie ma "lądowania").
+	task.spawn(function()
+		local char = hrp.Parent
+		if not char then return end
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { char }
+		params.IgnoreWater = true
 
-		-- Destroy joints które trzymają part w miejscu
-		for _, child in ipairs(part:GetChildren()) do
-			if child:IsA("JointInstance") or child:IsA("WeldConstraint") then
-				child:Destroy()
+		local airborne = false
+		local deadline = os.clock() + 3
+		while os.clock() < deadline do
+			task.wait(0.08)
+			if not hrp.Parent then return end
+			local speed = hrp.AssemblyLinearVelocity.Magnitude
+			if speed > 25 then
+				airborne = true
+			elseif airborne and speed < 14 then
+				local hit = Workspace:Raycast(hrp.Position, Vector3.new(0, -6, 0), params)
+				if hit then
+					spawnLandingDust(hit.Position + Vector3.new(0, 0.2, 0))
+					return
+				end
 			end
 		end
-
-		-- Unanchor żeby spadał fizycznie
-		part.Anchored = false
-
-		-- Impulse od centrum w górę pod kątem
-		local offset = part.Position - center
-		if offset.Magnitude > 0.01 then
-			local dir = (offset.Unit + Vector3.new(0, 0.4, 0)).Unit
-			-- Falloff na siłę żeby bliżej epicentrum = mocniej wybijało
-			local t = math.clamp(1 - offset.Magnitude / radius, 0, 1)
-			pcall(function()
-				part:ApplyImpulse(dir * impulseForce * t * part.AssemblyMass)
-			end)
-		end
-	end
+	end)
 end
 
 local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, def: any)
@@ -176,6 +206,9 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 	local exemptThrower = not RunService:IsStudio()
 	for _, p in ipairs(Players:GetPlayers()) do
 		if exemptThrower and p == thrower then continue end
+		-- Tylko żywi w rundzie. Bez tego bomba rzucona blisko lobby zabijała spectatorów,
+		-- a onDeath ich ignoruje (nie są w aliveSet) → trup bez respawnu do następnej rundy.
+		if not PlayerService.isAlive(p) then continue end
 		local char = p.Character
 		if not char then continue end
 		local hum = char:FindFirstChildOfClass("Humanoid")
@@ -188,11 +221,32 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 
 		-- Linear falloff, ale z floor — średni dystans nadal dostaje push, nie 0
 		local rawT = math.clamp(1 - distance / def.blastRadius, 0, 1)
-		local damageT = rawT  -- damage skaluje liniowo do 0
-		local knockT = math.max(def.knockbackMinT or 0.35, rawT)  -- knockback ma floor
+
+		-- Osłona (etap 2): każda ściana między graczem a epicentrum tnie efekt. Destrukcja
+		-- geometrii policzona już PRZED tą pętlą, więc zdmuchnięta ściana NIE osłania —
+		-- została po niej dziura. Prawie-pełna osłona = brak trafienia (zero ragdolla
+		-- i taga przez dwie ściany).
+		local occlusion = DestructionService.computeOcclusion(blastCenter, hrp.Position)
+		local effT = rawT * occlusion
+		if effT < Config.Destruction.Occlusion.MinEffect then continue end
+
+		local damageT = effT  -- damage skaluje liniowo do 0
+		-- Floor knockbacku liczony PRZED osłoną (floor jest dla otwartej przestrzeni),
+		-- osłona tnie wynik — gracz za ścianą nie dostaje "gwarantowanego" odrzutu.
+		local knockT = math.max(def.knockbackMinT or 0.35, rawT) * occlusion
+
+		-- Tag attacker PRZED damage — jeśli ten hit kill'uje, credit thrower.
+		-- Także jeśli tylko rani a target zginie w oknie X sekund (np. bomba wybije w lawę
+		-- → ragdoll → lava kill), wciąż credit dla thrower.
+		KillService.tag(hum, thrower, "bomb")
 
 		-- 1. Damage server-side (klient nie może modyfikować HP — anti-cheat)
 		hum:TakeDamage(hum.MaxHealth * def.damagePercent * damageT)
+
+		-- Okno bezkarności dla anti-cheata: za chwilę poleci 450 stud/s z naszej winy.
+		-- Bez tego detektor prędkości (mierzy realnie przebytą drogę) uznałby ofiarę
+		-- własnego wybuchu za speedhackera.
+		AntiCheatService.grantGrace(p)
 
 		-- 2. Knockback velocity
 		local horizontal = (hrp.Position - blastCenter)
@@ -214,90 +268,25 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 			end
 		end
 
-		log(thrower, "hit", ("%s dist=%.1f rawT=%.2f knockT=%.2f"):format(p.Name, distance, rawT, knockT))
+		-- Feedback na kliencie trafionego: screen shake + FOV punch skalowane efektywnym
+		-- falloff'em (z osłoną — gracz za ścianą dostaje proporcjonalnie mniejszy wstrząs).
+		Remotes.BombHit:FireClient(p, effT)
+
+		-- Chmura kurzu gdy ragdoll wyląduje (server-side monitor pozycji + prędkości).
+		monitorRagdollLanding(hrp)
+
+		log(thrower, "hit", ("%s dist=%.1f rawT=%.2f occ=%.2f knockT=%.2f"):format(p.Name, distance, rawT, occlusion, knockT))
 	end
-end
-
-local function spawnBlastVFX(position: Vector3, radius: number)
-	-- Roblox default Explosion VFX (visual+sound). BlastPressure=0 → nie damage'uje
-	-- humanoidów ani nie pcha partów (cały damage/knockback robimy custom w applyDamageAndKnockback).
-	-- DestroyJointRadiusPercent=0 → nie zrywa jointów (custom destroyJointsInRadius już to robi).
-	local explosion = Instance.new("Explosion")
-	explosion.Position = position
-	explosion.BlastRadius = radius
-	explosion.BlastPressure = 0
-	explosion.DestroyJointRadiusPercent = 0
-	explosion.ExplosionType = Enum.ExplosionType.NoCraters
-	explosion.Visible = true
-	explosion.Parent = Workspace
-
-	-- Particle-based VFX zamiast brzydkiej żółtej kuli.
-	-- Anchor invisible Part jako emitter parent, particles żyją 0.6s, Debris czyści.
-	local anchor = Instance.new("Part")
-	anchor.Name = "BlastFX"
-	anchor.Size = Vector3.new(0.1, 0.1, 0.1)
-	anchor.Position = position
-	anchor.Anchored = true
-	anchor.CanCollide = false
-	anchor.CanQuery = false
-	anchor.CanTouch = false
-	anchor.Transparency = 1
-	anchor.Parent = Workspace
-	Debris:AddItem(anchor, 1.2)
-
-	-- Smoke particles (gray/dark, large, slow fade-out)
-	local smoke = Instance.new("ParticleEmitter")
-	smoke.Texture = "rbxasset://textures/particles/smoke_main.dds"
-	smoke.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(80, 70, 60)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(40, 40, 40)),
-	})
-	smoke.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1),
-		NumberSequenceKeypoint.new(0.3, radius * 0.6),
-		NumberSequenceKeypoint.new(1, radius * 0.9),
-	})
-	smoke.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.2),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	smoke.Lifetime = NumberRange.new(0.8, 1.4)
-	smoke.Rate = 0
-	smoke.SpreadAngle = Vector2.new(180, 180)
-	smoke.Speed = NumberRange.new(8, 18)
-	smoke.Rotation = NumberRange.new(0, 360)
-	smoke.RotSpeed = NumberRange.new(-90, 90)
-	smoke.LightEmission = 0
-	smoke.Parent = anchor
-	smoke:Emit(35)
-
-	-- Spark particles (orange, fast, short-lived)
-	local sparks = Instance.new("ParticleEmitter")
-	sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	sparks.Color = ColorSequence.new(Color3.fromRGB(255, 180, 80))
-	sparks.Size = NumberSequence.new(0.6, 0.1)
-	sparks.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	sparks.Lifetime = NumberRange.new(0.3, 0.6)
-	sparks.Rate = 0
-	sparks.SpreadAngle = Vector2.new(180, 180)
-	sparks.Speed = NumberRange.new(30, 55)
-	sparks.LightEmission = 1
-	sparks.Parent = anchor
-	sparks:Emit(50)
 end
 
 local function detonate(bombPart: BasePart, thrower: Player, def: any)
 	if not bombPart.Parent then return end
 	local center = bombPart.Position
 
-	spawnBlastVFX(center, def.blastRadius)
-
-	if def.destroyJoints then
-		destroyJointsInRadius(center, def.destructionRadius or def.blastRadius, def.destructionImpulse or 50)
-	end
+	-- Destrukcja PRZED damage: gdy bomba zdmuchnie ścianę, gracz za nią jest już odsłonięty
+	-- w momencie liczenia obrażeń (etap 2 doda occlusion raycast, który na tej kolejności
+	-- polega). VFX wybuchu odpala DestructionService (Remotes.BlastFX → klienci renderują).
+	DestructionService.detonate(center, def.destruction, thrower)
 
 	applyDamageAndKnockback(center, thrower, def)
 
@@ -310,6 +299,12 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 	if not PlayerService.isAlive(player) then
 		destroyEquipped(player)
 		return false, "not_in_round"
+	end
+
+	-- Rate limit — anti-spam ThrowBomb (BEZ tego auto-re-equip + fast click = 10 bomb/s exploit).
+	local now = os.clock()
+	if now - (lastThrowAt[player] or 0) < Config.RateLimits.BombThrow then
+		return false, "cooldown"
 	end
 
 	-- Walidacja Tool equipped
@@ -325,17 +320,22 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 	end
 	local dir = direction.Unit
 
+	-- Character check PRZED consume — jeśli player umarł/despawnował w milisekundzie
+	-- kliknięcia, nie chcemy zabrać bomby bez rzutu.
+	local hrp = Utils.getRoot(player)
+	if not hrp then
+		destroyEquipped(player)
+		return false, "no_character"
+	end
+
 	-- Consume z inventory (atomic — jeśli się nie powiedzie, abort bez throw)
 	if not ItemService.consume(player, "bomb", 1) then
 		return false, "consume_failed"
 	end
 
-	local hrp = getHRP(player)
-	if not hrp then
-		-- Niedobrze: consumed ale brak character. Refund nie ma w current API. v1.0 akceptujemy stratę.
-		destroyEquipped(player)
-		return false, "no_character"
-	end
+	-- Zaznacz rate limit DOPIERO po consume (jeśli wcześniej — spam odrzucony gdy player
+	-- nie ma już bomb, ale timer i tak by szedł; teraz timer działa tylko na realny throw).
+	lastThrowAt[player] = now
 
 	local def = ItemDefinitions.bomb
 	-- Spawn ZAWSZE nad HRP, w kierunku poziomym (X/Z z mouse dir), nigdy wzdłuż pełnego
@@ -365,7 +365,9 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 	bomb.BottomSurface = Enum.SurfaceType.Smooth
 	bomb.CanCollide = true
 	bomb.Anchored = false
-	bomb.Position = spawnPos
+	-- CFrame, nie Position — setter Position rozwiązuje kolizje przesuwając part w górę
+	-- (bomba "wyskakiwała" gdy spawn nachodził na geometrię). CFrame stawia dokładnie tu.
+	bomb.CFrame = CFrame.new(spawnPos)
 	bomb.AssemblyLinearVelocity = dir * def.throwSpeed
 		+ Vector3.new(0, def.throwLift, 0)
 		+ charVelocity
@@ -376,11 +378,78 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 	-- bomba "freeze'uje" przy lagach/drop pakietów. SetNetworkOwner(nil) = server symuluje.
 	pcall(function() bomb:SetNetworkOwner(nil) end)
 
+	-- Prawie zero odbicia — default elasticity 0.5 robiła z bomby piłkę do kosza.
+	bomb.CustomPhysicalProperties = PhysicalProperties.new(2, 0.5, def.bounciness or 0.05, 1, 1)
+
+	-- Tłumienie toczenia: kula toczy się w Robloxie bez końca (brak rolling resistance).
+	-- Co Heartbeat wygaszamy prędkość, ALE tylko gdy bomba jest przy ziemi (raycast w dół)
+	-- — w locie nie tykamy, żeby nie skracać rzutu (apex ma vY≈0, raycast to odróżnia).
+	-- Server owns physics (SetNetworkOwner(nil) wyżej), więc damping replikuje się czysto.
+	-- Pętla żyje max fuse+epsilon (bomb.Parent=nil po detonacji/cleanup → koniec).
+	local dampParams = RaycastParams.new()
+	dampParams.FilterType = Enum.RaycastFilterType.Exclude
+	dampParams.FilterDescendantsInstances = { bomb }
+	task.spawn(function()
+		local damp = def.rollDamping or 1
+		if damp >= 1 then return end
+		-- Promień kuli 1.5 + margines 0.5 — "przy ziemi" = powierzchnia tuż pod spodem.
+		local groundProbe = Vector3.new(0, -2, 0)
+		while bomb.Parent do
+			if Workspace:Raycast(bomb.Position, groundProbe, dampParams) then
+				local v = bomb.AssemblyLinearVelocity
+				bomb.AssemblyLinearVelocity = Vector3.new(v.X * damp, v.Y, v.Z * damp)
+				bomb.AssemblyAngularVelocity = bomb.AssemblyAngularVelocity * damp
+			end
+			task.wait()
+		end
+	end)
+
 	local light = Instance.new("PointLight")
 	light.Color = Color3.fromRGB(255, 100, 30)
 	light.Brightness = 2
 	light.Range = 12
 	light.Parent = bomb
+
+	-- ===== Fuse VFX: bomba wygląda na UZBROJONĄ (czytelny sygnał "uciekaj") =====
+	-- Iskry palącego się lontu.
+	local fuseSparks = Instance.new("ParticleEmitter")
+	fuseSparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	fuseSparks.Color = ColorSequence.new(Color3.fromRGB(255, 220, 120), Color3.fromRGB(255, 120, 30))
+	fuseSparks.Size = NumberSequence.new(0.35, 0.05)
+	fuseSparks.Lifetime = NumberRange.new(0.2, 0.45)
+	fuseSparks.Rate = 14
+	fuseSparks.Speed = NumberRange.new(3, 7)
+	fuseSparks.SpreadAngle = Vector2.new(180, 180)
+	fuseSparks.LightEmission = 1
+	fuseSparks.Parent = bomb
+
+	-- Dymny ogon w locie (i podczas leżenia — bomba "się pali").
+	local fuseSmoke = Instance.new("ParticleEmitter")
+	fuseSmoke.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	fuseSmoke.Color = ColorSequence.new(Color3.fromRGB(130, 130, 130), Color3.fromRGB(80, 80, 80))
+	fuseSmoke.Size = NumberSequence.new(0.6, 1.8)
+	fuseSmoke.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.55),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	fuseSmoke.Lifetime = NumberRange.new(0.5, 0.8)
+	fuseSmoke.Rate = 25
+	fuseSmoke.Speed = NumberRange.new(0.5, 1.5)
+	fuseSmoke.Parent = bomb
+
+	-- Migotanie światła: wolny puls → szybki strobo tuż przed wybuchem (klasyczny "tick").
+	-- Pętla żyje max fuse (bomb.Parent=nil po detonacji → koniec). Server-side — replikuje się.
+	task.spawn(function()
+		local tStart = os.clock()
+		local on = true
+		while bomb.Parent do
+			local frac = math.clamp((os.clock() - tStart) / def.fuse, 0, 1)
+			on = not on
+			light.Brightness = on and 6 or 1.2
+			light.Color = on and Color3.fromRGB(255, 60, 30) or Color3.fromRGB(255, 120, 40)
+			task.wait(0.34 - 0.28 * frac) -- 0.34s → 0.06s
+		end
+	end)
 
 	local detonated = false
 
@@ -421,6 +490,10 @@ local function onThrowBomb(player: Player, direction: any)
 end
 
 local function onEquipItem(player: Player, itemId: any)
+	local now = os.clock()
+	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem then return end
+	lastEquipAt[player] = now
+
 	-- Dispatch po itemId. W przyszłości: shield, bridge_builder, etc.
 	if itemId == "bomb" then
 		BombService.equip(player, "bomb")
@@ -433,11 +506,16 @@ local function onEquipItem(player: Player, itemId: any)
 end
 
 local function onUnequipItem(player: Player)
+	local now = os.clock()
+	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem then return end
+	lastEquipAt[player] = now
 	BombService.unequip(player)
 end
 
 local function onPlayerRemoving(player: Player)
 	equippedTools[player] = nil
+	lastThrowAt[player] = nil
+	lastEquipAt[player] = nil
 end
 
 local function onCharacterRemoving(player: Player)

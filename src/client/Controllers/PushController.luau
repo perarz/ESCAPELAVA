@@ -11,11 +11,13 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local CooldownBarController = require(script.Parent.CooldownBarController)
+local MovementController = require(script.Parent.MovementController)
 
 local PushController = {}
 
-local CLIENT_COOLDOWN = 4  -- match server-side
 local lastPushAt = 0
 
 local localPlayer = Players.LocalPlayer
@@ -35,15 +37,19 @@ function PushController.init()
 		if input.KeyCode ~= Enum.KeyCode.F then return end
 
 		local now = os.clock()
-		if now - lastPushAt < CLIENT_COOLDOWN then return end
+		local cd = Config.RateLimits.Push
+		if now - lastPushAt < cd then return end
 		lastPushAt = now
 
 		Remotes.Push:FireServer()
+		CooldownBarController.trigger("push", cd)
 	end)
 
 	Remotes.Pushed.OnClientEvent:Connect(function(velocity)
 		if typeof(velocity) ~= "Vector3" then return end
 		applyPushVelocity(velocity)
+		-- Feedback trafienia: krótki shake — czujesz że ktoś Cię pchnął, nie "samo się poleciało".
+		MovementController.screenShake(Config.Push.HitShakeIntensity, Config.Push.HitShakeDuration)
 	end)
 end
 

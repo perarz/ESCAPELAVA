@@ -17,26 +17,22 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 local PlayerService = require(script.Parent.PlayerService)
+local KillService = require(script.Parent.KillService)
+local AntiCheatService = require(script.Parent.AntiCheatService)
 
 local PushService = {}
 
-local COOLDOWN = 4
-local MAX_RANGE = 7
-local CONE_DOT = 0.3   -- ~70° forward cone
-local PUSH_FORCE = 80  -- horizontal velocity (stud/s)
-local PUSH_LIFT = 20   -- mały lift żeby push nie szorał gracza po ziemi
+-- Balans z Config (hard rule #5) — tu tylko aliasy dla czytelności.
+local MAX_RANGE = Config.Push.MaxRange
+local CONE_DOT = Config.Push.ConeDot
+local PUSH_FORCE = Config.Push.Force
+local PUSH_LIFT = Config.Push.Lift
 
 local lastPushAt: { [Player]: number } = {}
-
-local function getHRP(player: Player): BasePart?
-	local char = player.Character
-	if not char then return nil end
-	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if hrp and hrp:IsA("BasePart") then return hrp end
-	return nil
-end
 
 local function pickTarget(pusher: Player, pusherHRP: BasePart): Player?
 	-- Najbliższy żywy gracz w MAX_RANGE i w stożku przed pusherem.
@@ -49,7 +45,7 @@ local function pickTarget(pusher: Player, pusherHRP: BasePart): Player?
 	for _, other in ipairs(Players:GetPlayers()) do
 		if other == pusher then continue end
 		if not PlayerService.isAlive(other) then continue end
-		local otherHRP = getHRP(other)
+		local otherHRP = Utils.getRoot(other)
 		if not otherHRP then continue end
 
 		local offset = otherHRP.Position - origin
@@ -74,16 +70,16 @@ local function onPush(pusher: Player)
 
 	-- Cooldown — START na próbie, nie sukcesie (anti-spam F)
 	local now = os.clock()
-	if now - (lastPushAt[pusher] or 0) < COOLDOWN then return end
+	if now - (lastPushAt[pusher] or 0) < Config.RateLimits.Push then return end
 	lastPushAt[pusher] = now
 
-	local pusherHRP = getHRP(pusher)
+	local pusherHRP = Utils.getRoot(pusher)
 	if not pusherHRP then return end
 
 	local target = pickTarget(pusher, pusherHRP)
 	if not target then return end  -- cooldown już zużyty, brak celu = miss
 
-	local targetHRP = getHRP(target)
+	local targetHRP = Utils.getRoot(target)
 	if not targetHRP then return end
 
 	-- Direction: push target away from pusher (poziomo)
@@ -97,8 +93,18 @@ local function onPush(pusher: Player)
 	local dir = horizontal.Unit
 	local velocity = dir * PUSH_FORCE + Vector3.new(0, PUSH_LIFT, 0)
 
+	-- Okno bezkarności dla anti-cheata — pchnięcie to impuls od SERWERA, nie speedhack.
+	AntiCheatService.grantGrace(target)
+
 	-- Klient target'a aplikuje velocity (network ownership = klient, server set nie działa)
 	Remotes.Pushed:FireClient(target, velocity)
+
+	-- Tag pusher jako attacker na target humanoid — jeśli target wpadnie w lawę
+	-- w oknie KillCreditWindowSec, push dostaje credit.
+	local targetHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+	if targetHum then
+		KillService.tag(targetHum, pusher, "push")
+	end
 
 	print(("[Push] %s pushed %s"):format(pusher.Name, target.Name))
 end

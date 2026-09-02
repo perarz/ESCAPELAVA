@@ -10,16 +10,23 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local CooldownBarController = require(script.Parent.CooldownBarController)
 
 local ToolController = {}
 
 local localPlayer = Players.LocalPlayer
+local lastThrowAt = 0
 
 local function hookTool(tool: Tool)
 	if tool.Name ~= "BombTool" then return end
 
 	tool.Activated:Connect(function()
+		local now = os.clock()
+		local cd = Config.RateLimits.BombThrow
+		if now - lastThrowAt < cd then return end
+
 		local char = localPlayer.Character
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		if not hrp or not hrp:IsA("BasePart") then return end
@@ -31,7 +38,9 @@ local function hookTool(tool: Tool)
 		local direction = target - hrp.Position
 		if direction.Magnitude < 0.1 then return end
 
+		lastThrowAt = now
 		Remotes.ThrowBomb:FireServer(direction.Unit)
+		CooldownBarController.trigger("bomb", cd)
 	end)
 end
 
