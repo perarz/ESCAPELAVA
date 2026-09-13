@@ -7,8 +7,9 @@ local ItemDefinitions = {}
 
 ItemDefinitions.bomb = {
 	id = "bomb",
-	name = "Bomb",
+	name = "Bomba",
 	price = 50,
+	desc = "Rzuć i wysadź ściany, filary oraz graczy. Wybuch niszczy teren.",
 	-- Inventory nowy schema: { itemId = count } — gracz może mieć dowolnie dużo per item type.
 	-- maxStack tylko jako sanity cap (przyszłe — gdyby balans wymagał).
 	maxStack = 9999,
@@ -52,6 +53,7 @@ ItemDefinitions.bridge_builder = {
 	id = "bridge_builder",
 	name = "Most",
 	price = 100,
+	desc = "Postaw kładkę nad lawą albo dziurą. Przejście dla całej ekipy.",
 	maxStack = 9999,
 	-- Bridge mechanics (server-side validate)
 	length = 10,             -- stud (Z axis, long side)

@@ -226,13 +226,37 @@ Config.Movement = {
 		-- Drain rate w trakcie sprintu (stamina/s). 1.0 = 1s sprintu = 1 stamina.
 		DrainRate = 1.0,
 		-- Regen rate gdy nie sprintujesz (stamina/s). Walk = regen, idle = regen.
-		RegenRate = 1.5,
+		-- 1.5 → 2.2 (2026-09-12): pełne naładowanie z zera 5s → ~2.3s.
+		RegenRate = 2.2,
 		-- Opóźnienie regeneracji po skończeniu sprintu (s). Zapobiega spam shift.
-		RegenDelay = 0.8,
+		-- 0.8 → 0.35 (2026-09-12): krótka pauza dalej blokuje spam, ale nie czuć "martwej chwili".
+		RegenDelay = 0.35,
 		-- Próg minimalny żeby zacząć sprint po wyczerpaniu (anti-stutter).
 		-- Gdy stamina spada do 0 → force walk → musi naładować się do tego progu
 		-- zanim Shift znów zadziała. Bez tego: 0 stamina → puszczam-łapię shift, mikro-sprinty.
 		MinToResume = 1.0,
+	},
+
+	-- Pasek staminy 3D (BillboardGui obok postaci, client-only — MovementController).
+	-- Template robi Kacper w Studio: ReplicatedStorage.StaminaBar (BillboardGui) z pionowym
+	-- `Fill` (GuiObject zakotwiczony dołem). Pozycję obok postaci ustawia StudsOffset
+	-- na BillboardGui w Studio; kod steruje tylko wysokością Fill (0..1), kolorem i fade.
+	StaminaBar = {
+		-- Pasek widoczny WYŁĄCZNIE przy sprincie albo gdy stamina się odbudowuje
+		-- (sprint aktywny LUB stamina < max). Pełna stamina bez biegu = ukryty.
+		-- Fade transparencji jest LINIOWY — trwa dokładnie tyle sekund, ile tu stoi.
+		FadeInTime = 0.12,
+		FadeOutTime = 0.25,
+		-- Elastic pop: UIScale "Anim" w template animowany 0→1 przy pokazaniu, 1→0 przy chowaniu.
+		-- PopOutTime MUSI być <= FadeOutTime, inaczej pasek zniknie w połowie zwijania.
+		PopInTime = 0.55,
+		PopOutTime = 0.2,
+		PopInStyle = Enum.EasingStyle.Elastic, -- sprężysty wjazd (Back = spokojniejszy wariant)
+		PopOutStyle = Enum.EasingStyle.Quad,
+		-- Reaktywny kolor wypełnienia wg poziomu: pełna → połowa → pusta.
+		ColorFull = Color3.fromRGB(60, 140, 255), -- niebieski
+		ColorMid = Color3.fromRGB(250, 205, 55),  -- żółty
+		ColorLow = Color3.fromRGB(235, 60, 55),   -- czerwony
 	},
 
 	HeadTrack = {
@@ -306,14 +330,6 @@ Config.RateLimits = {
 	-- EquipItem+UnequipItem: klik hotbar slot. Spam clickowanie = flickering Tool
 	-- w rękach innych klientów + bandwidth. 0.15s = ~7 kliknięć/s max, ludzki reflex OK.
 	EquipItem = 0.15,
-	-- ClaimDaily: klik CLAIM w daily rewards. 1s wystarczy — server i tak odrzuca drugi claim.
-	DailyClaim = 1,
-}
-
-Config.DailyRewards = {
-	-- Nagrody za kolejne dni streaka. Dzień 8+ = ostatni wpis w kółko (500$/dzień).
-	-- Streak resetuje się do dnia 1 gdy gracz pominie dzień kalendarzowy (UTC).
-	Rewards = { 50, 75, 100, 150, 200, 300, 500 },
 }
 
 -- Anti-cheat: wykrywanie speedhacka/teleportu u żywych graczy w ROUND.
@@ -349,6 +365,40 @@ Config.Rewards = {
 -- wybuchu; siła/zasięg konkretnego itemu siedzi w ItemDefinitions.<item>.destruction.
 -- Wartości startowe CELOWO hojne (decyzja Kacpra: "dużo fragmentów, najwyżej będę hamował")
 -- — po testach kręcimy TU, nie w logice.
+-- Sklep-NPC (ShopController + ShopService). Gracz podchodzi do NPC w lobby
+-- (ProximityPrompt) → kamera przypina się kolejno do markerów kamer i CELUJE w wystawiony
+-- model itemu, a na dole StarterGui.ShopUI (KUP / cena / opis).
+--
+-- KONTRAKT MAPY (Workspace.Lobby):
+--   SHOPNPC              — model sprzedawcy z ProximityPrompt
+--   SHOPCAMERAS/SHOPCAMERA1..N — markery POZYCJI kamery (obrót nieistotny: kod sam celuje
+--                          w item). Numer = pozycja itemu w ItemDefinitions.shopOrder,
+--                          czyli SHOPCAMERA1 → shopOrder[1] (bomb), SHOPCAMERA2 → [2] (most).
+--   SHOPITEMS/*          — modele itemów na wystawie (nazwy dowolne). Kamera N celuje
+--                          w NAJBLIŻSZY jej model z tego folderu — zero konfiguracji.
+-- Dodanie itemu do sklepu = kolejny SHOPCAMERA{N} + model obok niego. Zero zmian w kodzie.
+Config.Shop = {
+	-- Nazwy obiektów w Workspace.Lobby (jedno miejsce na zmianę, gdyby Kacper przemianował).
+	NpcName = "SHOPNPC",
+	CamerasFolder = "SHOPCAMERAS",
+	CameraPrefix = "SHOPCAMERA", -- + numer: SHOPCAMERA1, SHOPCAMERA2, ...
+	ItemsFolder = "SHOPITEMS",
+
+	-- Server distance-check gracz↔NPC przy zakupie (hard rule #3). Większy niż zasięg
+	-- promptu, żeby lag/animacja kamery nie odrzuciły legalnego zakupu; wciąż blokuje
+	-- zakup z dowolnego miejsca mapy (klient odpala BuyItem, serwer waliduje odległość).
+	InteractDistance = 18,
+	-- Płynny przejazd kamery między itemami przy przewijaniu (s).
+	CameraTweenTime = 0.35,
+	-- Podniesienie punktu celowania nad środek modelu (stud). 0 = prosto w środek;
+	-- lekko dodatnie ładniej kadruje wysokie modele.
+	LookAtHeightOffset = 0,
+	-- Przewijanie itemów klawiszami (oprócz ◀▶ w UI i scrolla) + wyjście.
+	PrevKey = Enum.KeyCode.A,
+	NextKey = Enum.KeyCode.D,
+	CloseKey = Enum.KeyCode.Q, -- NIE Escape (otwiera menu Roblox) — Q zamyka sklep.
+}
+
 Config.Destruction = {
 	-- HP strukturalne per kategoria (etap 2). Rozpoznawanie: tag "Pillar" → Pillar,
 	-- Material Glass → Glass, descendant ActiveBridges → Bridge, reszta → Wall.
@@ -604,7 +654,9 @@ table.freeze(Config.Cash.PickupTrail)
 table.freeze(Config.Cash.DigitDisplay)
 table.freeze(Config.Cash)
 table.freeze(Config.Bridge)
+table.freeze(Config.Shop)
 table.freeze(Config.Movement.Stamina)
+table.freeze(Config.Movement.StaminaBar)
 table.freeze(Config.Movement.HeadTrack)
 table.freeze(Config.Movement.Camera.RotationSmoothing)
 table.freeze(Config.Movement.Camera.HitReaction)
@@ -614,8 +666,6 @@ table.freeze(Config.Push)
 table.freeze(Config.RateLimits)
 table.freeze(Config.AntiCheat)
 table.freeze(Config.Rewards)
-table.freeze(Config.DailyRewards.Rewards)
-table.freeze(Config.DailyRewards)
 table.freeze(Config.Destruction.Categories.Wall)
 table.freeze(Config.Destruction.Categories.Glass)
 table.freeze(Config.Destruction.Categories.Pillar)

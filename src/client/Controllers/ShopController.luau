@@ -1,169 +1,363 @@
 --!strict
 -- ShopController.luau
--- Toggle ShopMenu, render oferty z ItemDefinitions, fire BuyItem na klik.
--- Klient NIGDY nie modyfikuje inventory/coins — tylko intent → server.
+-- SKLEP-NPC. Gracz podchodzi do sprzedawcy (ProximityPrompt) → tryb sklepu: kamera
+-- przypina się (Scriptable) do markera SHOPCAMERA{N} i CELUJE w wystawiony model itemu,
+-- postać zamrożona (sterowanie wyłączone), na dole StarterGui.ShopUI (KUP / cena / opis).
+-- ◀▶ w UI, klawisze A/D i scroll przewijają itemy (kamera płynnie jedzie do następnego).
 --
--- KONTRAKT NAZW w StarterGui (postawione przez MCP, Kacper modyfikuje styl):
---   StarterGui.HUD.ShopButton (TextButton)
---   StarterGui.HUD.ShopMenu (Frame, Visible=false domyślnie)
---     ├── CloseButton (TextButton)
---     ├── StatusLabel (TextLabel)
---     └── Offers (ScrollingFrame)
---         └── OfferTemplate (Frame, Visible=false; klient klonuje per oferta)
---             ├── ItemName (TextLabel)
---             ├── Price (TextLabel)
---             └── BuyButton (TextButton)
+-- MAPOWANIE (kontrakt w Config.Shop): SHOPCAMERA{N} → ItemDefinitions.shopOrder[N].
+-- Marker niesie tylko POZYCJĘ kamery — jego obrót jest nieistotny, bo kierunek liczymy
+-- przez CFrame.lookAt na model itemu. Modelem jest NAJBLIŻSZY markerowi part z SHOPITEMS,
+-- więc Kacper nie musi niczego nazywać ani parować ręcznie.
+-- SKALOWANIE: dodanie itemu = kolejny SHOPCAMERA{N} + model obok. Zero kodu tutaj.
+--
+-- KAMERA: ustawiamy CameraType=Scriptable — MovementController SAM wtedy wyłącza swoje
+-- rotation-smoothing i shake (sprawdza CameraType), więc nie ma konfliktu kamer. Na wyjściu
+-- wracamy do poprzedniego typu, default camera dogoni gracza (MovementController snapuje).
+-- FREEZE: PlayerModule:GetControls():Disable() — postać stoi, mimo że kamera odjechała.
+--
+-- SERVER AUTHORITY: klik KUP = tylko intent (Remotes.BuyItem). Serwer waliduje odległość
+-- do NPC, kasę i inventory (ShopService). Klient nic nie przyznaje sam.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
 
-local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
-local ButtonFX = require(script.Parent.ButtonFX)
+local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 
 local ShopController = {}
 
+local CFG = Config.Shop
 local localPlayer = Players.LocalPlayer
 
-local REASON_TEXT = {
-	rate_limited = "Za szybko klikasz",
-	alive_in_round = "Sklep niedostępny w trakcie rundy",
+-- target = model itemu, w który kamera celuje (nil → patrzymy wzdłuż obrotu markera).
+type Entry = { id: string, def: any, camPart: BasePart, target: BasePart? }
+
+local isOpen = false
+local entries: { Entry } = {}
+local index = 1
+local savedCamType: Enum.CameraType? = nil
+local currentCash = 0
+local initialized = false
+
+-- UI refs
+local ui: ScreenGui? = nil
+local elItemName: TextLabel? = nil
+local elPrice: TextLabel? = nil
+local elDesc: TextLabel? = nil
+local elStatus: TextLabel? = nil
+local btnBuy: TextButton? = nil
+local btnPrev: TextButton? = nil
+local btnNext: TextButton? = nil
+local btnClose: TextButton? = nil
+
+local warned: { [string]: boolean } = {}
+local function warnOnce(key: string, msg: string)
+	if warned[key] then return end
+	warned[key] = true
+	warn("[Shop] " .. msg)
+end
+
+-- ============================================================================
+-- Kasa (affordability) — z leaderstats + live update z CashChanged
+-- ============================================================================
+
+local function readCash()
+	local ls = localPlayer:FindFirstChild("leaderstats")
+	local cash = ls and ls:FindFirstChild("Cash")
+	if cash and cash:IsA("IntValue") then
+		currentCash = cash.Value
+	end
+end
+
+-- ============================================================================
+-- Freeze sterowania
+-- ============================================================================
+
+local function getControls(): any
+	local ok, controls = pcall(function()
+		local ps = localPlayer:FindFirstChild("PlayerScripts")
+		local pm = ps and ps:FindFirstChild("PlayerModule")
+		if not pm then return nil end
+		return (require(pm) :: any):GetControls()
+	end)
+	if ok then return controls end
+	return nil
+end
+
+local function setFrozen(frozen: boolean)
+	local controls = getControls()
+	if not controls then return end
+	if frozen then
+		controls:Disable()
+	else
+		controls:Enable()
+	end
+end
+
+-- ============================================================================
+-- Kamera
+-- ============================================================================
+
+-- Kadr: kamera SIEDZI na markerze i PATRZY na model itemu. Obrót markera celowo ignorujemy
+-- — marker niesie tylko pozycję (w mapie stoją nieobrócone), celowanie liczy kod.
+local function goalCFrame(e: Entry): CFrame
+	local target = e.target
+	if target and target.Parent then
+		local lookPoint = target.Position + Vector3.new(0, CFG.LookAtHeightOffset, 0)
+		-- Degeneracja: marker dokładnie w punkcie celu → lookAt rzuca; wtedy obrót markera.
+		if (lookPoint - e.camPart.Position).Magnitude > 0.05 then
+			return CFrame.lookAt(e.camPart.Position, lookPoint)
+		end
+	end
+	return e.camPart.CFrame
+end
+
+local function focusCamera(instant: boolean)
+	local cam = Workspace.CurrentCamera
+	local e = entries[index]
+	if not cam or not e or not e.camPart.Parent then return end
+	local goal = goalCFrame(e)
+	if instant then
+		cam.CFrame = goal
+	else
+		TweenService:Create(
+			cam,
+			TweenInfo.new(CFG.CameraTweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ CFrame = goal }
+		):Play()
+	end
+end
+
+-- ============================================================================
+-- UI
+-- ============================================================================
+
+local function refreshUI()
+	local e = entries[index]
+	if not e then return end
+	local def = e.def
+	if elItemName then elItemName.Text = tostring(def.name or e.id) end
+	if elPrice then elPrice.Text = tostring(def.price or 0) .. "$" end
+	if elDesc then elDesc.Text = tostring(def.desc or "") end
+	if elStatus then elStatus.Text = "" end
+
+	local canAfford = currentCash >= (def.price or 0)
+	if btnBuy then
+		btnBuy.AutoButtonColor = canAfford
+		btnBuy.BackgroundColor3 = canAfford and Color3.fromRGB(46, 160, 70) or Color3.fromRGB(70, 74, 82)
+		btnBuy.Text = canAfford and "KUP" or "ZA MAŁO $"
+	end
+end
+
+local function setIndex(newIndex: number, instant: boolean)
+	if #entries == 0 then return end
+	-- Zawijanie: przewijanie za ostatni item wraca na pierwszy i odwrotnie.
+	index = ((newIndex - 1) % #entries) + 1
+	focusCamera(instant)
+	refreshUI()
+end
+
+-- ============================================================================
+-- Open / close
+-- ============================================================================
+
+-- Model, w który celuje dany marker = NAJBLIŻSZY part z SHOPITEMS. Dzięki temu nie trzeba
+-- parować nazw ani kolejności — marker stoi obok swojego itemu i to wystarcza.
+local function nearestDisplay(camPart: BasePart, itemsFolder: Instance?): BasePart?
+	if not itemsFolder then return nil end
+	local best: BasePart? = nil
+	local bestDist = math.huge
+	for _, d in ipairs(itemsFolder:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local dist = (d.Position - camPart.Position).Magnitude
+			if dist < bestDist then
+				bestDist = dist
+				best = d
+			end
+		end
+	end
+	return best
+end
+
+local function buildEntries()
+	table.clear(entries)
+	local lobby = Workspace:FindFirstChild("Lobby")
+	local cams = lobby and lobby:FindFirstChild(CFG.CamerasFolder)
+	if not cams then
+		warnOnce("cams", ("brak Workspace.Lobby.%s — sklep nieaktywny"):format(CFG.CamerasFolder))
+		return
+	end
+	local itemsFolder = lobby and lobby:FindFirstChild(CFG.ItemsFolder)
+
+	-- Marker SHOPCAMERA{N} ↔ N-ty item w shopOrder. Item bez markera po prostu nie pojawia
+	-- się w sklepie (Kacper dostawia marker, gdy zrobi mu wystawę).
+	for i, id in ipairs(ItemDefinitions.shopOrder) do
+		local def = ItemDefinitions.get(id)
+		local part = cams:FindFirstChild(CFG.CameraPrefix .. tostring(i))
+		if def and part and part:IsA("BasePart") then
+			table.insert(entries, {
+				id = id,
+				def = def,
+				camPart = part,
+				target = nearestDisplay(part, itemsFolder),
+			})
+		end
+	end
+end
+
+local function closeShop()
+	if not isOpen then return end
+	isOpen = false
+	if ui then ui.Enabled = false end
+	setFrozen(false)
+	local cam = Workspace.CurrentCamera
+	if cam then
+		cam.CameraType = savedCamType or Enum.CameraType.Custom
+	end
+end
+
+local function openShop()
+	if isOpen then return end
+	if not ui then
+		warnOnce("ui", "brak StarterGui.ShopUI — sklep nieaktywny")
+		return
+	end
+	buildEntries()
+	if #entries == 0 then
+		warnOnce("empty", "brak part-kamer w SHOPCAMERAS nazwanych itemId (np. 'bomb') — nie ma co pokazać")
+		return
+	end
+	isOpen = true
+	readCash()
+
+	local cam = Workspace.CurrentCamera
+	if cam then
+		savedCamType = cam.CameraType
+		cam.CameraType = Enum.CameraType.Scriptable
+	end
+	setFrozen(true)
+	ui.Enabled = true
+	setIndex(1, true)
+end
+
+local function tryBuy()
+	local e = entries[index]
+	if not e then return end
+	if elStatus then
+		elStatus.TextColor3 = Color3.fromRGB(210, 210, 215)
+		elStatus.Text = "..."
+	end
+	Remotes.BuyItem:FireServer(e.id)
+end
+
+-- ============================================================================
+-- Init
+-- ============================================================================
+
+local BUY_FAIL_TEXT = {
+	not_enough_cash = "Za mało kasy",
+	too_far = "Podejdź do sprzedawcy",
 	unknown_item = "Nieznany przedmiot",
-	not_enough_cash = "Nie masz tyle kasy",
-	inventory_full = "Plecak pełny",
-	internal_error = "Błąd serwera, spróbuj ponownie",
-	invalid_payload = "Błąd klienta",
+	inventory_full = "Ekwipunek pełny",
+	invalid_payload = "Błąd",
+	internal_error = "Błąd serwera",
 }
 
-local function showStatus(statusLabel: TextLabel, text: string, color: Color3)
-	statusLabel.Text = text
-	statusLabel.TextColor3 = color
-	-- Auto-clear po 3s
-	task.delay(3, function()
-		if statusLabel.Text == text then
-			statusLabel.Text = ""
-		end
-	end)
-end
-
-local function renderOffers(offersContainer: ScrollingFrame, template: Frame)
-	-- Wyczyść stare offer'y (oprócz template i UIListLayout)
-	for _, child in ipairs(offersContainer:GetChildren()) do
-		if child:IsA("Frame") and child.Name == "Offer" then
-			child:Destroy()
-		end
-	end
-
-	for layoutOrder, itemId in ipairs(ItemDefinitions.shopOrder) do
-		local def = ItemDefinitions.get(itemId)
-		if not def then continue end
-
-		local offer = template:Clone()
-		offer.Name = "Offer"
-		offer.Visible = true
-		offer.LayoutOrder = layoutOrder
-		offer.Parent = offersContainer
-
-		local nameLabel = offer:FindFirstChild("ItemName")
-		if nameLabel and nameLabel:IsA("TextLabel") then
-			nameLabel.Text = def.name
-		end
-		local priceLabel = offer:FindFirstChild("Price")
-		if priceLabel and priceLabel:IsA("TextLabel") then
-			priceLabel.Text = "💰 " .. tostring(def.price)
-		end
-		local buyBtn = offer:FindFirstChild("BuyButton")
-		if buyBtn and buyBtn:IsA("TextButton") then
-			buyBtn.Activated:Connect(function()
-				Remotes.BuyItem:FireServer(itemId)
-			end)
-		end
-	end
-end
-
-local function setupShop()
-	local playerGui = localPlayer:WaitForChild("PlayerGui")
-	local hud = playerGui:WaitForChild("HUD", 10)
-	if not hud then
-		warn("[ShopController] PlayerGui.HUD nie istnieje")
-		return
-	end
-
-	-- ShopButton siedzi teraz w kontenerze HUD.SideButtons (UIListLayout, fix nachodzenia
-	-- przycisków na dużych ekranach) — NIE jest już bezpośrednim dzieckiem HUD. Szukamy
-	-- rekurencyjnie; krótki retry na wypadek opóźnionej replikacji subtree.
-	local container = hud:FindFirstChild("ShopButton", true)
-	if not container then
-		local t0 = os.clock()
-		repeat task.wait() until hud:FindFirstChild("ShopButton", true) or os.clock() - t0 > 5
-		container = hud:FindFirstChild("ShopButton", true)
-	end
-	local menu = hud:WaitForChild("ShopMenu", 5)
-	if not container or not menu then
-		warn("[ShopController] ShopButton lub ShopMenu nie istnieje")
-		return
-	end
-
-	-- ShopButton w Studio może być Frame (kontener) z child'em ImageButton (klikalna ikona),
-	-- albo bezpośrednio GuiButton. Click bindujemy na pierwszy GuiButton w drzewie,
-	-- hover/tween animujemy na całym kontenerze (cały Frame z tekstem rośnie razem z ikoną).
-	local clickTarget: GuiButton? = if container:IsA("GuiButton") then container :: GuiButton
-		else container:FindFirstChildWhichIsA("GuiButton", true)
-
-	-- CloseButton może siedzieć płytko pod ShopMenu lub zagłębione (np. w header Frame).
-	-- Rekursywny find żeby Kacper mógł przebudowywać layout w Studio bez kodu.
-	local closeBtn = menu:FindFirstChild("CloseButton", true)
-	local statusLabel = menu:FindFirstChild("StatusLabel")
-	local offers = menu:FindFirstChild("Offers")
-	local template = offers and offers:FindFirstChild("OfferTemplate")
-
-	if not (offers and template and statusLabel) then
-		warn("[ShopController] menu brakuje child'ów (Offers / OfferTemplate / StatusLabel)")
-		return
-	end
-
-	renderOffers(offers :: ScrollingFrame, template :: Frame)
-
-	if clickTarget then
-		clickTarget.Activated:Connect(function()
-			menu.Visible = not menu.Visible
-		end)
-	else
-		warn("[ShopController] HUD.ShopButton nie zawiera żadnego GuiButton — nie będzie klikalne")
-	end
-
-	-- Hover FX na całym kafelku: BG (wizualny tile, rodzic przycisku) jeśli istnieje,
-	-- fallback sam przycisk. Obrót + rozjaśnienie — feedback "to jest klikalne".
-	local tile = hud:FindFirstChild("ShopbuttonBG", true) or container
-	if tile and tile:IsA("GuiObject") then
-		ButtonFX.applyTileHover(tile)
-	end
-
-	-- Akceptuje TextButton i ImageButton (Kacper zmienił styling header'a → ImageButton X)
-	if closeBtn and closeBtn:IsA("GuiButton") then
-		closeBtn.Activated:Connect(function()
-			menu.Visible = false
-		end)
-	else
-		warn("[ShopController] ShopMenu.CloseButton nie istnieje lub nie jest GuiButton")
-	end
-
-	-- ShopResult handler
-	Remotes.ShopResult.OnClientEvent:Connect(function(success: boolean, itemId: string, reason: string?)
-		if success then
-			local def = ItemDefinitions.get(itemId)
-			local name = def and def.name or itemId
-			showStatus(statusLabel :: TextLabel, "Kupiono " .. name, Color3.fromRGB(120, 220, 120))
-		else
-			local text = REASON_TEXT[reason or ""] or ("Błąd: " .. tostring(reason))
-			showStatus(statusLabel :: TextLabel, text, Color3.fromRGB(255, 120, 120))
-		end
-	end)
-end
-
 function ShopController.init()
-	setupShop()
+	if initialized then return end
+	initialized = true
+
+	-- UI refs (ShopUI ResetOnSpawn=false → persistuje).
+	local pg = localPlayer:WaitForChild("PlayerGui")
+	local gui = pg:WaitForChild("ShopUI", 15)
+	if gui and gui:IsA("ScreenGui") then
+		ui = gui
+		elItemName = gui:FindFirstChild("ItemName", true) :: TextLabel?
+		elPrice = gui:FindFirstChild("Price", true) :: TextLabel?
+		elDesc = gui:FindFirstChild("Description", true) :: TextLabel?
+		elStatus = gui:FindFirstChild("StatusLabel", true) :: TextLabel?
+		btnBuy = gui:FindFirstChild("BuyButton", true) :: TextButton?
+		btnPrev = gui:FindFirstChild("PrevButton", true) :: TextButton?
+		btnNext = gui:FindFirstChild("NextButton", true) :: TextButton?
+		btnClose = gui:FindFirstChild("CloseButton", true) :: TextButton?
+		gui.Enabled = false
+
+		if btnBuy then btnBuy.Activated:Connect(tryBuy) end
+		if btnPrev then btnPrev.Activated:Connect(function() setIndex(index - 1, false) end) end
+		if btnNext then btnNext.Activated:Connect(function() setIndex(index + 1, false) end) end
+		if btnClose then btnClose.Activated:Connect(closeShop) end
+	else
+		warnOnce("ui", "brak StarterGui.ShopUI (ScreenGui) — sklep nieaktywny")
+	end
+
+	-- ProximityPrompt na NPC (może dojechać z opóźnieniem — czekamy w tle).
+	task.spawn(function()
+		local lobby = Workspace:WaitForChild("Lobby", 20)
+		local npc = lobby and lobby:WaitForChild(CFG.NpcName, 20)
+		local prompt = npc and npc:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if prompt then
+			prompt.Triggered:Connect(openShop)
+		else
+			warnOnce("prompt", ("brak ProximityPrompt na %s — sklep nie otworzy się promptem"):format(CFG.NpcName))
+		end
+	end)
+
+	-- Klawisze (A/D scroll, Q wyjście) + scroll myszy — tylko gdy sklep otwarty.
+	UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+		if not isOpen or gp then return end
+		if input.KeyCode == CFG.PrevKey then
+			setIndex(index - 1, false)
+		elseif input.KeyCode == CFG.NextKey then
+			setIndex(index + 1, false)
+		elseif input.KeyCode == CFG.CloseKey then
+			closeShop()
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input: InputObject, gp: boolean)
+		if not isOpen or gp then return end
+		if input.UserInputType == Enum.UserInputType.MouseWheel then
+			-- Scroll w górę (Z>0) = poprzedni item.
+			setIndex(index - (if input.Position.Z > 0 then 1 else -1), false)
+		end
+	end)
+
+	-- Affordability: initial z leaderstats + live z CashChanged.
+	readCash()
+	Remotes.CashChanged.OnClientEvent:Connect(function(balance: any)
+		if type(balance) == "number" then
+			currentCash = balance
+			if isOpen then refreshUI() end
+		end
+	end)
+
+	-- Feedback zakupu.
+	Remotes.ShopResult.OnClientEvent:Connect(function(success: boolean, _itemId: string, reason: string?)
+		if not elStatus then return end
+		if success then
+			elStatus.TextColor3 = Color3.fromRGB(120, 220, 120)
+			elStatus.Text = "Kupiono!"
+		else
+			elStatus.TextColor3 = Color3.fromRGB(235, 90, 80)
+			elStatus.Text = (reason and BUY_FAIL_TEXT[reason]) or "Nie udało się"
+		end
+	end)
+
+	-- Force-close: start rundy (teleport) lub respawn nie mogą zostawić zablokowanej kamery.
+	Remotes.GameStateChanged.OnClientEvent:Connect(function(newState: any)
+		if newState ~= "LOBBY" and isOpen then
+			closeShop()
+		end
+	end)
+	localPlayer.CharacterAdded:Connect(function()
+		if isOpen then
+			closeShop()
+		end
+	end)
 end
 
 return ShopController

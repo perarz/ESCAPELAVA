@@ -1,27 +1,32 @@
 --!strict
 -- ShopService.luau
--- Server-authoritative kupowanie. Klient FireServer(BuyItem, itemId) — server waliduje wszystko.
--- Klient nigdy nie modyfikuje kasy/inwentarza, tylko intent.
+-- Server-authoritative kupowanie (sklep-NPC). Klient FireServer(BuyItem, itemId) — server
+-- waliduje WSZYSTKO. Klient nigdy nie modyfikuje kasy/inwentarza, tylko wysyła intent.
+--
+-- Sklep to NPC w lobby (Workspace.Lobby.<Config.Shop.NpcName>). Kamera/UI są czysto klienckie
+-- (ShopController) — server nie wie ani nie ufa, że sklep jest "otwarty". Jedyny gate,
+-- który MA sens server-side, to ODLEGŁOŚĆ gracza od NPC (hard rule #3): legalny gracz stoi
+-- przy sprzedawcy w lobby, cheater odpala BuyItem z dowolnego miejsca. W ROUND gracz jest
+-- teleportowany do strefy rundy (daleko od NPC), więc distance blokuje zakup w trakcie gry.
 --
 -- Walidacje (każda failure → ShopResult z reason):
---   1. Gracz nie alive w ROUND (sklep tylko w lobby/spectator)
---   2. ItemDefinitions[itemId] istnieje
---   3. Inventory ma miejsce (give może odmówić)
---   4. CashService.spend pomyślny (atomic)
+--   1. itemId to string i istnieje w ItemDefinitions
+--   2. gracz jest przy NPC (Config.Shop.InteractDistance)
+--   3. gracz ma kasę
+--   4. atomowo: give → spend (z undo gdy spend padnie)
 --
--- Rate limit usunięty — spam zakupów nie jest realnym exploitem (CashService.spend
--- jest atomic per gracz, inventory.give też). Gracz może klikać ile chce.
---
--- ShopResult firowany do klienta z reason — UI pokazuje feedback.
+-- Rate limit celowo brak — spam zakupów nie jest exploitem (CashService.spend i
+-- ItemService.give są atomic per gracz). Gracz może klikać KUP ile chce.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 
 local CashService = require(script.Parent.CashService)
 local ItemService = require(script.Parent.ItemService)
-local PlayerService = require(script.Parent.PlayerService)
 
 local ShopService = {}
 
@@ -29,19 +34,32 @@ local function log(player: Player, itemId: string, ok: boolean, reason: string?)
 	print(("[Shop] %s buy %s → %s%s"):format(
 		player.Name, itemId,
 		ok and "OK" or "FAIL",
-		reason and (" ("..reason..")") or ""
+		reason and (" (" .. reason .. ")") or ""
 	))
 end
 
+-- Gate proximity: gracz musi realnie stać przy NPC-sprzedawcy. Fail closed — brak NPC =
+-- błąd mapy, nie przepuszczamy zakupu (warn, żeby było widać przyczynę na teście).
+local function nearShop(player: Player): boolean
+	local lobby = Workspace:FindFirstChild("Lobby")
+	local npc = lobby and lobby:FindFirstChild(Config.Shop.NpcName)
+	if not npc then
+		warn(("[Shop] brak Workspace.Lobby.%s — nie mogę zweryfikować odległości, zakup odrzucony"):format(
+			Config.Shop.NpcName))
+		return false
+	end
+	local anchor = npc.PrimaryPart or npc:FindFirstChild("HumanoidRootPart")
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not (anchor and anchor:IsA("BasePart") and hrp and hrp:IsA("BasePart")) then
+		return false
+	end
+	return (anchor.Position - hrp.Position).Magnitude <= Config.Shop.InteractDistance
+end
+
 local function buy(player: Player, itemId: any): (boolean, string?)
-	-- Typecheck z klienta — nie ufamy
 	if type(itemId) ~= "string" then
 		return false, "invalid_payload"
-	end
-
-	-- Gracz alive w ROUND nie może shopować
-	if PlayerService.isAlive(player) then
-		return false, "alive_in_round"
 	end
 
 	local def = ItemDefinitions.get(itemId)
@@ -49,18 +67,19 @@ local function buy(player: Player, itemId: any): (boolean, string?)
 		return false, "unknown_item"
 	end
 
-	-- Sprawdź czy gracz ma kasę (server-side, klient nigdy nie decyduje)
+	if not nearShop(player) then
+		return false, "too_far"
+	end
+
+	-- Kasa sprawdzona server-side (klient nigdy nie decyduje).
 	local current = CashService.get(player)
 	if current < def.price then
 		return false, "not_enough_cash"
 	end
 
-	-- Najpierw sprawdź czy inventory ma miejsce — give zwraca false bez modyfikacji
-	-- jeśli pełne. Ale "sprawdź" i "give" są osobno = race window. Robimy CashService.spend
-	-- ZANIM give? Nie, bo wtedy gracz traci kasę i nie dostaje itemu jeśli inventory full.
-	-- Bezpieczna kolejność: give FIRST (atomic — albo cały item wszedł, albo nic), POTEM spend.
-	-- Jeśli spend zwróci false (race condition gdzie ktoś inny wydał kasę graczowi?
-	-- niemożliwe bo CashService.spend jest server-only single thread per player), undo give.
+	-- Bezpieczna kolejność: give FIRST (atomic — albo cały item wszedł, albo nic),
+	-- POTEM spend. Gdyby spend padł (teoretycznie niemożliwe po sprawdzeniu current),
+	-- cofamy give, żeby gracz nie dostał darmowego itemu.
 	local giveOk, giveReason = ItemService.give(player, itemId, 1)
 	if not giveOk then
 		return false, giveReason or "inventory_full"
@@ -68,10 +87,6 @@ local function buy(player: Player, itemId: any): (boolean, string?)
 
 	local spendOk = CashService.spend(player, def.price, "buy_" .. itemId)
 	if not spendOk then
-		-- Teoretycznie nie powinno się zdarzyć (sprawdziliśmy current >= price wyżej).
-		-- Jeśli się zdarzy, undo give żeby gracz nie dostał free itemu.
-		-- (Poprzednia wersja skanowała inventory starym schematem slotowym i crashowała
-		-- na "attempt to index number" — nowy schemat to { [itemId] = count }.)
 		warn("[Shop] CRITICAL: spend failed after give succeeded — undoing give")
 		ItemService.consume(player, itemId, 1)
 		return false, "internal_error"

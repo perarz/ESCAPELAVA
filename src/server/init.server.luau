@@ -29,7 +29,6 @@ local HeadTrackingService = require(script.Services.HeadTrackingService)
 local AntiCheatService = require(script.Services.AntiCheatService)
 local RewardsService = require(script.Services.RewardsService)
 local LeaderstatsService = require(script.Services.LeaderstatsService)
-local DailyRewardsService = require(script.Services.DailyRewardsService)
 local DevService = require(script.Services.DevService)
 -- Ragdoll: toolbox ARTFVL ragdoll (folder w Workspace.Ragdoll Script... → StarterGui → PlayerGui)
 
@@ -63,7 +62,6 @@ HeadTrackingService.init()
 AntiCheatService.init()
 RewardsService.init()
 LeaderstatsService.init()
-DailyRewardsService.init()
 DevService.init()
 
 -- Replikuj aktualny state do nowych graczy żeby HUD nie utknął na default tekście

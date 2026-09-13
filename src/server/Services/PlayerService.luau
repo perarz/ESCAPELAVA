@@ -162,7 +162,8 @@ local function onDeath(player: Player, hum: Humanoid?)
 		KillService.processDeath(player, hum)
 	end
 
-	-- Klient (HudVisibilityController) pokazuje sklep spectatorowi po śmierci.
+	-- Sygnał zmiany stanu alive → false (single source: aliveSet). Obecnie bez konsumenta
+	-- po stronie klienta (HudVisibilityController usunięty razem ze sklepem).
 	Remotes.AliveChanged:FireClient(player, false)
 	Remotes.PlayerDied:FireAllClients(player, "round")
 

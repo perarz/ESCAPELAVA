@@ -2,7 +2,7 @@
 
 > Dokument dla asystenta pomagającego w organizacji pracy (TODO, planowanie, decyzje).
 > Celowo bez szczegółów kodu — od logiki gry jest Claude Code w repo.
-> Stan na: 2026-08-11.
+> Stan na: 2026-09-13.
 
 ---
 
@@ -51,16 +51,25 @@ Zasada: Claude pyta o decyzje designowe zanim koduje; Kacper nie musi dotykać k
 - **Kasa**: zbierana z mapy (przyciąganie magnetyczne + animacja lotu ze złotym trailem),
   za zabójstwa (25$), za przetrwanie rundy (100$), popupy "+10$", licznik jako ozdobne
   cyfry z teksturą studs.
-- **Sklep + hotbar** z equipem itemów (klawisze 1-5, białe podświetlenie wybranego slotu).
-- **Daily rewards**: 7-dniowy streak logowań (50→500$), menu z odbiorem.
+- **Sklep jako NPC w lobby** (przebudowany 12.09): podchodzisz do sprzedawcy, wciskasz E,
+  kamera płynnie jedzie po wystawie z itemami i celuje w wybrany, a na dole panel z nazwą,
+  ceną, opisem i przyciskiem KUP. Przewijanie strzałkami / A-D / scrollem. Zakup
+  weryfikowany odległością od sprzedawcy, więc nie da się kupować w trakcie rundy.
+  Dodanie nowego itemu do sklepu = postawienie dwóch obiektów w Studio, bez tykania kodu.
+- **Hotbar** z equipem itemów (klawisze 1-5, białe podświetlenie wybranego slotu).
+- ~~Daily rewards~~ — **skasowane 12.09**, bo stare UI się nie podobało. Do zrobienia od nowa.
 - **Ruch**: sprint (Shift) ze staminą, kamera 3rd person z płynnym wygładzaniem,
   dynamiczny FOV, wstrząsy ekranu przy trafieniach, kurz przy lądowaniu, obracanie głowy
   za kamerą (widoczne dla innych).
 - **Klimat**: lawa z unoszącymi się iskrami i dymem, "żar" na ekranie gdy gracz jest
   nisko nad lawą, słup pary przy śmierci w lawie.
-- **HUD**: killfeed, banner zwycięzców, paski cooldownów, pasek staminy, chowanie sklepu
-  w trakcie gry; **pełne skalowanie na każdy monitor** (projekt w px przy 1440p, reszta
-  skaluje się automatycznie, elementy przypięte do krawędzi/rogów ekranu).
+- **Pasek staminy przy postaci** (12.09): nie element HUD, tylko pionowy wskaźnik unoszący
+  się obok Twojej postaci w świecie — widzi go **tylko właściciel**. Pokazuje się sam przy
+  sprincie i chowa po naładowaniu, ze sprężystą animacją; kolor idzie od niebieskiego przez
+  żółty do czerwonego w miarę ubywania sił.
+- **HUD**: killfeed, banner zwycięzców, paski cooldownów; **pełne skalowanie na każdy
+  monitor** (projekt w px przy 1440p, reszta skaluje się automatycznie, elementy przypięte
+  do krawędzi/rogów ekranu).
 - **Zaplecze**: zapis postępu graczy (kasa/itemy/winy/streak) odporny na awarie,
   tab-leaderboard (Cash + Wins), anti-cheat, rate limity, walidacja wszystkiego po
   stronie serwera.
@@ -78,6 +87,24 @@ Zasada: Claude pyta o decyzje designowe zanim koduje; Kacper nie musi dotykać k
     wizualny.
 
 ## TODO (priorytety)
+
+**A. Wizja ustalona 12.09 — kolejny duży blok pracy (jeszcze nierobione):**
+- **Ekwipunek i loadout**: hotbar skrócony do **3 slotów**, a gracz wybiera 3 itemy
+  z docelowych **6**. Sens: zmusić do decyzji (mobilność vs atak vs wsparcie) zamiast
+  brania samych ułatwień w bieganiu. Daje 20 różnych zestawów.
+- **Drugie stoisko — skiny**: osobny NPC, kamera przesuwa się na Twoją postać
+  w przebieralni, przewijasz i kupujesz. **Uwaga: to nie jest "drugi sklep", tylko nowy
+  system** (zapis posiadanych skinów, zakładanie na postać przy odrodzeniu, assety) —
+  robić dopiero po loadoucie.
+- **Daily rewards od nowa** jako UI.
+- **4 nowe itemy** do kompletu 6. Claude przynosi propozycje, Kacper wybiera.
+
+**B. Otwarte pytanie designowe**: przy obecnych liczbach lawa w 80-sekundowej rundzie
+podnosi się tylko o ~120 studów, więc wyższe piętra są od niej bezpieczne z definicji —
+czyli wejście na najwyższy budynek to darmowe przetrwanie. Do rozstrzygnięcia przed
+budową mapy: czy lawa ma dogonić szczyt, czy wież ma być kilka podobnej wysokości,
+czy szczyt ma być świadomą pułapką (tłum + bomby + walące się piętra).
+
 
 0. **System destrukcji v2** — stary wybuch skasowany 11.08, tego samego dnia zaprojektowany
    nowy (plan zatwierdzony: `DESTRUCTION_PLAN.md` w repo). Cel: topka Roblox — party pękają

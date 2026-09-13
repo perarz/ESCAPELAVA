@@ -58,8 +58,6 @@ local function defaultData(): any
 		cash = 0,
 		wins = 0,                -- wygrane rundy (przeżycie do końca) — leaderstats Tab
 		inventory = {},          -- { [itemId] = count }  (np. { bomb = 3 })
-		dailyStreak = 0,         -- kolejne dni z claimem (8+ = maks nagroda w kółko)
-		lastClaimDay = 0,        -- UTC day number (floor(os.time()/86400)) ostatniego claima
 		_sessionId = nil,        -- ustawiamy po load — wykryjemy "fork" gdy ktoś zacznie w innym serwerze
 		_savedAt = 0,
 	}
@@ -78,13 +76,6 @@ local function migrateSchema(data: any)
 	-- Save'y sprzed leaderboardu nie mają pola wins.
 	if data.wins == nil then
 		data.wins = 0
-	end
-	-- Save'y sprzed daily rewards.
-	if data.dailyStreak == nil then
-		data.dailyStreak = 0
-	end
-	if data.lastClaimDay == nil then
-		data.lastClaimDay = 0
 	end
 end
 

@@ -23,6 +23,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
@@ -33,6 +34,7 @@ local MovementController = {}
 
 local CFG = Config.Movement
 local CFG_STAM = CFG.Stamina
+local CFG_BAR = CFG.StaminaBar
 local CFG_CAM = CFG.Camera
 local CFG_HT = CFG.HeadTrack
 local MAX_YAW_RAD = math.rad(CFG_HT.MaxYawDegrees)
@@ -97,10 +99,24 @@ local smoothedCam: CFrame? = nil
 -- FOV punch (bomba) — chwilowy additive offset FOV, decays do 0. Niezależny od sprint FOV.
 local fovPunch: number = 0
 
--- HUD references (lookup raz przy init — HUD ResetOnSpawn=false więc persistują)
-local staminaLabel: TextLabel? = nil
-local lastStaminaShown: number = -1
-local hudWarned: boolean = false
+-- Pasek staminy 3D (BillboardGui obok postaci, client-only). Template = ReplicatedStorage.StaminaBar.
+local staminaBar: BillboardGui? = nil
+local staminaFill: GuiObject? = nil
+-- Baseline transparencji każdego GuiObject w pasku — fade in/out całego poddrzewa działa
+-- niezależnie od tego, jak Kacper zaprojektuje bar (transp = 1 − (1 − baseline) × alpha).
+local barBaseTransparency: { [GuiObject]: { bg: number, text: number?, img: number? } } = {}
+-- UIStroke NIE jest GuiObject — bez osobnej listy czarna obramówka zostawałaby w pełni
+-- widoczna, gdy reszta paska już wyblakła (pasek "znika", a ramka wisi w powietrzu).
+local barStrokeBase: { [UIStroke]: number } = {}
+local barAlpha: number = 0 -- 0 = ukryty, 1 = w pełni widoczny (ramp liniowy)
+local barScale: UIScale? = nil -- UIScale "Anim" z template — elastic pop 0↔1
+local barTween: Tween? = nil
+local barShown: boolean = false -- ostatni stan widoczności (wykrywanie zbocza)
+local barWarned: boolean = false
+
+-- Czy sprint jest aktywny W TEJ KLATCE. Pasek ma wjeżdżać już na pierwszej klatce biegu,
+-- zanim stamina zdąży spaść poniżej maksa — inaczej widać mignięcie na starcie sprintu.
+local activeSprintNow: boolean = false
 
 -- ====================================================================
 -- HELPERS
@@ -275,109 +291,192 @@ end
 -- HUD
 -- ====================================================================
 
--- Stamina jako TEKST, nie pasek (2026-08-12, decyzja Kacpra). Kontrakt:
--- `HUD.StaminaLabel` (TextLabel) — kod ustawia tylko `.Text` na "STAMINA: N" (N = 0-100),
--- cały styling jest Kacpra. Gdy labela nie ma, a jest jeszcze stary `HUD.StaminaBar`,
--- kod tworzy label przejmując geometrię paska i chowa pasek — dzięki temu HUD działa
--- od razu, a Kacper może potem podmienić na własny (wystarczy postawić StaminaLabel).
-local function findStaminaLabel()
-	-- Yield-safe, task.spawn z init() żeby nie blokować bootstrap'u.
-	local pg = localPlayer:WaitForChild("PlayerGui")
-	local hud = pg:WaitForChild("HUD", 10)
-	if not hud then
-		if not hudWarned then
-			hudWarned = true
-			warn("[Movement] StarterGui.HUD nie istnieje — licznik staminy nieaktywny")
+-- Pasek staminy 3D (BillboardGui obok postaci — client-only, 2026-09-07; zastąpił tekstowy
+-- StaminaLabel). Template robi Kacper w Studio (Figma → BillboardGui):
+--   ReplicatedStorage.StaminaBar (BillboardGui) z pionowym `Fill` (GuiObject) zakotwiczonym
+--   DOŁEM (AnchorPoint Y=1, Position Y=1), żeby zmniejszanie Size.Y.Scale opróżniało pasek
+--   OD GÓRY. Kod ustawia tylko wysokość Fill (0..1) i jego kolor (zielony→żółty→czerwony);
+--   tło/ramkę/obrys i pozycję obok postaci (StudsOffset) projektuje Kacper. Reaktywny kolor
+--   ⇒ Fill ma być tintowalny: jednolity Frame albo BIAŁY ImageLabel.
+-- Client-only: klon → PlayerGui + Adornee = HRP (instancja tworzona lokalnie nie replikuje
+-- się w górę, więc inni gracza paska nie widzą).
+
+local function captureBarBaselines(bar: BillboardGui)
+	table.clear(barBaseTransparency)
+	table.clear(barStrokeBase)
+	for _, d in ipairs(bar:GetDescendants()) do
+		if d:IsA("GuiObject") then
+			local entry: { bg: number, text: number?, img: number? } = { bg = d.BackgroundTransparency }
+			if d:IsA("TextLabel") or d:IsA("TextButton") then
+				entry.text = (d :: any).TextTransparency
+			end
+			if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+				entry.img = (d :: any).ImageTransparency
+			end
+			barBaseTransparency[d] = entry
+		elseif d:IsA("UIStroke") then
+			barStrokeBase[d] = d.Transparency
 		end
-		return
 	end
-
-	-- Rekurencyjny find, żeby Kacper mógł trzymać label w dowolnym Frame.
-	local label = hud:FindFirstChild("StaminaLabel", true)
-	if label and label:IsA("TextLabel") then
-		staminaLabel = label
-	end
-
-	-- Stary pasek: chowamy (nie Destroy — to element Kacpra w StarterGui, ma prawo
-	-- wrócić jednym Visible=true, gdyby decyzja się zmieniła).
-	local bar = hud:FindFirstChild("StaminaBar", true)
-	local barBG = hud:FindFirstChild("StaminaBarBG", true)
-	local source = bar or barBG
-	if bar and bar:IsA("GuiObject") then
-		bar.Visible = false
-	end
-	if barBG and barBG:IsA("GuiObject") then
-		barBG.Visible = false
-	end
-
-	if staminaLabel then return end
-
-	-- Fallback: brak StaminaLabel → tworzymy w miejscu paska (ten sam wzorzec co
-	-- WinBannerController: domyślny wygląd w kodzie, migrowalny do template'a Kacpra).
-	if not source or not source:IsA("GuiObject") then
-		if not hudWarned then
-			hudWarned = true
-			warn("[Movement] brak HUD.StaminaLabel (TextLabel) i brak HUD.StaminaBar — licznik staminy nieaktywny. " ..
-				"Postaw TextLabel o nazwie 'StaminaLabel' w StarterGui.HUD.")
-		end
-		return
-	end
-
-	-- Geometrię bierzemy z NAJWYŻSZEGO elementu paska (bezpośredniego dziecka HUD) —
-	-- to on niesie pozycję względem ekranu. Wewnętrzny StaminaBar ma współrzędne względem
-	-- swojego rodzica (u Kacpra 0.5/0.5 w StaminaBarBG), więc sam w sobie nie mówi nic
-	-- o miejscu na ekranie.
-	local anchorElement: GuiObject = source
-	while
-		anchorElement.Parent
-		and anchorElement.Parent ~= hud
-		and anchorElement.Parent:IsA("GuiObject")
-	do
-		anchorElement = anchorElement.Parent :: GuiObject
-	end
-
-	local created = Instance.new("TextLabel")
-	created.Name = "StaminaLabel"
-	created.BackgroundTransparency = 1
-	created.AnchorPoint = anchorElement.AnchorPoint
-	created.Position = anchorElement.Position
-	created.Size = anchorElement.Size
-	created.Font = Enum.Font.FredokaOne
-	created.TextScaled = true
-	created.TextColor3 = Color3.fromRGB(255, 255, 255)
-	created.TextXAlignment = Enum.TextXAlignment.Left
-	created.TextYAlignment = Enum.TextYAlignment.Center
-	created.Text = "STAMINA: 100"
-
-	-- Bez capa TextScaled rozdmuchuje tekst do wysokości kontenera paska (u Kacpra 108 px)
-	-- i licznik zasłania pół HUD.
-	local sizeConstraint = Instance.new("UITextSizeConstraint")
-	sizeConstraint.MaxTextSize = 42
-	sizeConstraint.Parent = created
-
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 2
-	stroke.Color = Color3.fromRGB(0, 0, 0)
-	stroke.Parent = created
-
-	-- Parent = HUD, NIE kontener paska: właśnie go ukryliśmy, a ukryty rodzic chowa
-	-- całe poddrzewo (to był powód "nie widzę napisu"). Jako top-level dziecko HUD
-	-- label dostaje też UIScale z HudScaleController (podpięte pod ChildAdded).
-	created.Parent = hud
-	staminaLabel = created
 end
 
-local function updateHUD()
-	local label = staminaLabel
-	if not label then return end
-	local pct = math.clamp(currentStamina / CFG_STAM.Max, 0, 1)
-	local value = math.floor(pct * 100 + 0.5)
-	-- Zapis tylko przy realnej zmianie — property write na TextLabel co klatkę to
-	-- niepotrzebny koszt renderu przy 60Hz update loopie.
-	if value ~= lastStaminaShown then
-		lastStaminaShown = value
-		label.Text = ("STAMINA: %d"):format(value)
+local function setupStaminaBar()
+	-- Yield-safe (task.spawn z init). Template dostarcza Kacper — czekamy z timeoutem,
+	-- żeby brak template'a nie zawiesił kontrolera (tylko ostrzeżenie, reszta ruchu działa).
+	local template = ReplicatedStorage:WaitForChild("StaminaBar", 15)
+	if not template or not template:IsA("BillboardGui") then
+		if not barWarned then
+			barWarned = true
+			warn("[Movement] brak ReplicatedStorage.StaminaBar (BillboardGui) — pasek staminy nieaktywny. " ..
+				"Postaw BillboardGui 'StaminaBar' z pionowym elementem 'Fill'.")
+		end
+		return
 	end
+
+	local pg = localPlayer:WaitForChild("PlayerGui")
+	local bar = template:Clone() :: BillboardGui
+	local fill = bar:FindFirstChild("Fill", true)
+	if not (fill and fill:IsA("GuiObject")) then
+		if not barWarned then
+			barWarned = true
+			warn("[Movement] StaminaBar nie ma elementu 'Fill' (GuiObject) — pasek nieaktywny.")
+		end
+		bar:Destroy()
+		return
+	end
+
+	captureBarBaselines(bar)
+	-- UIScale napędza elastic pop. Brak = pasek działa dalej, tylko bez animacji skali.
+	local scaleObj = bar:FindFirstChildWhichIsA("UIScale", true)
+	if scaleObj then
+		scaleObj.Scale = 0
+		barScale = scaleObj
+	end
+	barAlpha = 0
+	barShown = false
+	bar.Enabled = false -- update loop włączy przy sprincie/regeneracji
+	bar.Parent = pg
+	staminaBar = bar
+	staminaFill = fill :: GuiObject
+end
+
+-- Fade całego poddrzewa: transp = 1 − (1 − baseline) × alpha (0 = ukryty, 1 = pełny wygląd Kacpra).
+local function applyBarAlpha()
+	for obj, base in pairs(barBaseTransparency) do
+		if obj.Parent then
+			obj.BackgroundTransparency = 1 - (1 - base.bg) * barAlpha
+			if base.text ~= nil then
+				(obj :: any).TextTransparency = 1 - (1 - (base.text :: number)) * barAlpha
+			end
+			if base.img ~= nil then
+				(obj :: any).ImageTransparency = 1 - (1 - (base.img :: number)) * barAlpha
+			end
+		end
+	end
+	for stroke, base in pairs(barStrokeBase) do
+		if stroke.Parent then
+			stroke.Transparency = 1 - (1 - base) * barAlpha
+		end
+	end
+end
+
+-- Interpolacja po KOLE BARW (HSV), nie po RGB. `Color3:Lerp` miesza kanały liniowo, a
+-- niebieski i żółty są barwami DOPEŁNIAJĄCYMI — ich średnia RGB to ~(155,172,155), czyli
+-- szarość. Stąd "biały" pasek w połowie. Po HSV lecimy blue→cyan→zielony→żółty, cały czas
+-- nasycone, i przy okazji wygląda to jak naturalna skala energii.
+local function lerpHSV(a: Color3, b: Color3, t: number): Color3
+	local h1, s1, v1 = a:ToHSV()
+	local h2, s2, v2 = b:ToHSV()
+	-- Najkrótsza droga po kole barw — bez tego blue→yellow poszłoby przez purpurę i czerwień.
+	local dh = h2 - h1
+	if dh > 0.5 then
+		dh -= 1
+	elseif dh < -0.5 then
+		dh += 1
+	end
+	return Color3.fromHSV((h1 + dh * t) % 1, s1 + (s2 - s1) * t, v1 + (v2 - v1) * t)
+end
+
+-- Niebieski (pełna) → żółty (połowa) → czerwony (pusta), dwa odcinki wokół 0.5.
+local function staminaColor(frac: number): Color3
+	if frac >= 0.5 then
+		return lerpHSV(CFG_BAR.ColorMid, CFG_BAR.ColorFull, (frac - 0.5) * 2)
+	end
+	return lerpHSV(CFG_BAR.ColorLow, CFG_BAR.ColorMid, frac * 2)
+end
+
+local BAR_FULL_EPSILON = 0.999 -- powyżej = "pełna" → chowaj
+
+local function updateStaminaBar(dt: number)
+	local bar = staminaBar
+	local fill = staminaFill
+	if not bar or not fill then return end
+
+	-- Re-adorn co klatkę (tanie) — obsługuje respawn bez osobnego hooka: nowy HRP,
+	-- nowy adornee. Brak character = adornee nil = billboard po prostu nie renderuje.
+	local char = localPlayer.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if hrp and hrp:IsA("BasePart") then
+		if bar.Adornee ~= hrp then
+			bar.Adornee = hrp
+		end
+	end
+
+	local frac = math.clamp(currentStamina / CFG_STAM.Max, 0, 1)
+
+	-- Widoczny WYŁĄCZNIE przy sprincie albo gdy stamina się odbudowuje (< max).
+	-- `activeSprintNow` łapie pierwszą klatkę biegu, zanim stamina zdąży spaść.
+	local wantVisible = isAlive() and (activeSprintNow or frac < BAR_FULL_EPSILON)
+
+	-- ZBOCZE widoczności → elastic pop na UIScale. Tween startuje tylko przy ZMIANIE
+	-- stanu, nie co klatkę — inaczej restartowałby się w kółko i nigdy nie doszedł końca.
+	if wantVisible ~= barShown then
+		barShown = wantVisible
+		if wantVisible and not bar.Enabled then
+			bar.Enabled = true -- włącz ZANIM ruszy animacja, inaczej pop jest niewidoczny
+		end
+		local s = barScale
+		if s then
+			if barTween then
+				barTween:Cancel()
+				barTween = nil
+			end
+			local info = if wantVisible
+				then TweenInfo.new(CFG_BAR.PopInTime, CFG_BAR.PopInStyle, Enum.EasingDirection.Out)
+				else TweenInfo.new(CFG_BAR.PopOutTime, CFG_BAR.PopOutStyle, Enum.EasingDirection.In)
+			local tw = TweenService:Create(s, info, { Scale = if wantVisible then 1 else 0 })
+			barTween = tw
+			tw:Play()
+		end
+	end
+
+	-- Fade LINIOWY — trwa dokładnie FadeIn/FadeOutTime. Wykładniczy lerp ciągnął się
+	-- kilka razy dłużej niż liczba w Configu i pasek "wisiał" długo po sprincie.
+	local fadeTime = if wantVisible then CFG_BAR.FadeInTime else CFG_BAR.FadeOutTime
+	local step = if fadeTime > 0 then dt / fadeTime else 1
+	barAlpha = math.clamp(barAlpha + (if wantVisible then step else -step), 0, 1)
+
+	-- W pełni schowany → wyłącz render (zero kosztu billboardu przy pełnej staminie).
+	if not wantVisible and barAlpha <= 0 then
+		if bar.Enabled then
+			bar.Enabled = false
+		end
+		return
+	end
+
+	-- Wysokość wypełnienia: X bez zmian, Y.Scale = frac (Fill zakotwiczony dołem = opróżnia od góry).
+	local sz = fill.Size
+	fill.Size = UDim2.new(sz.X.Scale, sz.X.Offset, frac, 0)
+
+	-- Reaktywny kolor — na ImageLabel tint przez ImageColor3, inaczej BackgroundColor3.
+	local col = staminaColor(frac)
+	if fill:IsA("ImageLabel") or fill:IsA("ImageButton") then
+		(fill :: any).ImageColor3 = col
+	else
+		fill.BackgroundColor3 = col
+	end
+
+	applyBarAlpha()
 end
 
 -- ====================================================================
@@ -386,7 +485,8 @@ end
 
 local function updateLoop(dt: number)
 	if not currentHumanoid then
-		updateHUD()
+		activeSprintNow = false
+		updateStaminaBar(dt)
 		return
 	end
 
@@ -394,11 +494,13 @@ local function updateLoop(dt: number)
 	-- nie żyje). State zostaje, reset dopiero na CharacterAdded (nowy respawn).
 	if not isAlive() then
 		isSprintingHeld = false
-		updateHUD()
+		activeSprintNow = false
+		updateStaminaBar(dt)
 		return
 	end
 
 	local activeSprint = shouldActivelySprintThisFrame()
+	activeSprintNow = activeSprint
 
 	-- Stamina drain / regen
 	if activeSprint then
@@ -471,7 +573,7 @@ local function updateLoop(dt: number)
 	-- maybeReplicate() bezpieczne nawet bez character (sprawdza w środku).
 	maybeReplicate()
 
-	updateHUD()
+	updateStaminaBar(dt)
 end
 
 -- ====================================================================
@@ -727,7 +829,7 @@ local function onCharacterAdded(character: Model)
 	end
 	-- Async pre-cache joints (Head/UpperTorso + Motor6D mogą jeszcze nie być replicated).
 	asyncCacheJoints(localPlayer, character)
-	updateHUD()
+	-- Pasek staminy re-adornuje się sam w updateLoop; po respawnie stamina = max → schowany.
 end
 
 local function setupRemotePlayerHeadTrack(player: Player)
@@ -823,8 +925,8 @@ function MovementController.init()
 
 	enforceCameraZoom()
 
-	-- HUD lookup w background — może yieldować na PlayerGui/HUD.
-	task.spawn(findStaminaLabel)
+	-- Pasek staminy 3D — może yieldować na ReplicatedStorage.StaminaBar / PlayerGui.
+	task.spawn(setupStaminaBar)
 
 	-- Character hook (obecny + przyszłe respawny).
 	if localPlayer.Character then

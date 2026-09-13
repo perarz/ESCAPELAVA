@@ -18,7 +18,7 @@ local REMOTE_NAMES = {
 	"CashChanged",        -- FireClient: (balance: number, delta: number?, reason: string?)
 	"CashCollected",      -- FireAllClients: (player: Player, fromPosition: Vector3) — klient animuje pickup
 	"InventoryChanged",   -- FireClient: (inventory: {[itemId: string] = count: number})
-	"BuyItem",            -- klient→server: FireServer(itemId: string)
+	"BuyItem",            -- klient→server: FireServer(itemId: string) — zakup w sklepie-NPC
 	"ShopResult",         -- FireClient: (success: boolean, itemId: string, reason: string?)
 	"EquipItem",          -- klient→server: FireServer(itemId: string) — dispatch po itemId,
 	                      --   każdy service equipowalnego itemu słucha i reaguje na SWÓJ id
@@ -45,9 +45,6 @@ local REMOTE_NAMES = {
 	                      --   zawaleniem / sam kolaps. Klient robi pył, dźwięk i wstrząs
 	"DevCommand",         -- klient→server: FireServer(command: string) — "skip" | "endRound".
 	                      --   Server waliduje Dev.isDev(player); tryb dev = Config.Dev.Enabled
-	"ClaimDaily",         -- klient→server: FireServer() — próba odbioru daily reward
-	"DailyRewardsInfo",   -- FireClient: (streak: number, claimedToday: boolean, secondsToNextDay: number)
-	                      --   streak = efektywny streak (0 gdy przerwany), klient liczy claimable day = streak+1
 }
 
 local function getRemotesFolder(): Folder
