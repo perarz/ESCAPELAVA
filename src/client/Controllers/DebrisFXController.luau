@@ -20,6 +20,7 @@ local TweenService = game:GetService("TweenService")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Destructible = require(ReplicatedStorage.Shared.Modules.Destructible)
+local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 
 local DebrisFXController = {}
 
@@ -52,7 +53,7 @@ local function qualityMultiplier(): number
 	return 1
 end
 
-type Sample = { color: Color3, material: Enum.Material }
+type Sample = { color: Color3, material: Enum.Material, variant: string }
 
 -- Próbkuj wygląd otoczenia: do 6 partów wokół epicentrum.
 -- Party CHRONIONE (Locked / Map.Locked / ActiveCash) są pomijane — odłamek w kolorze
@@ -64,11 +65,13 @@ local function sampleSurroundings(center: Vector3, radius: number): { Sample }
 	for _, part in ipairs(Workspace:GetPartBoundsInRadius(center, math.min(radius, 30))) do
 		if part.Transparency > 0.6 then continue end
 		if not Destructible.canSpawnFXFrom(part, ctx) then continue end
-		table.insert(samples, { color = part.Color, material = part.Material })
+		-- Wariant materiału razem z materiałem: mapa to Plastic + MaterialVariant "Studs",
+		-- a sam Plastic daje gołe odłamki obok ściany pokrytej teksturą studsów.
+		table.insert(samples, { color = part.Color, material = part.Material, variant = part.MaterialVariant })
 		if #samples >= 6 then break end
 	end
 	if #samples == 0 then
-		table.insert(samples, { color = FALLBACK_COLOR, material = FALLBACK_MATERIAL })
+		table.insert(samples, { color = FALLBACK_COLOR, material = FALLBACK_MATERIAL, variant = "" })
 	end
 	return samples
 end
@@ -113,6 +116,10 @@ local function spawnFrag(rng: Random, center: Vector3, radius: number, samples: 
 	)
 	frag.Color = sample.color
 	frag.Material = sample.material
+	frag.MaterialVariant = sample.variant
+	-- Gładko, a nie jak chce `Instance.new`: odłamek ma 0.4-1.5 studa, więc domyślny
+	-- stud bywa większy niż jego ściana i drobnica wygląda jak sypiące się klocki LEGO.
+	Utils.smoothSurfaces(frag)
 	frag.CustomPhysicalProperties = FRAG_PROPERTIES
 	frag.CanCollide = true
 	frag.CanQuery = false
@@ -159,6 +166,21 @@ end
 -- ============================================================================
 
 local function spawnGlassShards(rng: Random, center: Vector3, panes: { any })
+	-- ⚠️ BUDŻET DZIELONY PROPORCJONALNIE DO POWIERZCHNI, nie „kto pierwszy, ten lepszy".
+	-- Przy zwykłym odliczaniu pierwsze tafle zjadłyby cały limit, a dalsze pękałyby BEZ
+	-- ani jednego odłamka — czyli dokładnie ten objaw, który naprawiamy, tylko przesunięty
+	-- na sąsiedni budynek. Tak wielka szyba dostaje najwięcej kawałków (bo jest większością
+	-- powierzchni), a każda mała i tak ma zagwarantowane `ShardsPerPaneMin`.
+	local totalArea = 0
+	for _, pane in ipairs(panes) do
+		if typeof(pane) == "table" and typeof(pane.size) == "Vector3" then
+			local s3 = { pane.size.X, pane.size.Y, pane.size.Z }
+			table.sort(s3)
+			totalArea += s3[2] * s3[3]
+		end
+	end
+	if totalArea <= 0 then return end
+
 	for _, pane in ipairs(panes) do
 		if typeof(pane) ~= "table" then continue end
 		local cf = pane.cf
@@ -183,12 +205,35 @@ local function spawnGlassShards(rng: Random, center: Vector3, panes: { any })
 		end
 
 		local area = axes[2].len * axes[3].len
-		local count = math.clamp(math.floor(area / 10), 3, FX.ShardsPerPaneMax)
+		local count = math.clamp(
+			math.round(area / FX.ShardAreaPerShard),
+			FX.ShardsPerPaneMin,
+			FX.ShardsPerPaneMax
+		)
+		-- Udział tej tafli w budżecie całego wybuchu, proporcjonalnie do jej powierzchni.
+		local share = math.round(FX.ShardsPerBlastMax * area / totalArea)
+		count = math.clamp(math.min(count, share), FX.ShardsPerPaneMin, FX.ShardsPerPaneMax)
+
+		-- ⚠️ ROZMIAR ODŁAMKA ROŚNIE Z TAFLĄ. Bez tego wielka szyba dostaje tę samą drobnicę
+		-- co mała i „znika" zamiast się rozpaść — to był zgłoszony objaw. „Komórka" mówi,
+		-- ile powierzchni przypada na jeden kawałek; odnosimy ją do typowej szyby.
+		local cell = math.sqrt(area / math.max(count, 1))
+		local scale = math.clamp(cell / FX.ShardCellRef, 1, FX.ShardScaleMax)
 
 		for _ = 1, count do
-			local shard = Instance.new("Part")
+			-- `WedgePart`, nie `Part`: klin zbiega się do krawędzi, czyli ma ostry koniec.
+			-- Zwykły prostopadłościan o dwóch podobnych bokach czytał się jak kwadratowa
+			-- płytka i całość wyglądała jak konfetti, nie jak tłuczone szkło.
+			local shard = Instance.new("WedgePart")
 			shard.Name = "LocalGlassShard"
-			shard.Size = Vector3.new(rng:NextNumber(0.25, 0.7), rng:NextNumber(0.25, 0.7), 0.08)
+			-- X = grubość tafli, Y = szerokość u podstawy, Z = DŁUGOŚĆ drzazgi.
+			-- Długość i szerokość z ROZŁĄCZNYCH zakresów — to one robią „ostry", nie kształt
+			-- sam w sobie: przy zbliżonych wartościach klin dalej wygląda jak kostka.
+			shard.Size = Vector3.new(
+				FX.ShardThickness,
+				rng:NextNumber(FX.ShardWidthMin, FX.ShardWidthMax) * scale,
+				rng:NextNumber(FX.ShardLengthMin, FX.ShardLengthMax) * scale
+			)
 			local h2 = axes[2].len * 0.5
 			local h3 = axes[3].len * 0.5
 			shard.CFrame = CFrame.new(
@@ -198,6 +243,7 @@ local function spawnGlassShards(rng: Random, center: Vector3, panes: { any })
 			) * CFrame.Angles(rng:NextNumber(0, math.pi), rng:NextNumber(0, math.pi), rng:NextNumber(0, math.pi))
 			shard.Color = color
 			shard.Material = Enum.Material.Glass
+			Utils.smoothSurfaces(shard)
 			shard.Transparency = 0.4
 			shard.Reflectance = 0.2
 			shard.CustomPhysicalProperties = FRAG_PROPERTIES
@@ -206,12 +252,16 @@ local function spawnGlassShards(rng: Random, center: Vector3, panes: { any })
 			shard.CanTouch = false
 			shard.CastShadow = false
 			shard.Anchored = false
-			shard.AssemblyLinearVelocity = normal * rng:NextNumber(6, 16)
-				+ Vector3.new(rng:NextNumber(-3, 3), rng:NextNumber(-1, 4), rng:NextNumber(-3, 3))
+			-- Duży kawał szkła ma OPADAĆ, nie odlatywać jak iskra — inaczej wielka tafla
+			-- znowu „znika", tylko szybciej. Dzielimy przez pierwiastek ze skali, żeby
+			-- małe odłamki zachowały dotychczasową żywość.
+			local slow = math.sqrt(scale)
+			shard.AssemblyLinearVelocity = normal * (rng:NextNumber(6, 16) / slow)
+				+ Vector3.new(rng:NextNumber(-3, 3), rng:NextNumber(-1, 4), rng:NextNumber(-3, 3)) / slow
 			shard.AssemblyAngularVelocity = Vector3.new(
-				rng:NextNumber(-25, 25),
-				rng:NextNumber(-25, 25),
-				rng:NextNumber(-25, 25)
+				rng:NextNumber(-25, 25) / scale,
+				rng:NextNumber(-25, 25) / scale,
+				rng:NextNumber(-25, 25) / scale
 			)
 			shard.Parent = Workspace
 			table.insert(activeFrags, shard)

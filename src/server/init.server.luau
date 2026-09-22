@@ -12,6 +12,7 @@ require(ReplicatedStorage.Shared.Modules.Remotes)
 
 local PlayerDataService = require(script.Services.PlayerDataService)
 local LavaService = require(script.Services.LavaService)
+local AppearanceService = require(script.Services.AppearanceService)
 local PlayerService = require(script.Services.PlayerService)
 local GameLoopService = require(script.Services.GameLoopService)
 local CashService = require(script.Services.CashService)
@@ -27,6 +28,8 @@ local CashPickupService = require(script.Services.CashPickupService)
 local BridgeService = require(script.Services.BridgeService)
 local HeadTrackingService = require(script.Services.HeadTrackingService)
 local AntiCheatService = require(script.Services.AntiCheatService)
+local RagdollService = require(script.Services.RagdollService)
+local FallDamageService = require(script.Services.FallDamageService)
 local RewardsService = require(script.Services.RewardsService)
 local LeaderstatsService = require(script.Services.LeaderstatsService)
 local DevService = require(script.Services.DevService)
@@ -37,7 +40,7 @@ local DevService = require(script.Services.DevService)
 --   pierwszym PlayerAdded, żeby nie zgubić eventu "loaded".
 --   MapService snapshot PRZED pierwszą rundą (bomby nie zdążą zmodyfikować mapy
 --   zanim zrobimy clone) — w praktyce wszystko init przed GameLoopService.start().
---   CashPickupService po LavaService — czyta wysokość lawy z Workspace.Lava.LavaPart
+--   CashPickupService po LavaService — czyta wysokość lawy przez LavaService.getSurfaceY()
 --   (magnet tick kasuje cash zalany lawą), więc part musi już istnieć.
 PlayerDataService.init()
 CashService.init()
@@ -52,6 +55,15 @@ StructureService.init()
 DestructionService.init()
 BombService.init()
 LavaService.init()
+-- PRZED PlayerService: ten spawnuje graczy, a spawn idzie już przez AppearanceService.
+AppearanceService.init()
+-- ⚠️ TEŻ PRZED PlayerService, i to jest WARUNEK DZIAŁANIA WYWROTKI, nie porządki.
+-- `RagdollService.init` przenosi folder `ragdoll` do `StarterGui`, a Roblox kopiuje
+-- StarterGui do PlayerGui w momencie SPAWNU. Kto zaspawnuje wcześniej, nie dostanie
+-- folderu nigdy — i dokładnie to trafiało hosta (wchodzi pierwszy), dając objaw
+-- „ragdoll działa tylko na kolegę". Przy okazji licznik generacji istnieje, zanim
+-- Bomb/FallDamage zaczną zlecać wywrotki.
+RagdollService.init()
 PlayerService.init()
 ShopService.init()
 MapService.init()
@@ -60,6 +72,8 @@ CashPickupService.init()
 BridgeService.init()
 HeadTrackingService.init()
 AntiCheatService.init()
+-- FallDamage po PlayerService (czyta getAliveList) i po GameLoopService (czyta stan).
+FallDamageService.init()
 RewardsService.init()
 LeaderstatsService.init()
 DevService.init()

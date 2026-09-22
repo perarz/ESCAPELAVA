@@ -1,15 +1,25 @@
 --!strict
 -- ShopController.luau
 -- SKLEP-NPC. Gracz podchodzi do sprzedawcy (ProximityPrompt) → tryb sklepu: kamera
--- przypina się (Scriptable) do markera SHOPCAMERA{N} i CELUJE w wystawiony model itemu,
--- postać zamrożona (sterowanie wyłączone), na dole StarterGui.ShopUI (KUP / cena / opis).
+-- przeskakuje (Scriptable) do SCENY SKLEPU i celuje w wystawiony model itemu, postać
+-- zostaje przy sprzedawcy (sterowanie wyłączone), na dole StarterGui.ShopUI.
 -- ◀▶ w UI, klawisze A/D i scroll przewijają itemy (kamera płynnie jedzie do następnego).
 --
--- MAPOWANIE (kontrakt w Config.Shop): SHOPCAMERA{N} → ItemDefinitions.shopOrder[N].
--- Marker niesie tylko POZYCJĘ kamery — jego obrót jest nieistotny, bo kierunek liczymy
--- przez CFrame.lookAt na model itemu. Modelem jest NAJBLIŻSZY markerowi part z SHOPITEMS,
--- więc Kacper nie musi niczego nazywać ani parować ręcznie.
--- SKALOWANIE: dodanie itemu = kolejny SHOPCAMERA{N} + model obok. Zero kodu tutaj.
+-- GRACZ NIE JEST TELEPORTOWANY do sceny (decyzja 2026-09-20) — jedzie sama kamera.
+-- Dlatego scena może stać dowolnie daleko od lobby, kilku graczy może kupować naraz
+-- bez wchodzenia sobie w kadr, a start rundy nie musi nikogo stamtąd wyciągać.
+--
+-- KONTRAKT (nazwy w Config.Shop):
+--   Workspace.<SceneName>.<ItemsFolder>.<def.sceneModel>  — model itemu na wystawie
+--   Workspace.<SceneName>.<CamerasFolder>/*               — markery pozycji kamery
+--
+-- PAROWANIE MARKERA Z ITEMEM IDZIE PO ODLEGŁOŚCI, NIE PO NAZWIE. Marker należy do tego
+-- modelu, któremu jest najbliższy — tak jak dawniej SHOPCAMERA{N} celowała w najbliższy
+-- part z SHOPITEMS. Dzięki temu dodanie itemu to postawienie modelu i markera obok niego,
+-- a pomyłka w nazwie markera niczego nie psuje (w Studio nazwy BombCamera/BlueprintCamera
+-- są dziś zamienione względem pozycji i kadry mimo to wychodzą poprawnie).
+-- Item BEZ markera dostaje kadr policzony z bounding boxa — sklep nigdy nie jest pusty
+-- tylko dlatego, że ktoś nie zdążył postawić markera.
 --
 -- KAMERA: ustawiamy CameraType=Scriptable — MovementController SAM wtedy wyłącza swoje
 -- rotation-smoothing i shake (sprawdza CameraType), więc nie ma konfliktu kamer. Na wyjściu
@@ -34,8 +44,11 @@ local ShopController = {}
 local CFG = Config.Shop
 local localPlayer = Players.LocalPlayer
 
--- target = model itemu, w który kamera celuje (nil → patrzymy wzdłuż obrotu markera).
-type Entry = { id: string, def: any, camPart: BasePart, target: BasePart? }
+-- cf = gotowy kadr (pozycja kamery + kierunek na model). Liczony RAZ przy otwarciu
+-- sklepu: ani markery, ani wystawa nie ruszają się w trakcie, więc nie ma czego śledzić.
+type Entry = { id: string, def: any, cf: CFrame }
+-- Model itemu znaleziony na wystawie, zanim dobierzemy mu kamerę.
+type Display = { id: string, def: any, center: Vector3, size: Vector3 }
 
 local isOpen = false
 local entries: { Entry } = {}
@@ -103,25 +116,11 @@ end
 -- Kamera
 -- ============================================================================
 
--- Kadr: kamera SIEDZI na markerze i PATRZY na model itemu. Obrót markera celowo ignorujemy
--- — marker niesie tylko pozycję (w mapie stoją nieobrócone), celowanie liczy kod.
-local function goalCFrame(e: Entry): CFrame
-	local target = e.target
-	if target and target.Parent then
-		local lookPoint = target.Position + Vector3.new(0, CFG.LookAtHeightOffset, 0)
-		-- Degeneracja: marker dokładnie w punkcie celu → lookAt rzuca; wtedy obrót markera.
-		if (lookPoint - e.camPart.Position).Magnitude > 0.05 then
-			return CFrame.lookAt(e.camPart.Position, lookPoint)
-		end
-	end
-	return e.camPart.CFrame
-end
-
 local function focusCamera(instant: boolean)
 	local cam = Workspace.CurrentCamera
 	local e = entries[index]
-	if not cam or not e or not e.camPart.Parent then return end
-	local goal = goalCFrame(e)
+	if not cam or not e then return end
+	local goal = e.cf
 	if instant then
 		cam.CFrame = goal
 	else
@@ -166,47 +165,114 @@ end
 -- Open / close
 -- ============================================================================
 
--- Model, w który celuje dany marker = NAJBLIŻSZY part z SHOPITEMS. Dzięki temu nie trzeba
--- parować nazw ani kolejności — marker stoi obok swojego itemu i to wystarcza.
-local function nearestDisplay(camPart: BasePart, itemsFolder: Instance?): BasePart?
-	if not itemsFolder then return nil end
-	local best: BasePart? = nil
-	local bestDist = math.huge
-	for _, d in ipairs(itemsFolder:GetDescendants()) do
-		if d:IsA("BasePart") then
-			local dist = (d.Position - camPart.Position).Magnitude
-			if dist < bestDist then
-				bestDist = dist
-				best = d
-			end
-		end
+-- Środek i rozmiar modelu bierzemy z BOUNDING BOXA, nie z pivota: pivot modelu bywa
+-- ustawiony gdziekolwiek (róg podstawki, punkt obrotu), a kamera ma celować w to, co widać.
+local function boundsOf(inst: Instance): (Vector3?, Vector3?)
+	if inst:IsA("Model") then
+		local cf, size = inst:GetBoundingBox()
+		return cf.Position, size
+	elseif inst:IsA("BasePart") then
+		return inst.Position, inst.Size
 	end
-	return best
+	return nil, nil
+end
+
+-- Kadr awaryjny (item bez markera): odsuwamy się od modelu w stronę ŚRODKA sceny, czyli
+-- do wnętrza pomieszczenia. Wystawa stoi przy ścianie, więc odsunięcie "byle w bok"
+-- wsadziłoby kamerę w ścianę. Dystans rośnie z wielkością modelu — dystans dobrany pod
+-- bombę ucinałby RPG.
+local function autoCFrame(center: Vector3, size: Vector3, sceneCenter: Vector3): CFrame
+	local away = center - sceneCenter
+	away = Vector3.new(away.X, 0, away.Z)
+	-- Model dokładnie w środku sceny → nie ma kierunku "na zewnątrz"; cofamy się wzdłuż Z.
+	local dir = if away.Magnitude > 0.05 then away.Unit else Vector3.new(0, 0, 1)
+	local dist = math.max(CFG.AutoCameraDistance, size.Magnitude * CFG.AutoCameraSizeFactor)
+	return CFrame.lookAt(
+		center + dir * dist + Vector3.new(0, CFG.AutoCameraHeight, 0),
+		center + Vector3.new(0, CFG.LookAtHeightOffset, 0)
+	)
 end
 
 local function buildEntries()
 	table.clear(entries)
-	local lobby = Workspace:FindFirstChild("Lobby")
-	local cams = lobby and lobby:FindFirstChild(CFG.CamerasFolder)
-	if not cams then
-		warnOnce("cams", ("brak Workspace.Lobby.%s — sklep nieaktywny"):format(CFG.CamerasFolder))
+
+	local scene = Workspace:FindFirstChild(CFG.SceneName)
+	if not scene then
+		warnOnce("scene", ("brak Workspace.%s — sklep nieaktywny"):format(CFG.SceneName))
 		return
 	end
-	local itemsFolder = lobby and lobby:FindFirstChild(CFG.ItemsFolder)
+	local itemsFolder = scene:FindFirstChild(CFG.ItemsFolder)
+	if not itemsFolder then
+		warnOnce("items", ("brak Workspace.%s.%s — nie ma czego pokazać"):format(
+			CFG.SceneName, CFG.ItemsFolder))
+		return
+	end
+	local sceneCenter = boundsOf(scene) or Vector3.zero
 
-	-- Marker SHOPCAMERA{N} ↔ N-ty item w shopOrder. Item bez markera po prostu nie pojawia
-	-- się w sklepie (Kacper dostawia marker, gdy zrobi mu wystawę).
-	for i, id in ipairs(ItemDefinitions.shopOrder) do
+	-- 1. Modele itemów ze sklepu. Item bez modelu wypada z listy — z warnem, nie z błędem:
+	--    brak jednej dekoracji nie może zamknąć całego sklepu.
+	local displays: { Display } = {}
+	for _, id in ipairs(ItemDefinitions.shopOrder) do
 		local def = ItemDefinitions.get(id)
-		local part = cams:FindFirstChild(CFG.CameraPrefix .. tostring(i))
-		if def and part and part:IsA("BasePart") then
-			table.insert(entries, {
-				id = id,
-				def = def,
-				camPart = part,
-				target = nearestDisplay(part, itemsFolder),
-			})
+		local modelName = def and def.sceneModel
+		if not modelName then
+			warnOnce("def_" .. id, ("item %s nie ma pola sceneModel — pomijam w sklepie"):format(id))
+		else
+			local model = itemsFolder:FindFirstChild(modelName)
+			if not model then
+				warnOnce("model_" .. id, ("brak modelu %s.%s.%s — item %s pominięty"):format(
+					CFG.SceneName, CFG.ItemsFolder, modelName, id))
+			else
+				local center, size = boundsOf(model)
+				if center and size then
+					table.insert(displays, { id = id, def = def, center = center, size = size })
+				end
+			end
 		end
+	end
+	if #displays == 0 then return end
+
+	-- 2. Marker należy do modelu, któremu jest NAJBLIŻSZY — nie do tego, jak się nazywa.
+	--    Reguła działa w obie strony (dwa markery przy jednym modelu → wygrywa bliższy),
+	--    więc nie da się jej rozjechać literówką ani zamienioną nazwą.
+	local markerFor: { [number]: BasePart } = {}
+	local markerDist: { [number]: number } = {}
+	local camsFolder = scene:FindFirstChild(CFG.CamerasFolder)
+	if camsFolder then
+		for _, part in ipairs(camsFolder:GetChildren()) do
+			if part:IsA("BasePart") then
+				local bestIdx: number? = nil
+				local bestDist = math.huge
+				for i, d in ipairs(displays) do
+					local dist = (part.Position - d.center).Magnitude
+					if dist < bestDist then
+						bestDist = dist
+						bestIdx = i
+					end
+				end
+				if bestIdx and bestDist < (markerDist[bestIdx] or math.huge) then
+					markerFor[bestIdx] = part
+					markerDist[bestIdx] = bestDist
+				end
+			end
+		end
+	else
+		warnOnce("cams", ("brak Workspace.%s.%s — kadry liczone automatycznie"):format(
+			CFG.SceneName, CFG.CamerasFolder))
+	end
+
+	-- 3. Kadr. Marker niesie wyłącznie POZYCJĘ — kierunek zawsze liczy lookAt na model,
+	--    więc obrót markera w Studio nie ma znaczenia i nie trzeba go ustawiać.
+	for i, d in ipairs(displays) do
+		local lookAt = d.center + Vector3.new(0, CFG.LookAtHeightOffset, 0)
+		local marker = markerFor[i]
+		local cf: CFrame
+		if marker and (lookAt - marker.Position).Magnitude > 0.05 then
+			cf = CFrame.lookAt(marker.Position, lookAt)
+		else
+			cf = autoCFrame(d.center, d.size, sceneCenter)
+		end
+		table.insert(entries, { id = d.id, def = d.def, cf = cf })
 	end
 end
 
@@ -229,7 +295,7 @@ local function openShop()
 	end
 	buildEntries()
 	if #entries == 0 then
-		warnOnce("empty", "brak part-kamer w SHOPCAMERAS nazwanych itemId (np. 'bomb') — nie ma co pokazać")
+		warnOnce("empty", "żaden item ze shopOrder nie ma modelu na wystawie — nie ma co pokazać")
 		return
 	end
 	isOpen = true
@@ -295,16 +361,34 @@ function ShopController.init()
 		warnOnce("ui", "brak StarterGui.ShopUI (ScreenGui) — sklep nieaktywny")
 	end
 
-	-- ProximityPrompt na NPC (może dojechać z opóźnieniem — czekamy w tle).
+	-- Prompt tworzy ShopService (albo Kacper stawia własny o tej samej nazwie), więc do
+	-- klienta może dojechać PO nas — jednorazowe sprawdzenie by go przegapiło. Szukamy po
+	-- NAZWIE, nie po ścieżce: klient nie musi wiedzieć, gdzie w dekoracjach siedzi NPC,
+	-- a przyszłe stoisko skinów dostanie własną nazwę promptu i się nie pomyli z tym.
 	task.spawn(function()
-		local lobby = Workspace:WaitForChild("Lobby", 20)
-		local npc = lobby and lobby:WaitForChild(CFG.NpcName, 20)
-		local prompt = npc and npc:FindFirstChildWhichIsA("ProximityPrompt", true)
-		if prompt then
-			prompt.Triggered:Connect(openShop)
-		else
-			warnOnce("prompt", ("brak ProximityPrompt na %s — sklep nie otworzy się promptem"):format(CFG.NpcName))
+		local lobby = Workspace:WaitForChild("Lobby", 30)
+		if not lobby then
+			warnOnce("lobby", "brak Workspace.Lobby — sklep nie otworzy się promptem")
+			return
 		end
+		local hooked = false
+		local function hook(inst: Instance)
+			if hooked or not inst:IsA("ProximityPrompt") or inst.Name ~= CFG.PromptName then
+				return
+			end
+			hooked = true
+			inst.Triggered:Connect(openShop)
+		end
+		for _, d in ipairs(lobby:GetDescendants()) do
+			hook(d)
+		end
+		lobby.DescendantAdded:Connect(hook)
+		task.delay(20, function()
+			if not hooked then
+				warnOnce("prompt", ("brak ProximityPrompt '%s' pod Workspace.Lobby — sklep nie otworzy się promptem"):format(
+					CFG.PromptName))
+			end
+		end)
 	end)
 
 	-- Klawisze (A/D scroll, Q wyjście) + scroll myszy — tylko gdy sklep otwarty.

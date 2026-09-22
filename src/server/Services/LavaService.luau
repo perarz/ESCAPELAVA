@@ -1,9 +1,24 @@
 --!strict
 -- LavaService.luau
--- Tworzy Part lawy, reaguje na fazy z GameLoopService, zabija dotknięte postacie.
+-- Animuje lawę, reaguje na fazy z GameLoopService, zabija zanurzone postacie.
 --
--- Stan startowy: lawa pod ziemią (Config.Lava.StartY), speed = 0.
+-- Stan startowy: lawa pod ziemią (wysokość z partu Kacpra), speed = 0.
 -- W ROUND: speed czerpany z bieżącej fazy; w pozostałych stanach lawa stoi.
+--
+-- LAWA TO STOS WARSTW (2026-09-16), nie jeden part. `Workspace.Lava` trzyma dowolnie
+-- wiele BasePart: nieprzezroczysty spód + półprzezroczyste warstwy nad nim. Powód:
+-- GŁĘBIA to jedyna rzecz, której płaskiej tafli nie da się namalować żadną teksturą —
+-- cztery podejścia do malowania jej na jednej płaszczyźnie zostały odrzucone (lista
+-- przy `LavaSurfaceController`). Rozsunięte w pionie warstwy dają ją naprawdę, razem
+-- z paralaksą przy ruchu kamery.
+--
+-- Kod nie wie, ile warstw jest ani jak wyglądają: bierze wszystkie party z folderu
+-- i sortuje po wysokości. Dodanie czwartej warstwy albo usunięcie jednej = zero zmian
+-- w kodzie (ten sam wzorzec co `SHOPCAMERA{N}` w sklepie).
+--
+-- WARSTWA WIERZCHNIA rządzi wszystkim, co gra: próg śmierci, `getSurfaceY()` dla
+-- CashPickup/Debris, wysokość startowa rundy. Reszta to oprawa jadąca za nią ze stałym
+-- offsetem — i tylko ona ma prawo wyglądać dowolnie.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,13 +27,30 @@ local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local GameLoopService = require(script.Parent.GameLoopService)
+local KillService = require(script.Parent.KillService)
 
 local LavaService = {}
 
-local lavaPart: Part? = nil
-local lavaAnchorX: number = 0
-local lavaAnchorZ: number = 0
+type LavaLayer = {
+	part: BasePart,
+	anchorX: number,
+	anchorZ: number,
+	dy: number,        -- stałe przesunięcie Y względem warstwy wierzchniej
+	amplitude: number, -- własna amplituda falowania (w głąb słabnie)
+	phase: number,     -- przesunięcie fazy: warstwy pływają WZGLĘDEM SIEBIE
+}
+
+local layers: { LavaLayer } = {}
+local surfaceLayer: LavaLayer? = nil
+-- Granice XZ to SUMA warstw, nie obrys wierzchniej: Kacper może dać cieńszą warstwę
+-- na wierzchu mniejszą od spodniej, a gracz stojący nad samym spodem i tak WIDZI pod
+-- sobą lawę — więc ma ginąć. Party ruszają się tylko w Y, więc liczone raz przy zbiórce.
+local boundsMinX, boundsMaxX = 0, 0
+local boundsMinZ, boundsMaxZ = 0, 0
 local currentSpeed: number = 0
+-- Wysokość, z której lawa startuje każdą rundę. Nadpisywana pozycją wierzchniego partu
+-- Kacpra w `collectLayers` — Config to tylko fallback dla partu tworzonego z kodu.
+local lavaStartY: number = Config.Lava.StartY
 local currentY: number = Config.Lava.StartY
 local heartbeatConn: RBXScriptConnection? = nil
 local initialized = false
@@ -116,31 +148,46 @@ local KILL_CHECK_HZ = 10
 -- prostopadłościan, więc test "czy gracz jest w środku" to kilka porównań na gracza:
 -- 20 graczy × 10 Hz = 200 operacji/s zamiast tysięcy eventów. Przy okazji znika stara
 -- klasa błędów "Touched nie odpalił bo postać poruszała się za szybko".
-local function killSubmerged(part: BasePart)
-	local center = part.Position
-	local surfaceY = center.Y + part.Size.Y * 0.5
-	local halfX = part.Size.X * 0.5
-	local halfZ = part.Size.Z * 0.5
+-- LAWA RANI, NIE ZABIJA NA MIEJSCU (decyzja Kacpra 2026-09-21).
+-- Obrażenia lecą WYŁĄCZNIE dopóki stopy są pod powierzchnią — wyjdziesz, przestaje boleć.
+-- Nic się nie goi (`Game.DisableHealthRegen` zdejmuje skrypt `Health` w `PlayerService`),
+-- więc kilka krótkich wejść sumuje się do tych samych `SecondsToKill`.
+-- ⚠️ Tempo liczone z `MaxHealth`, nie ze sztywnego DPS — „7 sekund" ma znaczyć 7 sekund
+-- niezależnie od tego, ile gracz ma maksymalnego życia.
+local function damageSubmerged(dt: number)
+	local surf = surfaceLayer
+	if not surf then return end
+	-- Próg czytany Z PARTU, więc faluje razem z nim (patrz `applyPositions`).
+	local part = surf.part
+	local surfaceY = part.Position.Y + part.Size.Y * 0.5
+	local seconds = math.max(Config.Lava.Damage.SecondsToKill, 0.1)
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		local char = player.Character
 		if not char then continue end
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if not hum or hum.Health <= 0 then continue end
-		if pendingDeath[hum] then continue end
 		local hrp = char:FindFirstChild("HumanoidRootPart")
 		if not hrp or not hrp:IsA("BasePart") then continue end
 
 		local pos = hrp.Position
 		if pos.Y - FEET_OFFSET > surfaceY then continue end
-		if math.abs(pos.X - center.X) > halfX then continue end
-		if math.abs(pos.Z - center.Z) > halfZ then continue end
+		if pos.X < boundsMinX or pos.X > boundsMaxX then continue end
+		if pos.Z < boundsMinZ or pos.Z > boundsMaxZ then continue end
 
-		pendingDeath[hum] = true
-		spawnDeathPoof(pos)
-		hum.Health = 0
-		-- PlayerDied jest fired przez PlayerService.onDeath (single source) — Humanoid.Died
-		-- listener tam łapie i ogarnia aliveSet + remote. Nie fire'ujemy tu drugi raz.
+		-- ⚠️ ODNOWIENIE TAGU PRZED OBRAŻENIAMI, nie po. Śmierć w lawie trwa teraz dłużej
+		-- niż okno kredytu (7 s vs 5 s), więc bez tego „zepchnąłem go do lawy" przestałoby
+		-- się liczyć. Po `TakeDamage` humanoid bywa już martwy, a wtedy `refreshTag`
+		-- wychodzi bez efektu — czyli kolejność jest tu częścią mechaniki, nie stylem.
+		KillService.refreshTag(hum)
+
+		hum:TakeDamage(hum.MaxHealth / seconds * dt)
+
+		if hum.Health <= 0 and not pendingDeath[hum] then
+			pendingDeath[hum] = true
+			spawnDeathPoof(pos)
+			-- PlayerDied leci z PlayerService.onDeath (single source) — nie dublujemy.
+		end
 	end
 end
 
@@ -152,6 +199,9 @@ local function attachLavaVFX(part: BasePart)
 
 	local embers = Instance.new("ParticleEmitter")
 	embers.Name = "LavaEmbers"
+	-- Startuje WYŁĄCZONY: dopóki lawa siedzi w kanale, particle przelatywałyby przez
+	-- jezdnię (nie kolidują z geometrią) i wynurzały się nad ulicą. Włącza `refreshSurfaceFX`.
+	embers.Enabled = false
 	embers.Texture = "rbxasset://textures/particles/sparkles_main.dds"
 	embers.Color = ColorSequence.new(Color3.fromRGB(255, 170, 60), Color3.fromRGB(255, 80, 20))
 	embers.Size = NumberSequence.new(0.6, 0.15)
@@ -169,6 +219,7 @@ local function attachLavaVFX(part: BasePart)
 
 	local smoke = Instance.new("ParticleEmitter")
 	smoke.Name = "LavaSmoke"
+	smoke.Enabled = false
 	smoke.Texture = "rbxasset://textures/particles/smoke_main.dds"
 	smoke.Color = ColorSequence.new(Color3.fromRGB(90, 50, 40), Color3.fromRGB(50, 40, 40))
 	smoke.Size = NumberSequence.new({
@@ -187,47 +238,38 @@ local function attachLavaVFX(part: BasePart)
 	smoke.Parent = part
 end
 
-local function createLavaPart()
-	if lavaPart then return end
+-- Właściwości, które kod wymusza na KAŻDEJ warstwie — niezależnie od tego, co Kacper
+-- ustawił w Studio. To nie jest wygląd (wygląd jest jego), tylko zachowanie:
+local function forceLavaProperties(part: BasePart)
+	part.Anchored = true
+	-- CanCollide=false: lawa NIE pcha rozjebanych klocków w górę razem z rosnącym Y.
+	-- Wcześniej parts spadające na lawę osiadały na niej i jechały do MaxY — gracze
+	-- mogli wskoczyć na takiego "winda-klocka" i wygrywać za darmo.
+	part.CanCollide = false
+	-- Locked=true: bez tego DestructionService potraktuje warstwę jak zwykłą ścianę
+	-- i pierwsza bomba przy brzegu potnie ją na gruz.
+	part.Locked = true
+	-- CastShadow: ogromna ruchoma powierzchnia = engine liczy shadow propagation 60Hz.
+	part.CastShadow = false
+	-- CanQuery=false: lawa nie jest celem raycastów (para w LavaSurfaceController
+	-- musi widzieć mapę POD lawą, nie samą lawę).
+	part.CanQuery = false
+	-- CanTouch=false: ranimy przez pozycję (damageSubmerged), więc eventy Touched są
+	-- czystym kosztem — a przy gruzie z wybuchów byłyby ich tysiące na sekundę.
+	part.CanTouch = false
+end
 
-	local folder = getLavaFolder()
+local function topFaceY(part: BasePart): number
+	return part.Position.Y + part.Size.Y * 0.5
+end
 
-	-- Preferuj istniejący LavaPart (Kacper mógł go postawić w Studio) — kod tylko animuje Y.
-	local existing = folder:FindFirstChild("LavaPart")
-	if existing and existing:IsA("BasePart") then
-		lavaPart = existing
-		lavaAnchorX = existing.Position.X
-		lavaAnchorZ = existing.Position.Z
-		existing.Anchored = true
-		-- CanCollide=false: lawa NIE pcha rozjebanych klocków w górę razem z rosnącym Y.
-		-- Wcześniej parts spadające na lawę osiadały na niej i jechały do MaxY — gracze
-		-- mogli wskoczyć na takiego "winda-klocka" i wygrywać za darmo. Touched eventy
-		-- nadal latają (CanTouch domyślnie true).
-		existing.CanCollide = false
-		-- Performance + fix flickeru Neon: CastShadow=true na ogromnym Neon parcie ruchomym
-		-- co klatka = engine liczy shadow propagation 60Hz dla 361×6×388 powierzchni.
-		-- CanQuery=false bo lawa nie jest celem raycast — tylko Touched potrzebuje CanTouch=true.
-		existing.CastShadow = false
-		existing.CanQuery = false
-		-- CanTouch=false: zabijamy przez pozycję (killSubmerged), więc eventy Touched są
-		-- czystym kosztem — a przy gruzie z wybuchów byłyby ich tysiące na sekundę.
-		existing.CanTouch = false
-		attachLavaVFX(existing)
-		return
-	end
-
-	-- Brak partu → tworzymy z Config, X/Z na środku Baseplate (jeśli istnieje).
+-- Fallback gdy folder jest pusty (świeże miejsce, ktoś skasował party). Jedyna sytuacja,
+-- w której kod tworzy wygląd lawy sam — i dlatego jest brzydki z założenia: ma krzyczeć
+-- "postaw swój part", a nie udawać docelową oprawę.
+local function createFallbackPart(folder: Folder): BasePart
 	local cx, cz = getBaseplateCenterXZ()
-	lavaAnchorX, lavaAnchorZ = cx, cz
-
 	local part = Instance.new("Part")
 	part.Name = "LavaPart"
-	part.Anchored = true
-	-- CanCollide=false: lawa zabija przez Touched (CanTouch=true), ale NIE działa jako
-	-- platforma — rozjebane parts nie jeżdżą w górę z lawą, gracze nie mogą wskoczyć
-	-- na "windę-klocek".
-	part.CanCollide = false
-	part.Locked = true
 	part.Size = Vector3.new(
 		Config.Lava.Part.SizeXZ,
 		Config.Lava.Part.Thickness,
@@ -240,20 +282,179 @@ local function createLavaPart()
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Position = Vector3.new(cx, Config.Lava.StartY, cz)
 	part.Parent = folder
+	warn("[Lava] brak partów w Workspace.Lava — stworzono awaryjny LavaPart z Config. Postaw własne warstwy w Studio.")
+	return part
+end
 
-	part.CastShadow = false
-	part.CanQuery = false
-	part.CanTouch = false  -- patrz killSubmerged — zabijanie idzie przez pozycję
-	attachLavaVFX(part)
-	lavaPart = part
+-- Falowanie z przesuniętą fazą ma sens tylko dopóki warstwy się nie PRZETNĄ: dwie tafle
+-- wchodzące w siebie dają migotanie (z-fighting) zamiast głębi, czyli dokładną odwrotność
+-- tego, po co ten stos powstał. Zamiast kazać Kacprowi liczyć odstępy w Studio, kod sam
+-- przycina amplitudy do najciaśniejszej szczeliny — warstwy można dosunąć na 0.2 studa
+-- i nadal nic nie miga, po prostu falowanie robi się subtelniejsze.
+local function clampWobbleAmplitudes()
+	local cfg = Config.Lava.Wobble
+	local scale = 1
+	for i = 1, #layers - 1 do
+		local upper, lower = layers[i], layers[i + 1]
+		local gap = (upper.dy - upper.part.Size.Y * 0.5) - (lower.dy + lower.part.Size.Y * 0.5)
+		local travel = upper.amplitude + lower.amplitude
+		if travel <= 0 then continue end
+		if gap <= 0 then
+			warn(("[Lava] warstwy '%s' i '%s' zachodzą na siebie (szczelina %.2f studa) — falowanie wyłączone. Rozsuń je w Studio."):format(
+				upper.part.Name, lower.part.Name, gap))
+			scale = 0
+			break
+		end
+		scale = math.min(scale, gap * cfg.MaxGapUsage / travel)
+	end
+	if scale >= 1 then return end
+	for _, layer in ipairs(layers) do
+		layer.amplitude *= scale
+	end
+end
+
+-- Zbiera stos warstw z `Workspace.Lava`. Wołane na init i ponownie, gdy warstwa zniknie
+-- w trakcie Play (Kacper stroi wygląd na żywo).
+local function collectLayers()
+	local folder = getLavaFolder()
+
+	local parts: { BasePart } = {}
+	for _, child in ipairs(folder:GetChildren()) do
+		if child:IsA("BasePart") then
+			table.insert(parts, child)
+		end
+	end
+	if #parts == 0 then
+		table.insert(parts, createFallbackPart(folder))
+	end
+
+	-- Sortowanie po GÓRNEJ ŚCIANIE, nie po środku partu: warstwy mają różne grubości
+	-- (cienka skorupa na wierzchu, gruba masa pod spodem), więc środek kłamie o tym,
+	-- która z nich jest widoczną powierzchnią.
+	table.sort(parts, function(a, b)
+		return topFaceY(a) > topFaceY(b)
+	end)
+
+	local cfg = Config.Lava.Wobble
+	local top = parts[1]
+	table.clear(layers)
+	boundsMinX, boundsMaxX = math.huge, -math.huge
+	boundsMinZ, boundsMaxZ = math.huge, -math.huge
+
+	for index, part in ipairs(parts) do
+		forceLavaProperties(part)
+		table.insert(layers, {
+			part = part,
+			anchorX = part.Position.X,
+			anchorZ = part.Position.Z,
+			dy = part.Position.Y - top.Position.Y,
+			-- Amplituda RÓŻNICOWA (ruch względem sąsiednich warstw). Wspólne falowanie
+			-- całego stosu jest osobno w `applyPositions` i nie podlega przycinaniu.
+			amplitude = cfg.LayerAmplitude * (cfg.LayerDecay ^ (index - 1)),
+			phase = (index - 1) * cfg.LayerPhase,
+		})
+		boundsMinX = math.min(boundsMinX, part.Position.X - part.Size.X * 0.5)
+		boundsMaxX = math.max(boundsMaxX, part.Position.X + part.Size.X * 0.5)
+		boundsMinZ = math.min(boundsMinZ, part.Position.Z - part.Size.Z * 0.5)
+		boundsMaxZ = math.max(boundsMaxZ, part.Position.Z + part.Size.Z * 0.5)
+	end
+
+	surfaceLayer = layers[1]
+	clampWobbleAmplitudes()
+
+	-- Wysokość startowa Z PARTU Kacpra (2026-09-14). Kod respektuje jego X/Z, kolor,
+	-- materiał i rozmiar — a Y kiedyś nadpisywał `Config.Lava.StartY`, więc lawa
+	-- postawiona świadomie pod poziomem ulic podskakiwała przy starcie serwera.
+	-- Liczona z WIERZCHNIEJ warstwy, bo to ona jest powierzchnią, którą widać.
+	lavaStartY = top.Position.Y
+
+	-- VFX (embery, dym) tylko na wierzchniej warstwie: mają unosić się Z POWIERZCHNI,
+	-- a nie ze środka stosu — plus trzy emittery to trzy razy więcej particli za nic.
+	attachLavaVFX(top)
+end
+
+local TAU = math.pi * 2
+
+-- ============================================================================
+-- OPRAWA LAWY: JEDNA BRAMKA — WYSOKOŚĆ TAFLI (2026-09-21, decyzja Kacpra)
+-- ============================================================================
+-- Dopóki lawa siedzi w kanale pod ulicami, jej oprawa jest WYŁĄCZONA w całości.
+-- Tu gasimy embery i dym; bąble, para, światła i poświata gasną po stronie klienta
+-- (`LavaSurfaceController`) na podstawie TEJ SAMEJ liczby z `Config.Lava.FX.MinSurfaceY`,
+-- więc nie ma czego replikować ani synchronizować.
+--
+-- ⚠️ DLACZEGO PRÓG WYSOKOŚCI, A NIE RAYCASTY: particle w Robloxie **nie kolidują
+-- z geometrią** — ember wypuszczony z tafli na Y 2.5 przelatuje przez jezdnię na Y 9
+-- i wynurza się nad ulicą. Żadna bramka „czy nad tym punktem coś jest" tego nie naprawi,
+-- bo problem nie jest w miejscu emisji, tylko w torze lotu. Do tego raycast, który w nic
+-- nie trafił, przy `StreamingEnabled` znaczy „jeszcze się nie wczytało" i przez pierwsze
+-- ~15 s po wejściu kłamie. Porównanie dwóch liczb nie ma jak się pomylić.
+local fxAllowed = false
+
+local function refreshSurfaceFX()
+	local y = LavaService.getSurfaceY()
+	local fx = Config.Lava.FX
+	local h = fx.MinSurfaceHysteresis or 0
+	-- HISTEREZA: tafla faluje, więc goły próg przełączałby się kilka razy na sekundę,
+	-- gdy średni poziom stoi blisko niego. Między progami trzymamy poprzedni stan.
+	local allowed = fxAllowed
+	if y >= fx.MinSurfaceY + h then
+		allowed = true
+	elseif y <= fx.MinSurfaceY - h then
+		allowed = false
+	end
+	if allowed == fxAllowed then return end
+	fxAllowed = allowed
+	for _, layer in ipairs(layers) do
+		local part = layer.part
+		if not part.Parent then continue end
+		for _, name in ipairs({ "LavaEmbers", "LavaSmoke" }) do
+			local emitter = part:FindFirstChild(name)
+			if emitter and emitter:IsA("ParticleEmitter") then
+				emitter.Enabled = allowed
+			end
+		end
+	end
+	print(("[Lava] oprawa %s (wierzch tafli Y=%.1f, próg %.1f ±%.1f)"):format(
+		if allowed then "WŁĄCZONA" else "wyłączona", y, fx.MinSurfaceY, h))
+end
+
+-- JEDYNE miejsce zapisujące pozycje warstw. Wzrost aktualizuje tylko `currentY`.
+-- Dwie pętle zapisujące `Position` co klatkę biłyby się o nią zależnie od kolejności
+-- podpięcia — dokładnie ten rodzaj niejawnej zależności, który wraca po miesiącu jako
+-- "czasem lawa drga".
+local function applyPositions(wobbleClock: number?)
+	local cfg = Config.Lava.Wobble
+
+	-- Składnik WSPÓLNY: cały stos podnosi się i opada razem, więc odstępy między
+	-- warstwami się nie zmieniają i amplituda może być duża bez ryzyka przecięcia.
+	-- To on odpowiada za "widać, że lawa faluje".
+	local common = 0
+	if wobbleClock and cfg.Amplitude > 0 and cfg.Period > 0 then
+		common = math.sin(wobbleClock * TAU / cfg.Period) * cfg.Amplitude
+	end
+
+	for _, layer in ipairs(layers) do
+		local part = layer.part
+		if not part.Parent then continue end
+
+		-- Składnik RÓŻNICOWY: warstwy pływają względem siebie. Osobny, szybszy okres,
+		-- żeby suma nie wyglądała jak jedna równa sinusoida.
+		local diff = 0
+		if wobbleClock and layer.amplitude > 0 and cfg.LayerPeriod > 0 then
+			diff = math.sin(wobbleClock * TAU / cfg.LayerPeriod + layer.phase) * layer.amplitude
+		end
+
+		part.Position = Vector3.new(layer.anchorX, currentY + layer.dy + common + diff, layer.anchorZ)
+	end
 end
 
 local function reset()
 	currentSpeed = 0
-	currentY = Config.Lava.StartY
-	if lavaPart then
-		lavaPart.Position = Vector3.new(lavaAnchorX, currentY, lavaAnchorZ)
-	end
+	currentY = lavaStartY
+	applyPositions(nil)
+	-- Nowa runda zaczyna od tafli w kanale, więc oprawa MUSI zgasnąć razem z nią.
+	refreshSurfaceFX()
 end
 
 local function startGrowth()
@@ -261,21 +462,26 @@ local function startGrowth()
 	local killAccumulator = 0
 	local killInterval = 1 / KILL_CHECK_HZ
 	heartbeatConn = RunService.Heartbeat:Connect(function(dt: number)
-		local part = lavaPart
-		if not part then return end
+		if not surfaceLayer then return end
 
 		-- Wzrost tylko gdy faza ma prędkość (faza Spawn ma 0), ale sprawdzanie ofiar
 		-- MUSI lecieć zawsze — inaczej gracz który sam wskoczy w stojącą lawę w fazie
 		-- Spawn przeżyje, a przy Touched ginął.
+		-- Sam STAN wysokości; pozycje warstw zapisuje wyłącznie `applyPositions`,
+		-- żeby wzrost i falowanie nie biły się o tę samą właściwość co klatkę.
 		if currentSpeed > 0 then
 			currentY = math.min(currentY + currentSpeed * dt, Config.Lava.MaxY)
-			part.Position = Vector3.new(lavaAnchorX, currentY, lavaAnchorZ)
 		end
 
 		killAccumulator += dt
 		if killAccumulator >= killInterval then
+			-- Realny czas, nie nominalny interwał: przy spadku FPS akumulator bywa większy,
+			-- a obrażenia mają lecieć w tempie zegara, nie klatek.
+			local elapsed = killAccumulator
 			killAccumulator = 0
-			killSubmerged(part)
+			damageSubmerged(elapsed)
+			-- Piggyback na 10 Hz: sama funkcja i tak wychodzi od razu, gdy nic się nie zmieniło.
+			refreshSurfaceFX()
 		end
 	end)
 end
@@ -287,12 +493,45 @@ local function stopGrowth()
 	end
 end
 
+-- Wysokość POWIERZCHNI lawy (góra parta). Single source of truth dla wszystkich,
+-- którzy pytają "czy to już pod lawą": CashPickupService (kasowanie zalanego cashu),
+-- DebrisService (kasowanie zatopionego gruzu). Czytane wprost z parta, bo LavaService
+-- animuje go co klatkę — wartość jest zawsze świeża, także gdy Config.Lava.Enabled=false.
+function LavaService.getSurfaceY(): number
+	local surf = surfaceLayer
+	if not surf or not surf.part.Parent then
+		-- Warstwa zniknęła (Kacper skasował part w trakcie Play) — zbierz stos od nowa,
+		-- zamiast podawać CashPickup/Debris wysokość, której już nic nie odpowiada.
+		collectLayers()
+		surf = surfaceLayer
+	end
+	if surf and surf.part.Parent then
+		return surf.part.Position.Y + surf.part.Size.Y * 0.5
+	end
+	return Config.Lava.StartY
+end
+
+-- Falowanie musi iść przez SERWER: party są serwerowe, więc klienckie ruszanie Y
+-- zostałoby nadpisane przez replikację w następnej klatce.
+-- Świadomie podpięte PRZED sprawdzeniem `Config.Lava.Enabled` — to czysty kosmetyk,
+-- a przy wyłączonej lawie (tryb testów destrukcji) i tak chcemy ją widzieć żywą.
+-- ⚠️ Próg obrażeń (`damageSubmerged`) czyta pozycję wierzchniej warstwy, więc faluje
+-- razem z nią. Przy 0.3 studa jest to pomijalne, ale nie podnosić bez zastanowienia.
+local function startPositionLoop()
+	local cfg = Config.Lava.Wobble
+	RunService.Heartbeat:Connect(function()
+		if #layers == 0 then return end
+		applyPositions(if cfg.Enabled then os.clock() else nil)
+	end)
+end
+
 function LavaService.init()
 	if initialized then return end
 	initialized = true
 
-	createLavaPart()
+	collectLayers()
 	reset()
+	startPositionLoop()
 
 	-- Tryb testów destrukcji: part istnieje (inne services go czytają), ale lawa nie
 	-- rośnie i nie zabija. Głośny warn co boot, żeby flaga nie przeżyła do produkcji.

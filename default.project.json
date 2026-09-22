@@ -45,6 +45,9 @@
         "TimeOfDay": "12:12:00"
       }
     },
+    "ReplicatedFirst": {
+      "$path": "src/replicatedfirst"
+    },
     "ReplicatedStorage": {
       "Shared": {
         "$properties": {

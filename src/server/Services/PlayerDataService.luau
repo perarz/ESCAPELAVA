@@ -58,6 +58,11 @@ local function defaultData(): any
 		cash = 0,
 		wins = 0,                -- wygrane rundy (przeżycie do końca) — leaderstats Tab
 		inventory = {},          -- { [itemId] = count }  (np. { bomb = 3 })
+		-- appearance — wygląd postaci { skin, shirt, pants, sleeves, legs }, same ID
+		-- z palet (NIE Color3: DataStore przyjmuje wyłącznie typy JSON-owalne).
+		-- Celowo BRAK w defaultach: nieobecne pole = „jeszcze nie losowano", i to jest
+		-- sygnał dla AppearanceService, żeby wylosować zestaw przy pierwszym wejściu.
+		-- Stare save'y sprzed 2026-09-21 wchodzą tą samą ścieżką, bez migracji.
 		_sessionId = nil,        -- ustawiamy po load — wykryjemy "fork" gdy ktoś zacznie w innym serwerze
 		_savedAt = 0,
 	}

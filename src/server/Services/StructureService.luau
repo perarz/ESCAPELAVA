@@ -28,6 +28,7 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local GameLoopService = require(script.Parent.GameLoopService)
 local DebrisService = require(script.Parent.DebrisService)
+local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 
 local StructureService = {}
 
@@ -57,12 +58,6 @@ local initialized = false
 -- ============================================================================
 -- Skan struktury
 -- ============================================================================
-
-local function worldHalfY(part: BasePart): number
-	local cf = part.CFrame
-	local s = part.Size * 0.5
-	return math.abs(cf.XVector.Y) * s.X + math.abs(cf.YVector.Y) * s.Y + math.abs(cf.ZVector.Y) * s.Z
-end
 
 -- Budynek = bezpośrednie dziecko Workspace.Map będące kontenerem (Folder/Model).
 -- Filar leżący luzem pod Map (bez folderu) dostaje własny "budynek" = sam Map, czyli
@@ -110,7 +105,7 @@ function StructureService.rescan()
 			local topY = -math.huge
 			local sum = Vector3.zero
 			for _, p in ipairs(current) do
-				topY = math.max(topY, p.Position.Y + worldHalfY(p))
+				topY = math.max(topY, p.Position.Y + Utils.worldHalfY(p))
 				sum += p.Position
 			end
 			local band: Band = {
@@ -165,12 +160,17 @@ local function collapseBand(band: Band, attackerId: number)
 		if not desc.Anchored then continue end
 		if desc.Locked then continue end
 		if DebrisService.isRegistered(desc) then continue end
-		if desc.Position.Y - worldHalfY(desc) < band.topY - 0.5 then continue end
+		if desc.Position.Y - Utils.worldHalfY(desc) < band.topY - 0.5 then continue end
 		table.insert(victims, desc)
 		if #victims >= COL.MaxPartsPerCollapse then break end
 	end
 
 	if #victims == 0 then return 0 end
+
+	-- Miejsce w rejestrze gruzu ZANIM oddamy piętro fizyce (2026-09-13). Kolaps to
+	-- największy jednorazowy zastrzyk partów w całej grze — bez rezerwacji wypychałby
+	-- z budżetu sam siebie: pierwsze odkotwiczone kawałki kasowałyby ostatnie.
+	DebrisService.reserve(#victims)
 
 	local folder = DebrisService.getFolder()
 	for _, part in ipairs(victims) do

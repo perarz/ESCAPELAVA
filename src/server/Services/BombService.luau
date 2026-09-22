@@ -30,6 +30,8 @@ local PlayerService = require(script.Parent.PlayerService)
 local KillService = require(script.Parent.KillService)
 local DestructionService = require(script.Parent.DestructionService)
 local AntiCheatService = require(script.Parent.AntiCheatService)
+local RagdollService = require(script.Parent.RagdollService)
+local GameLoopService = require(script.Parent.GameLoopService)
 -- Ragdoll: toolbox ARTFVL — PlayerGui.ragdoll.functions.ragdoll BindableFunction
 
 local BombService = {}
@@ -53,6 +55,68 @@ local function destroyEquipped(player: Player)
 		tool:Destroy()
 		equippedTools[player] = nil
 	end
+end
+
+-- Handle Toola z modelu Kacpra (`ItemDefinitions.<item>.toolModel` w ReplicatedStorage).
+--
+-- Tool wymaga, żeby dziecko o nazwie "Handle" było BasePartem — model wieloczęściowy trzeba
+-- więc SPŁASZCZYĆ: największa bryła zostaje Handle (to ją Roblox przypina do dłoni przez
+-- RightGrip), a reszta jedzie na weldach. Bez weldów lont i okucia zostałyby wisieć tam,
+-- gdzie model stał w ReplicatedStorage. Party zbieram do listy PRZED przenoszeniem, bo
+-- iterowanie po `GetDescendants()` w trakcie reparentingu jest niestabilne, a spłaszczenie
+-- po descendantach (nie po dzieciach) działa też, gdyby Kacper zagnieździł części w folderze.
+--
+-- Zwraca part, który jest Handle. Brak modelu = stara kula z kodu (fallback, nic nie pada).
+local function buildToolVisual(tool: Tool, modelName: string?): BasePart
+	local template = if modelName then Utils.getAsset(modelName) else nil
+	if template and template:IsA("Model") then
+		local model = template:Clone()
+		local primary = model.PrimaryPart or Utils.largestPart(model)
+		if primary then
+			primary.Name = "Handle"
+
+			local parts: { BasePart } = {}
+			for _, d in ipairs(model:GetDescendants()) do
+				if d:IsA("BasePart") then
+					d.CanCollide = false
+					-- Massless: przedmiot w dłoni nie może zmieniać fizyki postaci.
+					-- Bez tego kilkanaście kilogramów bomby przechyla i spowalnia gracza.
+					d.Massless = true
+					table.insert(parts, d)
+				end
+			end
+
+			-- Welds PRZED odkotwiczeniem i przed wejściem do świata (patrz Utils.weldModel).
+			Utils.weldModel(model, primary)
+
+			for _, p in ipairs(parts) do
+				p.Parent = tool
+			end
+			-- Cokolwiek jeszcze siedziało w modelu (dźwięki, atrybuty-nośniki) idzie z nimi.
+			for _, leftover in ipairs(model:GetChildren()) do
+				leftover.Parent = tool
+			end
+			model:Destroy()
+			return primary
+		end
+		model:Destroy()
+		warn(("[Bomb] model %s nie ma ani jednego BasePart — używam kuli z kodu"):format(modelName :: string))
+	elseif modelName then
+		warn(("[Bomb] brak ReplicatedStorage.%s (Model) — używam kuli z kodu"):format(modelName))
+	end
+
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Shape = Enum.PartType.Ball
+	handle.Size = Vector3.new(2, 2, 2)
+	handle.Color = Color3.fromRGB(30, 30, 35)
+	handle.Material = Enum.Material.Metal
+	handle.TopSurface = Enum.SurfaceType.Smooth
+	handle.BottomSurface = Enum.SurfaceType.Smooth
+	handle.CanCollide = false
+	handle.Massless = true
+	handle.Parent = tool
+	return handle
 end
 
 -- BombService.equip: tworzy Tool z Handle i auto-equipuje na character.
@@ -79,17 +143,8 @@ function BombService.equip(player: Player, itemId: any): (boolean, string?)
 	tool.ManualActivationOnly = false
 	tool:SetAttribute("ItemId", "bomb")
 
-	local handle = Instance.new("Part")
-	handle.Name = "Handle"
-	handle.Shape = Enum.PartType.Ball
-	handle.Size = Vector3.new(2, 2, 2)
-	handle.Color = Color3.fromRGB(30, 30, 35)
-	handle.Material = Enum.Material.Metal
-	handle.TopSurface = Enum.SurfaceType.Smooth
-	handle.BottomSurface = Enum.SurfaceType.Smooth
-	handle.CanCollide = false
-	handle.Massless = true
-	handle.Parent = tool
+	local def = ItemDefinitions.bomb
+	local handle = buildToolVisual(tool, def.toolModel)
 
 	-- Pomarańczowa poświata żeby było widać że to bomba
 	local light = Instance.new("PointLight")
@@ -254,19 +309,12 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 		local dir = (horizontal.Unit + Vector3.new(0, 0.6, 0)).Unit
 		local velocity = dir * def.knockbackForce * knockT
 
-		local ragdollFolder = p:FindFirstChild("PlayerGui") and p.PlayerGui:FindFirstChild("ragdoll")
-		if ragdollFolder then
-			local fn = ragdollFolder:FindFirstChild("functions") and ragdollFolder.functions:FindFirstChild("ragdoll")
-			local variableRagdoll = ragdollFolder:FindFirstChild("variables") and ragdollFolder.variables:FindFirstChild("ragdoll")
-			if fn and fn:IsA("BindableFunction") then
-				pcall(function() fn:Invoke(velocity) end)
-				task.delay(def.ragdollDuration, function()
-					if variableRagdoll and variableRagdoll:IsA("BoolValue") then
-						variableRagdoll.Value = false
-					end
-				end)
-			end
-		end
+		-- Ragdoll przez RagdollService — jedyny właściciel wywrotki i terminu wstawania.
+		-- Wcześniej ten serwis planował własny `task.delay` na tym samym `BoolValue`,
+		-- co FallDamageService, więc bomba potrafiła postawić gracza w środku ragdolla
+		-- z upadku (i odwrotnie). Tutaj knockback podaje prędkość DOCELOWĄ — to jest
+		-- cały sens odrzutu, więc pion ma zostać nadpisany.
+		RagdollService.knock(p, velocity, def.ragdollDuration)
 
 		-- Feedback na kliencie trafionego: screen shake + FOV punch skalowane efektywnym
 		-- falloff'em (z osłoną — gracz za ścianą dostaje proporcjonalnie mniejszy wstrząs).
@@ -279,9 +327,11 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 	end
 end
 
-local function detonate(bombPart: BasePart, thrower: Player, def: any)
-	if not bombPart.Parent then return end
-	local center = bombPart.Position
+-- `root` to Model (bomba Kacpra) albo pojedynczy Part (fallback), więc środek wybuchu
+-- dostajemy osobno — z bryły niosącej fizykę, nie z roota, którego pozycja przy modelu
+-- zależy od pivota.
+local function detonate(root: Instance, center: Vector3, thrower: Player, def: any)
+	if not root.Parent then return end
 
 	-- Destrukcja PRZED damage: gdy bomba zdmuchnie ścianę, gracz za nią jest już odsłonięty
 	-- w momencie liczenia obrażeń (etap 2 doda occlusion raycast, który na tej kolejności
@@ -291,7 +341,54 @@ local function detonate(bombPart: BasePart, thrower: Player, def: any)
 	applyDamageAndKnockback(center, thrower, def)
 
 	log(thrower, "detonate", "pos=" .. tostring(center))
-	bombPart:Destroy()
+	root:Destroy()
+end
+
+-- Lecąca bomba z modelu Kacpra (`ItemDefinitions.bomb.toolModel` — ten sam model, którym
+-- gracz przed chwilą machał w ręce; to ma być ta sama bomba, nie dwa różne przedmioty).
+--
+-- Zwraca (root, primary): `root` to rzecz do skasowania i do Debris, `primary` niesie
+-- fizykę, prędkość i VFX. Nazwa roota MUSI zostać "BombProjectile" — po niej MapService
+-- sprząta bomby w locie przy restarcie mapy (szuka po nazwie wśród dzieci Workspace).
+local function buildProjectile(cf: CFrame, def: any): (Instance, BasePart)
+	local modelName = def.toolModel
+	local template = if modelName then Utils.getAsset(modelName) else nil
+	if template and template:IsA("Model") then
+		local model = template:Clone()
+		local primary = model.PrimaryPart or Utils.largestPart(model)
+		if primary then
+			model.Name = "BombProjectile"
+			model.PrimaryPart = primary
+			for _, d in ipairs(model:GetDescendants()) do
+				if d:IsA("BasePart") then
+					-- Kolizja TYLKO na głównej bryle. Lont i okucia wystające poza kulę
+					-- zaczepiałyby się o krawędzie i bomba stawałaby w losowych miejscach
+					-- zamiast się toczyć — a tor rzutu to rzecz, którą gracz przewiduje.
+					d.CanCollide = (d == primary)
+					d.Massless = (d ~= primary)
+				end
+			end
+			-- Pozycja PRZED weldami i przed wejściem do świata (patrz Utils.weldModel).
+			Utils.setModelCenter(model, cf)
+			Utils.weldModel(model, primary)
+			return model, primary
+		end
+		model:Destroy()
+		warn(("[Bomb] model %s nie ma ani jednego BasePart — lecę kulą z kodu"):format(modelName :: string))
+	end
+
+	local bomb = Instance.new("Part")
+	bomb.Name = "BombProjectile"
+	bomb.Shape = Enum.PartType.Ball
+	bomb.Size = Vector3.new(3, 3, 3)
+	bomb.Color = Color3.fromRGB(30, 30, 35)
+	bomb.Material = Enum.Material.Metal
+	bomb.TopSurface = Enum.SurfaceType.Smooth
+	bomb.BottomSurface = Enum.SurfaceType.Smooth
+	bomb.CanCollide = true
+	bomb.Anchored = false
+	bomb.CFrame = cf
+	return bomb, bomb
 end
 
 function BombService.throw(player: Player, direction: any): (boolean, string?)
@@ -355,50 +452,46 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 	-- Destroy Tool — bomba "opuściła rękę"
 	destroyEquipped(player)
 
-	local bomb = Instance.new("Part")
-	bomb.Name = "BombProjectile"
-	bomb.Shape = Enum.PartType.Ball
-	bomb.Size = Vector3.new(3, 3, 3)
-	bomb.Color = Color3.fromRGB(30, 30, 35)
-	bomb.Material = Enum.Material.Metal
-	bomb.TopSurface = Enum.SurfaceType.Smooth
-	bomb.BottomSurface = Enum.SurfaceType.Smooth
-	bomb.CanCollide = true
-	bomb.Anchored = false
 	-- CFrame, nie Position — setter Position rozwiązuje kolizje przesuwając part w górę
 	-- (bomba "wyskakiwała" gdy spawn nachodził na geometrię). CFrame stawia dokładnie tu.
-	bomb.CFrame = CFrame.new(spawnPos)
-	bomb.AssemblyLinearVelocity = dir * def.throwSpeed
+	local root, primary = buildProjectile(CFrame.new(spawnPos), def)
+	root.Parent = Workspace
+
+	-- Prędkość PO parentowaniu: przy modelu assembly powstaje dopiero w momencie wejścia
+	-- do Workspace, a prędkość nadana wcześniej przepadłaby razem z nim.
+	primary.AssemblyLinearVelocity = dir * def.throwSpeed
 		+ Vector3.new(0, def.throwLift, 0)
 		+ charVelocity
-	bomb.Parent = Workspace
 
 	-- KLUCZOWE: server-side physics authority. Bez tego Roblox daje ownership najbliższemu
 	-- graczowi (= rzucającemu) → klient symuluje fizykę, server widzi opóźnione updaty,
 	-- bomba "freeze'uje" przy lagach/drop pakietów. SetNetworkOwner(nil) = server symuluje.
-	pcall(function() bomb:SetNetworkOwner(nil) end)
+	-- Wołane na ROOCIE ASSEMBLY, bo na zwykłym parcie zweldowanej bryły Roblox rzuca błąd.
+	pcall(function() (primary.AssemblyRootPart or primary):SetNetworkOwner(nil) end)
 
 	-- Prawie zero odbicia — default elasticity 0.5 robiła z bomby piłkę do kosza.
-	bomb.CustomPhysicalProperties = PhysicalProperties.new(2, 0.5, def.bounciness or 0.05, 1, 1)
+	primary.CustomPhysicalProperties = PhysicalProperties.new(2, 0.5, def.bounciness or 0.05, 1, 1)
 
 	-- Tłumienie toczenia: kula toczy się w Robloxie bez końca (brak rolling resistance).
 	-- Co Heartbeat wygaszamy prędkość, ALE tylko gdy bomba jest przy ziemi (raycast w dół)
 	-- — w locie nie tykamy, żeby nie skracać rzutu (apex ma vY≈0, raycast to odróżnia).
 	-- Server owns physics (SetNetworkOwner(nil) wyżej), więc damping replikuje się czysto.
-	-- Pętla żyje max fuse+epsilon (bomb.Parent=nil po detonacji/cleanup → koniec).
+	-- Pętla żyje max fuse+epsilon (root.Parent=nil po detonacji/cleanup → koniec).
 	local dampParams = RaycastParams.new()
 	dampParams.FilterType = Enum.RaycastFilterType.Exclude
-	dampParams.FilterDescendantsInstances = { bomb }
+	dampParams.FilterDescendantsInstances = { root }
 	task.spawn(function()
 		local damp = def.rollDamping or 1
 		if damp >= 1 then return end
-		-- Promień kuli 1.5 + margines 0.5 — "przy ziemi" = powierzchnia tuż pod spodem.
-		local groundProbe = Vector3.new(0, -2, 0)
-		while bomb.Parent do
-			if Workspace:Raycast(bomb.Position, groundProbe, dampParams) then
-				local v = bomb.AssemblyLinearVelocity
-				bomb.AssemblyLinearVelocity = Vector3.new(v.X * damp, v.Y, v.Z * damp)
-				bomb.AssemblyAngularVelocity = bomb.AssemblyAngularVelocity * damp
+		-- "Przy ziemi" = powierzchnia tuż pod spodem. Zasięg sondy liczony z ROZMIARU bryły,
+		-- nie wpisany na sztywno: model Kacpra ma promień ~1.07, a zaszyta w kodzie dwójka
+		-- (pod kulę 3×3×3) sięgałaby prawie stud POD grunt i tłumiła bombę jeszcze w locie.
+		local groundProbe = Vector3.new(0, -(primary.Size.Y * 0.5 + 0.5), 0)
+		while root.Parent do
+			if Workspace:Raycast(primary.Position, groundProbe, dampParams) then
+				local v = primary.AssemblyLinearVelocity
+				primary.AssemblyLinearVelocity = Vector3.new(v.X * damp, v.Y, v.Z * damp)
+				primary.AssemblyAngularVelocity = primary.AssemblyAngularVelocity * damp
 			end
 			task.wait()
 		end
@@ -408,7 +501,7 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 	light.Color = Color3.fromRGB(255, 100, 30)
 	light.Brightness = 2
 	light.Range = 12
-	light.Parent = bomb
+	light.Parent = primary
 
 	-- ===== Fuse VFX: bomba wygląda na UZBROJONĄ (czytelny sygnał "uciekaj") =====
 	-- Iskry palącego się lontu.
@@ -421,7 +514,7 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 	fuseSparks.Speed = NumberRange.new(3, 7)
 	fuseSparks.SpreadAngle = Vector2.new(180, 180)
 	fuseSparks.LightEmission = 1
-	fuseSparks.Parent = bomb
+	fuseSparks.Parent = primary
 
 	-- Dymny ogon w locie (i podczas leżenia — bomba "się pali").
 	local fuseSmoke = Instance.new("ParticleEmitter")
@@ -435,14 +528,14 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 	fuseSmoke.Lifetime = NumberRange.new(0.5, 0.8)
 	fuseSmoke.Rate = 25
 	fuseSmoke.Speed = NumberRange.new(0.5, 1.5)
-	fuseSmoke.Parent = bomb
+	fuseSmoke.Parent = primary
 
 	-- Migotanie światła: wolny puls → szybki strobo tuż przed wybuchem (klasyczny "tick").
-	-- Pętla żyje max fuse (bomb.Parent=nil po detonacji → koniec). Server-side — replikuje się.
+	-- Pętla żyje max fuse (root.Parent=nil po detonacji → koniec). Server-side — replikuje się.
 	task.spawn(function()
 		local tStart = os.clock()
 		local on = true
-		while bomb.Parent do
+		while root.Parent do
 			local frac = math.clamp((os.clock() - tStart) / def.fuse, 0, 1)
 			on = not on
 			light.Brightness = on and 6 or 1.2
@@ -460,12 +553,14 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 	task.delay(def.fuse, function()
 		if detonated then return end
 		detonated = true
-		if bomb.Parent then
-			detonate(bomb, player, def)
+		if root.Parent then
+			-- Pozycja czytana TERAZ, nie w chwili rzutu — bomba przez te 2.5 s leciała,
+			-- odbijała się i toczyła.
+			detonate(root, primary.Position, player, def)
 		end
 	end)
 
-	Debris:AddItem(bomb, 10)
+	Debris:AddItem(root, 10)
 	log(player, "throw", "dir=" .. string.format("(%.2f,%.2f,%.2f)", dir.X, dir.Y, dir.Z))
 
 	-- Auto-re-equip jeśli gracz ma jeszcze bomby — naturalne UX (jak grenat w FPS).
@@ -539,6 +634,17 @@ function BombService.init()
 	for _, p in ipairs(Players:GetPlayers()) do
 		p.CharacterRemoving:Connect(function() onCharacterRemoving(p) end)
 	end
+
+	-- ⚠️ SPRZĄTANIE NA KONIEC RUNDY (zgłoszenie 2026-09-21: „po rundzie dalej masz bombę
+	-- w ręce, klikasz i nic nie leci, ale pasek cooldownu jedzie"). Ocalali NIE dostają
+	-- nowej postaci po rundzie — są tylko teleportowani do lobby — więc Tool zostawał
+	-- im w rękach, a `CharacterRemoving` (jedyny dotychczasowy cleanup) nigdy nie leciał.
+	-- BridgeService robił to od początku; tu po prostu tego brakowało.
+	GameLoopService.RoundEnded:Connect(function()
+		for _, player in ipairs(Players:GetPlayers()) do
+			BombService.unequip(player)
+		end
+	end)
 end
 
 return BombService

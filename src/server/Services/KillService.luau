@@ -19,6 +19,20 @@ local CashService = require(script.Parent.CashService)
 
 local KillService = {}
 
+-- Przedłuża WAŻNY tag, nie tworzy nowego. Po to, żeby śmierć rozciągnięta w czasie
+-- (lawa: ~7 s zamiast natychmiast) nie gubiła kredytu za zabójstwo — okno liczenia ma
+-- 5 s, więc bez odnawiania „zepchnąłem go do lawy" przestałoby się liczyć.
+-- ⚠️ Odnawia TYLKO tag, który jest jeszcze ważny. Wygasły zostaje wygasły — inaczej
+-- push sprzed minuty wracałby do gry, gdy ofiara przypadkiem wpadnie do lawy.
+function KillService.refreshTag(hum: Humanoid): boolean
+	if not hum or hum.Health <= 0 then return false end
+	local tagTime = hum:GetAttribute("KillTagTime")
+	if type(tagTime) ~= "number" then return false end
+	if os.clock() - tagTime > Config.Rewards.KillCreditWindowSec then return false end
+	hum:SetAttribute("KillTagTime", os.clock())
+	return true
+end
+
 function KillService.tag(hum: Humanoid, attacker: Player, weapon: string)
 	if not hum or hum.Health <= 0 then return end
 	if not attacker or not attacker.Parent then return end

@@ -35,6 +35,7 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Fracture = require(ReplicatedStorage.Shared.Modules.Fracture)
 local Destructible = require(ReplicatedStorage.Shared.Modules.Destructible)
+local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 local DebrisService = require(script.Parent.DebrisService)
 local StructureService = require(script.Parent.StructureService)
 
@@ -198,13 +199,9 @@ end
 -- Fracture: part → gruz + remnants
 -- ============================================================================
 
-local function copyVisuals(source: BasePart, target: BasePart)
-	target.Color = source.Color
-	target.Material = source.Material
-	target.Transparency = source.Transparency
-	target.Reflectance = source.Reflectance
-	target.CastShadow = source.CastShadow
-end
+-- Wygląd kawałków = wygląd oryginału (Utils.copyAppearance — kolor, materiał, WARIANT
+-- materiału, surface'y). Wariant jest tu tak samo ważny jak materiał: mapa stoi na
+-- Plastic + MaterialVariant "Studs", więc kawałek bez wariantu jest gołym plastikiem.
 
 local function spawnDebrisChunk(
 	source: BasePart,
@@ -233,9 +230,7 @@ local function spawnDebrisChunk(
 		rng:NextNumber(-rj, rj),
 		rng:NextNumber(-rj, rj)
 	)
-	copyVisuals(source, part)
-	part.TopSurface = Enum.SurfaceType.Smooth
-	part.BottomSurface = Enum.SurfaceType.Smooth
+	Utils.copyAppearance(source, part)
 	part.Anchored = false
 	part.CanCollide = true
 	part:SetAttribute(ATTACKER_ATTR, attackerId)
@@ -252,9 +247,7 @@ local function spawnRemnant(source: BasePart, cf: CFrame, size: Vector3, remnant
 	part.Name = source.Name
 	part.Size = size
 	part.CFrame = cf
-	copyVisuals(source, part)
-	part.TopSurface = Enum.SurfaceType.Smooth
-	part.BottomSurface = Enum.SurfaceType.Smooth
+	Utils.copyAppearance(source, part)
 	part.Anchored = true
 	part.CanCollide = source.CanCollide
 	-- HP celowo świeże (pełne HP kategorii, bez attribute) — remnant jest mniejszy od
@@ -414,12 +407,6 @@ end
 -- ============================================================================
 
 -- Połowa wysokości world-space AABB parta (działa dla obróconych).
-local function worldHalfY(part: BasePart): number
-	local cf = part.CFrame
-	local s = part.Size * 0.5
-	return math.abs(cf.XVector.Y) * s.X + math.abs(cf.YVector.Y) * s.Y + math.abs(cf.ZVector.Y) * s.Z
-end
-
 local function settleStructure(
 	center: Vector3,
 	radius: number,
@@ -472,7 +459,7 @@ local function settleStructure(
 	local function getHalfY(p: BasePart): number
 		local v = halfYCache[p]
 		if not v then
-			v = worldHalfY(p)
+			v = Utils.worldHalfY(p)
 			halfYCache[p] = v
 		end
 		return v
@@ -664,13 +651,15 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 		return a.distance < b.distance
 	end)
 
-	-- Budżet kawałków: sufit per wybuch + globalny soft-cap. MinChunksPerBlast gwarantuje,
-	-- że bomba za 50$ przy zapchanym serwerze i tak coś rozwali (lekcja ze starego systemu).
-	local globalRoom = math.max(
-		CFG.Debris.MinChunksPerBlast,
-		CFG.Debris.MaxMovingDebris - DebrisService.getMovingCount()
+	-- Budżet kawałków: sufit per wybuch, a miejsce w globalnym rejestrze robi `reserve`
+	-- kasując NAJSTARSZY gruz (przebudowa 2026-09-13). Stary wzór odejmował od budżetu
+	-- gruz W RUCHU, więc po zaśnięciu kawałków limit "sam się zwalniał" i suma partów
+	-- rosła do końca rundy. Teraz ustępuje stary gruz, a świeży wybuch jest zawsze pełny;
+	-- MinChunksPerBlast to podłoga, poniżej której nie schodzimy nawet przy pełnym świecie.
+	local chunkBudget = math.max(
+		DebrisService.reserve(FRAC.MaxServerChunksPerBlast),
+		CFG.Debris.MinChunksPerBlast
 	)
-	local chunkBudget = math.min(FRAC.MaxServerChunksPerBlast, globalRoom)
 
 	-- ---- Pass 1: struktura (damage → fracture / launch / ranny) ------------
 	local fractured = 0
@@ -787,7 +776,7 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 			stats.structural, stats.fractured, stats.launched, stats.damaged,
 			stats.glass, stats.felled,
 			stats.chunks, stats.pushed,
-			DebrisService.getMovingCount(), CFG.Debris.MaxMovingDebris, stats.millis))
+			DebrisService.getTotalCount(), CFG.Debris.MaxTotalDebris, stats.millis))
 	end
 
 	return stats

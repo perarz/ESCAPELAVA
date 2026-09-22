@@ -19,10 +19,25 @@ local ToolController = {}
 local localPlayer = Players.LocalPlayer
 local lastThrowAt = 0
 
+-- ⚠️ Pasek cooldownu leciał OPTYMISTYCZNIE — klient odpalał go przy kliknięciu, nie po
+-- potwierdzeniu serwera. Poza rundą serwer rzut odrzuca, więc bomba się nie pojawiała,
+-- a pasek i tak jechał (zgłoszone 2026-09-21). Trzymamy stan gry i nie ruszamy nic poza
+-- ROUND. Serwer waliduje niezależnie — to jest tylko szczerość interfejsu.
+local gameState = ""
+Remotes.GameStateChanged.OnClientEvent:Connect(function(newState: string)
+	gameState = newState
+end)
+
 local function hookTool(tool: Tool)
 	if tool.Name ~= "BombTool" then return end
 
 	tool.Activated:Connect(function()
+		-- ⚠️ Pusty stan = jeszcze nie wiemy (gracz wszedł, `replicateTo` mogło nie dojechać
+		-- przed podpięciem tego listenera). Wtedy NIE blokujemy — inaczej dołączający
+		-- w trakcie rundy nie mógłby rzucać aż do następnej zmiany stanu, czyli nawet
+		-- kilka minut. Serwer i tak waliduje; to jest tylko szczerość paska cooldownu.
+		if gameState ~= "" and gameState ~= "ROUND" then return end
+
 		local now = os.clock()
 		local cd = Config.RateLimits.BombThrow
 		if now - lastThrowAt < cd then return end

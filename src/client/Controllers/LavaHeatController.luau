@@ -47,15 +47,26 @@ local function getEffect(): ColorCorrectionEffect
 	return cc
 end
 
+-- Lawa to STOS warstw (2026-09-16) — żar liczymy od warstwy WIERZCHNIEJ, bo to ona
+-- jest powierzchnią, do której zbliża się gracz. Skanujemy folder za każdym razem
+-- zamiast cache'ować jeden part: warstw jest kilka, Kacper dokłada je i zabiera
+-- w trakcie Play, a trzy porównania przy 10 Hz kosztują dokładnie nic.
 local function findLava(): BasePart?
-	if lavaPart and lavaPart.Parent then return lavaPart end
 	local folder = Workspace:FindFirstChild("Lava")
-	local part = folder and folder:FindFirstChild("LavaPart")
-	if part and part:IsA("BasePart") then
-		lavaPart = part
-		return part
+	if not folder then return nil end
+
+	local best: BasePart? = nil
+	local bestTop = -math.huge
+	for _, child in ipairs(folder:GetChildren()) do
+		if child:IsA("BasePart") then
+			local top = child.Position.Y + child.Size.Y * 0.5
+			if top > bestTop then
+				best, bestTop = child, top
+			end
+		end
 	end
-	return nil
+	lavaPart = best
+	return best
 end
 
 local function computeTarget(): number

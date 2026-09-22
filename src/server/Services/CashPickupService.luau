@@ -33,6 +33,7 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local CashService = require(script.Parent.CashService)
 local GameLoopService = require(script.Parent.GameLoopService)
 local PlayerService = require(script.Parent.PlayerService)
+local LavaService = require(script.Parent.LavaService)
 
 local CashPickupService = {}
 
@@ -234,23 +235,10 @@ local function prepareCashInstance(template: Instance?, position: Vector3): Base
 	return rootPart
 end
 
-local function lavaCurrentY(): number
-	-- Bierzemy bieżącą wysokość lawy bezpośrednio z Workspace.Lava.LavaPart.Position.Y.
-	-- LavaService animuje ten Part co klatkę, więc wartość jest zawsze świeża.
-	local lavaFolder = Workspace:FindFirstChild("Lava")
-	if lavaFolder then
-		local part = lavaFolder:FindFirstChild("LavaPart")
-		if part and part:IsA("BasePart") then
-			return part.Position.Y + part.Size.Y * 0.5
-		end
-	end
-	return Config.Lava.StartY
-end
-
 local function isPositionSafe(pos: Vector3): boolean
 	-- Skip pozycje które są pod lawą (z marginesem) — gracz nie zdążyłby do nich dobiec,
 	-- a magnet by działał czyli cash znikałoby gdy gracz przechodzi obok bez kontaktu.
-	local lavaY = lavaCurrentY()
+	local lavaY = LavaService.getSurfaceY()
 	if pos.Y < lavaY + Config.Cash.LavaSafetyMargin then
 		return false
 	end
@@ -339,7 +327,7 @@ local function magnetTick()
 	-- w którym i tak iterujemy po paczkach. Wcześniej robił to osobny listener Touched
 	-- wpięty w LavaPart; przy gruzie z wybuchów ten listener kosztował tysiące wywołań
 	-- na sekundę, a odpalał się dla wszystkiego, nie tylko dla cashu.
-	local lavaY = lavaCurrentY()
+	local lavaY = LavaService.getSurfaceY()
 
 	for _, cashInstance in ipairs(folder:GetChildren()) do
 		local root = getRootPart(cashInstance)

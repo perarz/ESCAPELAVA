@@ -2,7 +2,7 @@
 
 > Dokument dla asystenta pomagającego w organizacji pracy (TODO, planowanie, decyzje).
 > Celowo bez szczegółów kodu — od logiki gry jest Claude Code w repo.
-> Stan na: 2026-09-13.
+> Stan na: 2026-09-21.
 
 ---
 
@@ -34,28 +34,61 @@ pod klipy na TikToka.
 | **Kacper** (16 lat, solo dev, po Kaucja Simulator ~12k wizyt) | Buduje w Roblox Studio: mapę, lobby, punkty spawn, UI (wygląd), modele/assety/dźwięki. Testuje. Decyduje o designie. Max 2-3h dziennie. |
 | **Claude Code** (AI w repo) | Cała logika gry w kodzie: serwisy, mechaniki, anti-cheat, zapis danych, VFX, skalowanie UI. Pilnuje jakości pod skalę. |
 
-Zasada: Claude pyta o decyzje designowe zanim koduje; Kacper nie musi dotykać kodu.
+Zasady współpracy:
+- Claude pyta o decyzje designowe zanim koduje; Kacper nie musi dotykać kodu.
+- **Testy w grze robi wyłącznie Kacper** (ustalone 20.09). Claude nie odpala Play sam —
+  dostarcza kod i **listę rzeczy do sprawdzenia**, a nie własne „działa". Powód: jego
+  automatyczny test dwa razy dał fałszywy wynik (mierzył życie już po obrażeniach
+  z poprzedniego upadku, i czytał log ze starej sesji), a do tego przerywał Kacprowi
+  jego własne testy w połowie. Podglądanie gry przez MCP zostaje — to się sprawdzało
+  (pomiary mapy, sprawdzanie czy kod w ogóle dojechał do Studio).
 
 ## Co jest GOTOWE (z perspektywy gracza)
 
 - **Pełna pętla rundy**: lobby → odliczanie → runda z lawą przyspieszającą w fazach →
   nagrody → restart. Mapa naprawia się sama po każdej rundzie.
 - **Bomba** (50$): rzut, odliczanie z migającym lontem, rani i odrzuca graczy (ragdoll),
-  zabójstwa nagradzane kasą. **UWAGA: sam wybuch został skasowany 11.08** (decyzja: nie
-  podobał się, budujemy od nowa) — dziś detonacja jest niewidoczna i nie rusza mapy.
-  Zostało: rzut, obrażenia, odrzut, ragdoll, wstrząs ekranu. Do zaprojektowania od zera:
-  jak wybuch wygląda i czy/jak niszczy teren.
-- **Most** (100$): budowanie przeprawy z podglądem "ducha", obracanie. Sabotaż PvP
-  (wysadzanie mostów) wróci razem z nowym wybuchem.
+  zabójstwa nagradzane kasą — a od 11-12.08 **znowu wybucha i niszczy mapę** (system
+  destrukcji v2, patrz TODO punkt 0). Ściany pękają na nieregularne kawałki, gruz zostaje
+  jako platformy, a kto stoi za ścianą, dostaje słabiej.
+- **Most** (100$): budowanie przeprawy z podglądem "ducha", obracanie. Mosty są
+  niszczalne, więc sabotaż PvP działa.
 - **Push (F)**: spychanie przeciwników z cooldownem 4s — kill credit jak wpadną w lawę.
 - **Kasa**: zbierana z mapy (przyciąganie magnetyczne + animacja lotu ze złotym trailem),
   za zabójstwa (25$), za przetrwanie rundy (100$), popupy "+10$", licznik jako ozdobne
   cyfry z teksturą studs.
-- **Sklep jako NPC w lobby** (przebudowany 12.09): podchodzisz do sprzedawcy, wciskasz E,
-  kamera płynnie jedzie po wystawie z itemami i celuje w wybrany, a na dole panel z nazwą,
-  ceną, opisem i przyciskiem KUP. Przewijanie strzałkami / A-D / scrollem. Zakup
-  weryfikowany odległością od sprzedawcy, więc nie da się kupować w trakcie rundy.
-  Dodanie nowego itemu do sklepu = postawienie dwóch obiektów w Studio, bez tykania kodu.
+- **Sklep w nowym lobby** (20.09, przetestowane) — po przebudowie lobby sprzedawca broni
+  stoi w swoim straganie, a wystawa z itemami przeniosła się do osobnego pomieszczenia,
+  do którego zjeżdża sama kamera (Ty zostajesz przy sprzedawcy, więc kilka osób może
+  kupować naraz). Kamery celują w bombę i w plan mostu. Dodanie kolejnego itemu to
+  postawienie modelu i markera obok niego — kod sam je paruje po tym, co stoi naprzeciw,
+  więc nazwy markerów nie mają znaczenia. Na dole panel z nazwą, ceną, opisem i przyciskiem
+  KUP; przewijanie strzałkami / A-D / scrollem; zakup weryfikowany odległością od
+  sprzedawcy, więc nie da się kupować w trakcie rundy. Sprzedawca ubrań na razie nic nie robi.
+- **Postacie: jednolity rig + losowy wygląd** (21.09) — wszyscy wchodzą teraz jako ta sama
+  postać od gry (nie własny avatar), a losowany jest kolor skóry, koszulki i spodni plus
+  krój: rękaw krótki albo długi, nogawki długie albo szorty. Zestaw przypisywany raz
+  i zapamiętywany. To jest pierwszy krok systemu skinów — sklep będzie potem podmieniał
+  pojedyncze elementy tego samego zapisu.
+  ⚠️ **Do włączenia przez Ciebie**: Game Settings → Security → „Enable Studio Access to API
+  Services". Bez tego w Studio wygląd **nie zapisuje się** i losuje od nowa przy każdym
+  wejściu — przez to wyglądało, że krój rękawa nie działa.
+  ⚠️ **Do decyzji**: głowa w rigu to „dynamiczna" głowa z twarzą wbudowaną w teksturę i nie
+  da się na nią nałożyć wybranej twarzy. Żeby twarze dało się sprzedawać jako skiny, trzeba
+  podmienić ją na klasyczną, kanciastą.
+- **Ragdoll naprawiony u źródła** (21.09) — postać leci po bombie jak trzeba. Przyczyną
+  „trzepania" był nowy typ szkieletu postaci, którego nie znosi używany przez nas ragdoll:
+  na jednym ciele pracowały dwa zestawy stawów naraz. Szkielet został przerobiony na starszy
+  typ i problem zniknął. Przy okazji powinno wrócić obracanie głowy za kamerą, które po cichu
+  nie działało. **Zapisz plac (Cmd+S)** — ta zmiana siedzi w pliku placu, nie w kodzie.
+- **Twoje modele w grze** (20.09, przetestowane) — bomba, którą trzymasz w ręce, jest tą
+  samą bombą, która leci i wybucha; w trybie budowania trzymasz plan; most to Twój model
+  z 12 desek, niszczalny deska po desce. **Most jest większy niż wcześniejszy zastępczy
+  (13.25 zamiast 10 długości) — tak miało być.** Rozmiar bierze się z modelu, więc gdybyś
+  kiedyś chciał inny, skalujesz model w Studio i kod sam się dostosuje.
+- **Spawn w lobby naprawiony** (20.09) — punkt spawnu przyjechał ze Studio niezakotwiczony
+  i po prostu spadał przy starcie gry, zabierając ze sobą miejsce, w które gra teleportuje
+  graczy. Kod kotwiczy go teraz sam i mówi o tym w logu.
 - **Hotbar** z equipem itemów (klawisze 1-5, białe podświetlenie wybranego slotu).
 - ~~Daily rewards~~ — **skasowane 12.09**, bo stare UI się nie podobało. Do zrobienia od nowa.
 - **Ruch**: sprint (Shift) ze staminą, kamera 3rd person z płynnym wygładzaniem,
@@ -63,6 +96,31 @@ Zasada: Claude pyta o decyzje designowe zanim koduje; Kacper nie musi dotykać k
   za kamerą (widoczne dla innych).
 - **Klimat**: lawa z unoszącymi się iskrami i dymem, "żar" na ekranie gdy gracz jest
   nisko nad lawą, słup pary przy śmierci w lawie.
+- **Lawa jako trzy warstwy** (16.09, Twój pomysł) — zamiast jednej płaskiej tafli stos:
+  nieprzezroczysty spód i dwie półprzezroczyste warstwy nad nim, każda w innym kolorze.
+  To pierwsze podejście do wyglądu lawy, które nie próbuje namalować głębi na płasko,
+  tylko ją naprawdę ma — plus warstwy falują jedna względem drugiej i przesuwają się
+  różnie przy ruchu kamery. Stos stoi już w Studio (**zapisz plac Ctrl+S!**), kod
+  sprawdzony w Play. Liczba warstw jest dowolna: dołożysz czwartą w Studio i zadziała
+  bez zmian w kodzie. Uwaga: wierzch lawy jest teraz 1.7 studa wyżej niż był.
+- **Obrażenia od upadku + ragdoll** (16-19.09) — spadek z wysokości rani, a od 30 studów
+  przewraca postać, i to **jeszcze w locie**, żeby wywrotka wypadła na uderzeniu, a nie po
+  nim. Zepchnięcie kogoś z dachu liczy się jako Twoje zabójstwo. ⚠️ **Przepisane 19.09 od
+  zera i NIEPRZETESTOWANE** — zgłosiłeś dwa błędy (wyrzut bombą bez obrażeń, drugi upadek
+  bez obrażeń) i oba miały jedną przyczynę, którą sam wcześniej wprowadziłem. Lista pięciu
+  rzeczy do sprawdzenia jest w CLAUDE.md w sekcji STATUS.
+- **Nowe oświetlenie** (16.09) — stare było rozjaśnione „ambientem" tak mocno, że cienie
+  miały prawie ten sam kolor co światło i wszystko wyglądało płasko, a filtr koloru
+  próbował to ratować kontrastem i niebieskim odcieniem, który gryzł się z pomarańczem
+  lawy. Teraz: ciepłe słońce, chłodne cienie, lekka mgiełka dystansu (dalsze wieżowce
+  delikatnie blakną, więc miasto czyta się jako wysokie) i świecenie tylko tego, co
+  naprawdę gorące. Słońce jest widoczne na niebie. Skybox bez zmian. Gdyby coś nie
+  siadło — w repo leży plik cofający wszystko jedną komendą.
+- **Oprawa lawy** (14-16.09) — zrobione w kodzie, ale **czeka na Ciebie i na test**:
+  powierzchnia przewija się (Ty dajesz teksturę, kod ją animuje), tafla faluje, wypychają
+  się z niej bąble i pękają z iskrami, ciepłe światła sunące po powierzchni podświetlają
+  dolne piętra, a tam gdzie lawa podchodzi pod ulicę unosi się para. **Nic z tego nie było
+  jeszcze w Play.** Blokada: wrzucenie tekstury na part lawy.
 - **Pasek staminy przy postaci** (12.09): nie element HUD, tylko pionowy wskaźnik unoszący
   się obok Twojej postaci w świecie — widzi go **tylko właściciel**. Pokazuje się sam przy
   sprincie i chowa po naładowaniu, ze sprężystą animacją; kolor idzie od niebieskiego przez
@@ -97,7 +155,33 @@ Zasada: Claude pyta o decyzje designowe zanim koduje; Kacper nie musi dotykać k
   system** (zapis posiadanych skinów, zakładanie na postać przy odrodzeniu, assety) —
   robić dopiero po loadoucie.
 - **Daily rewards od nowa** jako UI.
-- **4 nowe itemy** do kompletu 6. Claude przynosi propozycje, Kacper wybiera.
+- **4 nowe itemy** do kompletu 6. Propozycje przyniesione 16.09, Kacper jeszcze nie wybrał.
+  Rekomendacja: **hak** (przyciąga do ściany/dachu), **lotnia** (szybowanie — ratuje po
+  zepchnięciu, więc jest kontrą na cudzy item), **stawiana ściana** (osłania przed wybuchem)
+  i **kontrolowana rozbiórka** (ładunek na filar zrzuca całe piętro — najmocniejszy moment
+  na klip). Pozostałe pomysły w zanadrzu: trampolina, mina, sticky bomb z detonatorem,
+  zastygacz (chwilowa wyspa na lawie), granat grawitacyjny, zamiana miejsc z wrogiem.
+  ⚠️ Przy wyborze uważać na itemy nagradzające **kemping na szczycie** (mina, ściana) —
+  dopóki lawa nie dochodzi do najwyższego dachu, wzmacniałyby problem z punktu B.
+
+**Decyzje podjęte 16.09 (do przekazania builderowi):**
+- **Avatar: zostajemy przy R15.** Chodziło Ci o kwadratowy kształt, a nie o konkretny rig —
+  i R15 to daje przez ustawienia proporcji. R6 odrzucony, bo kosztowałby trzy rzeczy:
+  zepsułby obracanie głowy, przesunął próg śmierci w lawie i wymusił ponowny test ragdolla.
+  Przy okazji: **wymuszenie tej samej skali dla wszystkich naprawia istniejący cichy błąd** —
+  dziś gracze z różnymi avatarami mają minimalnie różny próg śmierci w lawie.
+- **Skiny w v1.0 są czysto kosmetyczne.** Bonusy do gry na ubraniach odradzone: to
+  pay-to-win, a do tego rozmywa Twój własny pomysł na loadout, w którym wybór 3 z 6 itemów
+  ma być JEDYNĄ osią mocy. Argument za jednolitą bazą, o którym warto pamiętać: przy
+  losowych avatarach kupiony skin ginie w tłumie — dopiero gdy wszyscy wyglądają tak samo,
+  skin widać, a dopiero wtedy ktoś chce za niego zapłacić. Nowy gracz dostaje jeden
+  darmowy skin na start.
+- **Builder może zaczynać.** Obecny sklep nadaje się do dopieszczenia od razu (wygląd
+  dowolny, byle nazwy obiektów zostały — lista w CLAUDE.md). Stoisko skinów też może
+  powstać równolegle, choć kod do niego jest daleko w kolejce; niech buduje stoiska jako
+  **powtarzalny moduł**, bo trzecie (loadout) prawdopodobnie dojdzie.
+  ⚠️ **Zanim oddasz robotę: zdecyduj, gdzie ma być wybór loadoutu** (ten sam NPC co sklep,
+  trzecie stoisko, czy HUD). To jedyna rzecz, przez którą builder mógłby coś przerabiać.
 
 **B. Otwarte pytanie designowe**: przy obecnych liczbach lawa w 80-sekundowej rundzie
 podnosi się tylko o ~120 studów, więc wyższe piętra są od niej bezpieczne z definicji —

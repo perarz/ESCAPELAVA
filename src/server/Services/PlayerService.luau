@@ -20,6 +20,9 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local GameLoopService = require(script.Parent.GameLoopService)
 local KillService = require(script.Parent.KillService)
+-- Spawn idzie przez AppearanceService, nie przez `player:LoadCharacter()` — wszyscy mają
+-- wyglądać jak postacie z tej gry, a nie przynosić własne avatary (decyzja 2026-09-21).
+local AppearanceService = require(script.Parent.AppearanceService)
 
 local PlayerService = {}
 
@@ -99,6 +102,52 @@ local function getRoundSpawnPool(): { Vector3 }
 	return pool
 end
 
+-- Marker spawnu, który NIE JEST zakotwiczony, po starcie Play po prostu spada — a razem
+-- z nim spada punkt, w który teleportujemy graczy (kod czyta jego POZYCJĘ, nie zapamiętaną
+-- wartość). Objaw jest wtedy nie do odróżnienia od błędu w logice spawnu: gracze lądują
+-- pod podłogą albo w losowym miejscu, mimo że kod działa poprawnie.
+-- 2026-09-20: Workspace.Lobby.Spawn przyjechał z Anchored = false, stąd ta bramka.
+-- Wymuszamy zamiast tylko ostrzegać, bo to jedna właściwość, a koszt przeoczenia to
+-- popsuta cała runda. Wygląd (Transparency, CanCollide) zostaje Kacprowi — ruszamy
+-- WYŁĄCZNIE to, co psuje mechanikę.
+local function anchorSpawnMarkers()
+	local fixed: { string } = {}
+
+	local function anchor(part: Instance?)
+		if part and part:IsA("BasePart") and not part.Anchored then
+			part.Anchored = true
+			table.insert(fixed, part:GetFullName())
+		end
+	end
+
+	local lobby = Workspace:FindFirstChild("Lobby")
+	if lobby then
+		anchor(lobby:FindFirstChild("Spawn"))
+	end
+
+	local map = Workspace:FindFirstChild("Map")
+	local folders: { Instance } = {}
+	if map then
+		local f = map:FindFirstChild("SpawnPoints", true)
+		if f then table.insert(folders, f) end
+		local s = map:FindFirstChild("Spawn", true)
+		anchor(s)
+	end
+	local rootFolder = Workspace:FindFirstChild("SpawnPoints")
+	if rootFolder then table.insert(folders, rootFolder) end
+
+	for _, folder in ipairs(folders) do
+		for _, child in ipairs(folder:GetChildren()) do
+			anchor(child)
+		end
+	end
+
+	if #fixed > 0 then
+		warn(("[PlayerService] zakotwiczyłem %d marker(ów) spawnu, bo spadłyby przy starcie: %s"):format(
+			#fixed, table.concat(fixed, ", ")))
+	end
+end
+
 local function shuffled<T>(arr: { T }): { T }
 	local copy = table.clone(arr)
 	for i = #copy, 2, -1 do
@@ -145,7 +194,7 @@ local function teleportCharacter(character: Model, position: Vector3)
 end
 
 local function sendToLobby(player: Player)
-	player:LoadCharacter()
+	AppearanceService.loadCharacter(player)
 	local char = player.Character
 	if char then
 		teleportCharacter(char, getLobbyTargetPosition())
@@ -173,7 +222,22 @@ local function onDeath(player: Player, hum: Humanoid?)
 	end)
 end
 
+-- Zdejmuje domyślną regenerację życia. Roblox wkłada do KAŻDEJ postaci skrypt `Health`
+-- leczący ~1% HP/s; przy lawie raniącej zamiast zabijającej to on decydowałby o tym,
+-- czy da się ją przeczekać. Kasujemy, a nie wyłączamy: `Disabled` po starcie nie przerywa
+-- pętli, która już się kręci. Skrypt bywa dokładany chwilę PO `CharacterAdded`, stąd wait.
+local function stripHealthRegen(character: Model)
+	if not Config.Game.DisableHealthRegen then return end
+	task.spawn(function()
+		local health = character:WaitForChild("Health", 5)
+		if health and health:IsA("BaseScript") then
+			health:Destroy()
+		end
+	end)
+end
+
 local function hookHumanoid(player: Player, character: Model)
+	stripHealthRegen(character)
 	local hum = character:WaitForChild("Humanoid", 5)
 	if not hum or not hum:IsA("Humanoid") then return end
 	disconnectDied(player)
@@ -222,7 +286,7 @@ local function sendEveryoneToRound()
 	for i, player in ipairs(players) do
 		local pos = pool[((i - 1) % #pool) + 1]
 		local ok, err = pcall(function()
-			player:LoadCharacter()
+			AppearanceService.loadCharacter(player)
 		end)
 		local char = player.Character
 		if ok and char then
@@ -265,6 +329,9 @@ function PlayerService.init()
 	initialized = true
 
 	Players.CharacterAutoLoads = false
+
+	-- PRZED pierwszym spawnem: nieanchorowany marker zdążyłby już odjechać.
+	anchorSpawnMarkers()
 
 	GameLoopService.setAliveCountProvider(getAliveCount)
 

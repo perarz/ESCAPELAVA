@@ -37,8 +37,14 @@ function Dev.isDev(player: Player?): boolean
 end
 
 -- Czy dev tego gracza ma mieć nieskończone itemy (osobna gałka od samego bycia devem).
+-- ⚠️ ŚWIADOMIE ODDZIELONE OD `isDev`: „nieskończone itemy" i „wolno kończyć rundę"
+-- to dwie różne rzeczy. `InfiniteItemsForAll` daje itemy każdemu na czas testów z ludźmi,
+-- ale klawiszy P/O dalej pilnuje `Usernames` — inaczej dowolny kolega kończyłby rundę
+-- wszystkim jednym przypadkowym naciśnięciem.
 function Dev.hasInfiniteItems(player: Player?): boolean
-	return Config.Dev.InfiniteItems and Dev.isDev(player)
+	if not Config.Dev.Enabled or not Config.Dev.InfiniteItems then return false end
+	if Config.Dev.InfiniteItemsForAll then return player ~= nil end
+	return Dev.isDev(player)
 end
 
 return Dev

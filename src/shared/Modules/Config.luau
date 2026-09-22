@@ -24,9 +24,27 @@ Config.Dev = {
 	-- sklep niepotrzebny. Działa dla WSZYSTKICH itemów z ItemDefinitions.shopOrder.
 	InfiniteItems = true,
 	InfiniteItemCount = 99, -- ile pokazuje licznik w hotbarze
+	-- ⚠️ NIESKOŃCZONE ITEMY DLA **KAŻDEGO**, nie tylko dla nicków z `Usernames`
+	-- (prośba Kacpra 2026-09-21 na czas testów z kolegami — inaczej koledzy musieliby
+	-- kupować bomby i test mierzyłby ekonomię zamiast mechanik).
+	-- ⚠️ Klawisze dev (P/O) tego NIE obejmują — sterowanie rundą zostaje przy `Usernames`,
+	-- żeby przypadkowe O nie kończyło rundy wszystkim.
+	-- 🔴 WYŁĄCZYĆ PRZED LAUNCHEM razem z `Config.Dev.Enabled`.
+	InfiniteItemsForAll = true,
 
 	-- Klawisze (tylko dla devów; zwykły gracz nawet nie podpina listenera).
-	SkipKey = Enum.KeyCode.P,     -- skip bieżącej fazy/stanu (LOBBY→ROUND w 2 klik)
+	--
+	-- ⛔ **SKIP NIE MOŻE BYĆ NA `P`** (lekcja 2026-09-21, zgłoszone w trakcie testu:
+	-- „kliknąłem kilka razy P i wyłączyło UI, włączył się jakiś freecam"). Roblox Studio
+	-- ma WBUDOWANY freecam pod **Shift+P**, który przy okazji chowa cały interfejs.
+	-- A u nas **sprint to LeftShift** — więc skipnięcie fazy w biegu trafiało prosto
+	-- w skrót Studia. Wychodzi się z tego drugim Shift+P.
+	-- ⚠️ Dotyczy TYLKO Studio (na opublikowanym serwerze freecamu nie ma), ale testy
+	-- robimy właśnie w Studio, więc kolizja jest realna.
+	-- Przy zmianie tych klawiszy sprawdź, czy nie kolidują z: WASD, Space (skok),
+	-- LeftShift (sprint), F (push), 1-5 (hotbar), R (obrót mostu), Q (wyjście ze sklepu),
+	-- E (ProximityPrompt).
+	SkipKey = Enum.KeyCode.K,     -- skip bieżącej fazy/stanu (LOBBY→ROUND w 2 klik)
 	EndRoundKey = Enum.KeyCode.O, -- natychmiastowy koniec rundy (restore mapy, nagrody)
 }
 
@@ -36,13 +54,22 @@ Config.Game = {
 	LobbyDuration = 15,
 	CountdownDuration = 5,
 	PostRoundDuration = 10,
+
+	-- ⚠️ WYŁĄCZA DOMYŚLNĄ REGENERACJĘ ŻYCIA (decyzja Kacpra 2026-09-21, razem z lawą
+	-- raniącą zamiast zabijającej na miejscu). Roblox wkłada do każdej postaci skrypt
+	-- `Health`, który leczy ~1% HP/s — bez jego usunięcia „giniesz po 7 s ŁĄCZNIE"
+	-- nie działa, bo krótkie wejścia do lawy zdążyłyby się zaleczyć między wejściami.
+	-- ⚠️ To reguła CAŁEJ GRY, nie tylko lawy: obrażenia od upadku, bomby i gruzu też
+	-- przestają się goić. W 80-sekundowej rundzie bez apteczek to spójne — ale gdyby
+	-- kiedyś doszło leczenie, zacząć od tej flagi.
+	DisableHealthRegen = true,
 }
 
 Config.Lava = {
-	-- ⚠️ WYŁĄCZONA NA TESTY DESTRUKCJI (2026-08-12, prośba Kacpra). Part lawy istnieje
-	-- (CashPickup/LavaHeat go czytają), ale NIE rośnie i NIE zabija.
-	-- PRZYWRÓCIĆ true przed testem pełnych rund i przed launchem!
-	Enabled = false,
+	-- WŁĄCZONA z powrotem 2026-09-21 na prośbę Kacpra — oprawa lawy (embery, dym, bąble,
+	-- para, światła, poświata) zapala się dopiero, gdy tafla wyjdzie z kanału ponad ulicę
+	-- (`FX.MinSurfaceY`), więc przy nierosnącej lawie nie było jej jak zobaczyć.
+	Enabled = true,
 	StartY = -5,
 	MaxY = 250,
 	-- DESIGN: szybka i dynamiczna gra. Runda ~80s total, nie 5+ minut.
@@ -55,13 +82,39 @@ Config.Lava = {
 	-- UWAGA przy powrocie do lawy: przy tych czasach i tych prędkościach lawa urosłaby
 	-- o ~990 stud i po ~3 minutach siedziałaby na MaxY (250) do końca rundy. Jeśli chcesz
 	-- testować rundy Z lawą, trzeba albo zejść z prędkościami, albo podnieść MaxY.
+	-- ⚠️ RUNDA 4-MINUTOWA NA TESTY Z LUDŹMI (2026-09-21, prośba Kacpra).
+	-- Wartości PRODUKCYJNE to 15/60/60/60/45 → 5/20/20/20/15 (80 s) i prędkości
+	-- 0.6 / 1.2 / 2.0 / 3.0. PRZYWRÓCIĆ PRZED LAUNCHEM.
+	--
+	-- CZASY: kształt projektowy (5/20/20/20/15) przeskalowany ×3 = 240 s.
+	-- PRĘDKOŚCI: przeskalowane ÷3, żeby CAŁKOWITY przyrost został ten sam co w designie
+	-- (~120 studów). To jest tu najważniejsze: wydłużenie rundy bez zejścia z prędkości
+	-- dałoby 3× większy przyrost, lawa zalałaby mapę w połowie i test skończyłby się
+	-- pływaniem. Tak zachowany jest i czas na testowanie, i narastanie presji.
+	--
+	-- Zmierzone na tej mapie: tafla startuje na Y 2.5, najwyższy dach jest na Y 109.
+	-- Przyrost 120 → koniec rundy na ~Y 122, czyli **lawa zalewa wszystko** i runda
+	-- naprawdę się kończy, zamiast wygasnąć na timerze.
+	-- Próg oprawy (`FX.MinSurfaceY` = 9) przekroczony po ~33 s fazy Easy, czyli ~48 s
+	-- od startu rundy — wtedy zapalają się embery, dym, światła i poświata.
 	Phases = {
-		{ Name = "Spawn",   Speed = 0.0, Duration = 10 },  -- "Get ready" grace
-		{ Name = "Easy",    Speed = 0.6, Duration = 150 },
-		{ Name = "Mid",     Speed = 1.2, Duration = 150 },
-		{ Name = "Hard",    Speed = 2.0, Duration = 150 },
-		{ Name = "Endgame", Speed = 3.0, Duration = 140 },
+		{ Name = "Spawn",   Speed = 0.00, Duration = 15 },  -- "Get ready" grace
+		{ Name = "Easy",    Speed = 0.20, Duration = 60 },  -- +12 studów
+		{ Name = "Mid",     Speed = 0.40, Duration = 60 },  -- +24
+		{ Name = "Hard",    Speed = 0.65, Duration = 60 },  -- +39
+		{ Name = "Endgame", Speed = 1.00, Duration = 45 },  -- +45
 	},
+	-- LAWA RANI, NIE ZABIJA NA MIEJSCU (decyzja Kacpra 2026-09-21).
+	-- Obrażenia lecą WYŁĄCZNIE, dopóki stopy są pod powierzchnią — wyskoczysz, przestaje
+	-- boleć. Nic się nie goi (`Game.DisableHealthRegen`), więc kilka krótkich wejść sumuje
+	-- się do tych samych sekund. Sens: lawa przestaje być ścianą śmierci, a zaczyna być
+	-- zagrożeniem, przed którym da się uciec — i to jest moment, którego wcześniej nie było.
+	Damage = {
+		-- Ile sekund CIĄGŁEGO kontaktu zabija gracza z pełnym życiem. Liczone z `MaxHealth`,
+		-- nie ze sztywnego DPS — dzięki temu zmiana maksymalnego HP nie rozjeżdża balansu.
+		SecondsToKill = 7,
+	},
+
 	Part = {
 		SizeXZ = 600,
 		Thickness = 6,
@@ -79,6 +132,208 @@ Config.Lava = {
 		Tint = Color3.fromRGB(255, 175, 140), -- docelowy tint przy max (złagodzony)
 		MaxContrast = 0.08, -- dodatkowy kontrast przy max (subtelne "gęste powietrze")
 		LerpSpeed = 4,      -- szybkość dochodzenia efektu (1-exp(-k·dt))
+	},
+
+	-- RUCH POWIERZCHNI LAWY (LavaSurfaceController, 2026-09-14).
+	--
+	-- PODZIAŁ RÓL: teksturę daje Kacper w Studio, kod ją tylko PRZEWIJA. Kod nie tworzy
+	-- ani nie podmienia wyglądu powierzchni — próbowaliśmy tego cztery razy (siatka kafli
+	-- ze studsami, podział na trójkąty, `Material = CrackedLava`, własne wygenerowane
+	-- tekstury) i każde podejście zostało odrzucone. Wygląd należy do Kacpra, ruch do kodu.
+	--
+	-- KONTRAKT: każdy part w `Workspace.Lava` → dziecko typu **`Texture`** (NIE `Decal` —
+	-- Decal nie ma `OffsetStuds`), `Face = Top`. Tekstury mogą siedzieć na jednym parcie
+	-- albo rozłożone po warstwach stosu (2026-09-16) — kod numeruje je od góry w dół
+	-- i każdej kolejnej daje inny mnożnik prędkości. Opcjonalne atrybuty NA WARSTWIE
+	-- nadpisują te wartości: `ScrollU`, `ScrollV`, `PulseAmount`, `PulsePeriod` — czyli
+	-- stroisz tempo w Studio, bez wchodzenia w kod, także w trakcie Play.
+	Surface = {
+		Enabled = true,
+		-- Domyślne przewijanie w studach/s. Podniesione 2026-09-16 na prośbę "więcej
+		-- ruchu" — przy kaflu 30 studów stare 0.55 dawało jeden kafel na ~55 s, czyli
+		-- ruch na granicy zauważalności. Teraz ~20 s na kafel: widać płynięcie, ale
+		-- lawa dalej czyta się jako gęsta, a nie jak woda.
+		DefaultScrollU = 1.4,
+		DefaultScrollV = 0.8,
+		-- Mnożniki prędkości dla kolejnych warstw. JEDNA przewijana tekstura czyta się jak
+		-- przesuwana tapeta; dopiero druga, sunąca wolniej i w przeciwną stronę (ujemny
+		-- mnożnik), miesza się z pierwszą i wygląda jak coś płynącego.
+		LayerMultipliers = { 1, -1.6, 0.55 },
+		-- Pulsowanie przezroczystości (0 = wyłączone). Waha się WOKÓŁ wartości ustawionej
+		-- przez Kacpra na warstwie, więc nie nadpisuje jego designu.
+		DefaultPulseAmount = 0,
+		DefaultPulsePeriod = 7,
+	},
+
+	-- FALOWANIE TAFLI (LavaService, strona serwera). Lawa kołysze się wokół swojej
+	-- bieżącej wysokości, więc przestaje wyglądać jak sztywna płyta.
+	-- ⚠️ To jest part ZABIJAJĄCY: `killSubmerged` porównuje pozycję gracza z powierzchnią,
+	-- więc próg śmierci też faluje o tę amplitudę. Przy 0.3 studa jest to pomijalne
+	-- (gracz i tak ginie po kostki), ale nie podnosić tego bez zastanowienia.
+	-- Musi iść przez serwer — part jest serwerowy, więc klienckie ruszanie Y zostałoby
+	-- nadpisane przez replikację w następnej klatce.
+	Wobble = {
+		Enabled = true,
+		-- DWA SKŁADNIKI FALOWANIA (2026-09-16, po prośbie "zwiększ amplitudę").
+		-- Rozdzielone, bo ograniczenie dotyczy tylko JEDNEGO z nich:
+		--
+		-- 1) WSPÓLNY — cały stos jedzie razem, jak tafla wody podnoszona falą. Warstwy
+		--    nie zbliżają się do siebie ani o milimetr, więc ten może być DUŻY i to on
+		--    odpowiada za "widać, że lawa faluje".
+		Amplitude = 0.9, -- stud
+		Period = 3.5,    -- s pełnego cyklu
+		-- STOS WARSTW (2026-09-16): lawa to kilka partów jeden nad drugim. Gdyby wszystkie
+		-- falowały identycznie, stos jechałby jak jeden sztywny blok i przezroczystość
+		-- niczego by nie dawała. Dopiero gdy warstwy pływają WZGLĘDEM SIEBIE, widać
+		-- objętość cieczy — o to w tym stosie chodzi.
+		-- 2) RÓŻNICOWY — warstwy pływają WZGLĘDEM SIEBIE (efekt cieczy o objętości).
+		--    Ten zjada szczelinę między warstwami, więc kod przycina go do niej
+		--    (`MaxGapUsage`) — podnoszenie go bez rozsunięcia warstw w Studio nic nie da.
+		--    Inny okres niż wspólny, żeby ruch nie wyglądał jednostajnie.
+		LayerAmplitude = 0.35,
+		LayerPeriod = 2.3,
+		LayerPhase = 2.1,  -- przesunięcie fazy każdej kolejnej warstwy (radiany, ~120°)
+		LayerDecay = 0.6,  -- mnożnik amplitudy w głąb: masa pod spodem kołysze się mniej
+		-- Ile szczeliny między sąsiednimi warstwami wolno zjeść falowaniu (0..1).
+		-- Dwie tafle, które w siebie wejdą, dają MIGOTANIE zamiast głębi, więc kod
+		-- przycina amplitudy do najciaśniejszej szczeliny w stosie. Dzięki temu warstwy
+		-- można w Studio dosunąć dowolnie blisko — falowanie samo zrobi się subtelniejsze
+		-- zamiast popsuć obraz.
+		MaxGapUsage = 0.7,
+	},
+
+	-- EFEKTY POWIERZCHNI (LavaSurfaceController, klient). Wszystko lokalne: zero
+	-- replikacji, zero fizyki serwera — ten sam wzorzec co DebrisFXController.
+	FX = {
+		-- Dalej niż to od kamery żaden z efektów nie jest liczony ani spawnowany.
+		-- Lawa bywa widoczna przez pół mapy, a bąble z 400 studów to kilka pikseli.
+		Distance = 420,
+
+		-- ===== ODSŁONIĘCIE TAFLI (2026-09-16) =====
+		-- Tafla lawy jest JEDNYM wielkim prostokątem pod całą mapą, ale widać z niej
+		-- tylko kawałki: zmierzone na gotowej mapie **86% powierzchni jest zakryte**
+		-- ulicami, chodnikami i stropami. Efekty spawnowane na ślepo lądowały pod
+		-- jezdnią — stąd zgłoszenie Kacpra "w losowych miejscach nad lawą pojawia się
+		-- dziwne światło": dwa z czterech świateł stały dokładnie pod chodnikiem
+		-- i prześwietlały go od spodu.
+		-- Jeden raycast W GÓRĘ przed spawnem załatwia wszystkie efekty naraz, a wraz
+		-- ze wzrostem lawy coraz więcej tafli robi się odsłonięte samo z siebie.
+		-- ===== JEDYNA BRAMKA OPRAWY: WYSOKOŚĆ TAFLI (2026-09-21) =====
+		-- Dopóki lawa siedzi w kanale pod ulicami, NIE MA żadnych efektów: ani emberów
+		-- i dymu (serwer, `LavaService`), ani bąbli, pary, świateł i poświaty (klient).
+		-- Zapalają się dopiero, gdy wierzch tafli przekroczy tę wysokość.
+		--
+		-- ⚠️ DLACZEGO TO JEST LEPSZE OD POPRZEDNICH BRAMEK ODSŁONIĘCIA (decyzja Kacpra):
+		-- tamte pytały GEOMETRIĘ raycastami („czy nad tym punktem coś jest?"), a raycast,
+		-- który w nic nie trafił, znaczy albo „otwarte niebo", albo „jeszcze się nie
+		-- wczytało". Przy `StreamingEnabled = true` po wejściu na mapę przez ~15 s nie ma
+		-- jeszcze ulic, więc kod uznawał lawę za odsłoniętą i zapalał poświatę
+		-- prześwitującą przez niedoładowaną podłogę. Porównanie dwóch LICZB nie ma jak
+		-- się pomylić i jest poprawne od pierwszej klatki. Przy okazji znika 16 raycastów
+		-- na sprawdzenie i cały problem „particle przelatują przez jezdnię" — bo particle
+		-- w Robloxie nie kolidują z geometrią i nie dało się tego obejść inaczej.
+		--
+		-- Zmierzone na mapie: tafla startuje na Y 2.5, strop kanału jest 6.0 studa wyżej,
+		-- a Kacper odczytał poziom ulicy (po białych pasach) jako Y 9.
+		MinSurfaceY = 9,
+		-- ⚠️ HISTEREZA — BEZ NIEJ OPRAWA MIGOCZE (zgłoszenie z logu 2026-09-21).
+		-- Tafla FALUJE (`Wobble.Amplitude` 0.9, okres 3.5 s), więc gdy średni poziom stoi
+		-- blisko progu, sama fala przenosi go w tę i z powrotem co ~1.75 s — embery i dym
+		-- mrugają, a poświata pompuje. Zapalamy dopiero powyżej `MinSurfaceY + H`, gasimy
+		-- poniżej `MinSurfaceY - H`, a pomiędzy trzymamy stan. **H musi być większe od
+		-- amplitudy falowania** — przy 0.9 daje to zapas 0.3.
+		MinSurfaceHysteresis = 1.2,
+
+		-- ===== BĄBLE =====
+		-- Powierzchnia wybrzusza się kopułą, rośnie, pęka i pryska iskrami.
+		BubblesEnabled = true,
+		BubbleInterval = 0.55,  -- średni odstęp (s); losowany ±50%, żeby nie tykało jak metronom
+		BubbleMaxActive = 10,   -- sufit jednocześnie żyjących bąbli
+		BubbleSpread = 120,     -- promień wokół gracza, w którym szukamy odsłoniętej lawy
+		BubbleTries = 5,        -- prób na jeden bąbel (86% tafli jest zakryte)
+		BubbleRiseTime = 0.7,   -- s wzrostu przed pęknięciem (dłużej = widać rosnącą kopułę)
+		BubbleSizeMin = 3,
+		BubbleSizeMax = 7,
+		BubbleRise = 1.6,       -- ile studów kopuła wychodzi ponad powierzchnię
+		BubbleColor = Color3.fromRGB(255, 140, 40),
+		BubbleSparks = 16,      -- iskier przy pęknięciu
+		-- Pęknięcie wyrzuca też KROPLE lawy: cięższe od iskier, lecą po łuku i gasną.
+		-- Particle, nie party — dziesiątki fizycznych kropel na sekundę to koszt bez sensu.
+		BubbleGlobs = 7,
+		BubbleGlobGravity = 70,
+
+		-- ===== ŚWIATŁO ZNAD LAWY =====
+		-- Kilka świateł sunących po powierzchni — ciepła poświata na dolne piętra.
+		-- Dynamiczne światła są w Robloxie drogie, więc jest ich mało i bez cieni.
+		-- ===== STAŁA POŚWIATA Z TAFLI =====
+		-- Prośba Kacpra: "żeby lawa ciągle tak świeciła". Wędrujące PointLighty dają
+		-- zmienność, ale z definicji gasną i wracają — stałe światło musi iść z samej
+		-- tafli. `SurfaceLight` na górnej ścianie warstwy wierzchniej świeci NIEPRZERWANIE
+		-- na wszystko w zasięgu i nie ma nic wspólnego z cyklem wędrujących świateł.
+		SurfaceGlowEnabled = true,
+		-- ⚠️ ZASIĘG = ILE ŚWIATŁO PRZEBIJA PRZEZ PIĘTRA, nie „jak daleko ładnie świeci".
+		-- Pod `Lighting.Technology = ShadowMap` światła lokalne (PointLight/SurfaceLight)
+		-- **nie rzucają cieni w ogóle**, więc strop ich nie zatrzymuje — `Range` jest
+		-- jedyną rzeczą, która je ogranicza.
+		-- ZMIERZONE na tej mapie 2026-09-21: mediana rozstawu stropów = **14 studów**.
+		--   Range 60 -> przebija ~4.3 piętra  (tak było; zgłoszenie „oświetla całe piętro")
+		--   Range 30 -> ~2.1 piętra
+		--   Range 12 -> ~0.9 piętra  <- mieści się w kondygnacji, w której jest lawa
+		-- ➜ Podniesiesz `Range` powyżej ~14 i światło zacznie wychodzić piętro wyżej.
+		-- Chcesz mocniejszej łuny bez przebijania → podnoś `Brightness`, NIE `Range`.
+		SurfaceGlowRange = 12,        -- zasięg poświaty; patrz pomiar wyżej
+		SurfaceGlowBrightness = 2.2,
+		SurfaceGlowAngle = 150,       -- szeroki stożek: lawa świeci na boki, nie tylko w górę
+		SurfaceGlowColor = Color3.fromRGB(255, 120, 35),
+
+		-- ===== ŚWIATŁO NIE MOŻE PRZEŚWIECAĆ PRZEZ PODŁOGĘ (2026-09-16) =====
+		-- Zgłoszenie Kacpra: lawa startuje w kanale POD ulicą i światło przebijało jezdnię
+		-- od spodu. To nie jest błąd w kodzie, tylko właściwość silnika: przy
+		-- `Lighting.Technology = ShadowMap` światła lokalne (PointLight/SurfaceLight)
+		-- **nie rzucają cieni w ogóle** — cienie świateł lokalnych są dopiero we `Future`,
+		-- które na telefonach jest drogie. Czyli albo Future, albo światła nie mogą
+		-- świecić, dopóki tafla siedzi niżej niż grunt dookoła.
+		-- ⚠️ ROZWIĄZANE OSTATECZNIE 2026-09-21 PRZEZ `MinSurfaceY` (wyżej): żadnych raycastów,
+		-- tylko próg wysokości tafli. Skasowane razem z tamtym podejściem:
+		-- `LightsRequireOpenLava`, `OpenSamples`, `OpenRings`, `OpenTolerance`,
+		-- `SurfaceGlowCheckHz`, `LightCutFade`, `LightRecheck`. **Nie przywracać** — powód
+		-- (dwuznaczny raycast przy StreamingEnabled + particle nie kolidujące z geometrią)
+		-- opisany przy `fxAllowed` w `LavaSurfaceController`.
+		SurfaceGlowFade = 1.5,  -- stud jasności/s — poświata narasta płynnie, nie skokiem
+
+		LightsEnabled = true,
+		LightCount = 4,
+		-- Ten sam powód co przy `SurfaceGlowRange`: pod ShadowMap `Range` to zasięg
+		-- PRZEBICIA przez geometrię. Mediana piętra = 14, więc 12 trzyma światło
+		-- w kondygnacji lawy. (Stare 30 przebijało ~2 piętra.)
+		LightRange = 12,       -- zasięg wędrującego światła
+		LightBrightness = 1.2,
+		LightColor = Color3.fromRGB(255, 130, 45),
+		LightHeight = 3,        -- ile nad powierzchnią wisi światło (nisko = zostaje W wyrwie)
+		LightDrift = 1.2,       -- stud/s dryfu (niski: cały dryf wchodzi w zapas przy wyborze miejsca)
+		-- Światła żyją W POBLIŻU GRACZA, nie wędrują po całej tafli 513×457. Wcześniej
+		-- dryfowały przez całą planszę i po dojściu do krawędzi PRZESKAKIWAŁY na drugą
+		-- stronę — z perspektywy gracza światło "pojawiało się" znikąd w losowym miejscu.
+		-- Teraz każde ma cykl życia: rozjaśnia się, dryfuje, gaśnie i DOPIERO PO ZGAŚNIĘCIU
+		-- przenosi się w nowe wylosowane miejsce.
+		LightSpread = 140,      -- promień wokół kamery, w którym losowane są miejsca
+		LightLifetime = 7,      -- s pełnego cyklu (losowane ±30%, żeby nie mrugały zgodnie)
+		LightFade = 1.5,        -- s narastania i zanikania — tyle trwa "brak przeskoku"
+		LightPlacementTries = 6,-- prób znalezienia odsłoniętego punktu na cykl
+		LightRetry = 0.75,      -- s przerwy, gdy w pobliżu nie ma odsłoniętej lawy
+
+		-- ===== PARA NA STYKU Z MAPĄ =====
+		-- Szukamy miejsc, gdzie tuż POD powierzchnią jest geometria mapy — czyli linii
+		-- zalania — i tam unosi się para. Raycasty w dół, nie w bok: gdy lawa podchodzi
+		-- pod strop czy ulicę, to właśnie tam jest styk, który widać.
+		SteamEnabled = true,
+		SteamCheckHz = 3,       -- jak często losujemy próbki
+		SteamSamples = 8,       -- próbek na tick (cały koszt tego efektu)
+		SteamSpread = 180,      -- promień wokół gracza
+		SteamTries = 4,         -- prób znalezienia odsłoniętej lawy na próbkę
+		SteamProbeDepth = 4,    -- stud w dół: trafienie = geometria przy linii zalania
+		SteamPerSecond = 4,     -- sufit obłoczków/s (przy zalewaniu piętra trafień jest dużo)
+		SteamLifetime = 1.6,
 	},
 }
 
@@ -193,8 +448,37 @@ Config.Bridge = {
 	GhostColorOK = Color3.fromRGB(100, 220, 120),       -- zielony — w zasięgu, można budować
 	GhostColorBad = Color3.fromRGB(220, 80, 80),        -- czerwony — za daleko lub invalid
 	GhostTransparency = 0.5,
-	-- Default visual gdy ReplicatedStorage.BridgeTemplate nie istnieje.
-	-- Kacper może podrzucić własny model (np. drewniany most z toolboxa) — kod sam użyje.
+
+	-- ⚠️ GHOST MUSI MIEĆ `Highlight` — BEZ NIEGO ZNIKA NAD LAWĄ (zgłoszenie 2026-09-21:
+	-- „lawa w tle działa jak maska i nie widać zielonego ghosta").
+	-- Mechanizm to ta sama rodzina buga co „pod kątem znika tekstura lawy": part
+	-- z `Transparency > 0` trafia do KOLEJKI PRZEZROCZYSTEJ, a Roblox sortuje ją po
+	-- odległości OBIEKTU. Warstwy lawy są przezroczyste (0.35 / 0.55) i wielkie
+	-- (512×457), więc sortują się niestabilnie względem małego ghosta i potrafią zostać
+	-- narysowane PO nim — czyli zamalować go. Nie da się tego wygrać dobieraniem
+	-- `GhostTransparency`, bo problem jest w kolejności rysowania, nie w wartości.
+	-- `Highlight` renderuje się POZA tą kolejką, więc jest odporny z definicji.
+	-- ⚠️ LAWA JAKO PODŁOGA DLA KURSORA (zgłoszenie 2026-09-21: „ghost nie działa powyżej 9Y").
+	-- Warstwy lawy mają wymuszone `CanQuery = false` (rosnąca tafla nie może łapać
+	-- raycastów — patrz `LavaService.forceLavaProperties`), więc promień celowania
+	-- PRZELATUJE przez nią i trafia w grunt POD spodem. Dopóki lawa siedziała w kanale,
+	-- nikt w nią nie celował i nie było tego widać; gdy wyszła na ulice, ghost zaczął
+	-- lądować kilkanaście studów niżej, niż gracz celował — a warstwa `LavaMid` jest
+	-- NIEPRZEZROCZYSTA, więc po prostu znikał. To NIE był problem renderowania.
+	-- Fix: przecinamy promień z płaszczyzną wierzchu tafli i bierzemy to, co bliżej.
+	-- `false` = stary zachowanie (most stawia się pod lawą).
+	LavaAsFloor = true,
+
+	GhostHighlight = true,
+	GhostFillTransparency = 0.55,    -- wypełnienie sylwetki (1 = sam kontur)
+	GhostOutlineTransparency = 0,    -- kontur na ostro — to on niesie czytelność kształtu
+	-- `AlwaysOnTop` = ghost widać też PRZEZ ściany. Dla podglądu budowania to zaleta
+	-- (zawsze wiesz, gdzie stanie most), ale gdybyś wolał, żeby chował się za geometrią,
+	-- zmień na `Enum.HighlightDepthMode.Occluded`.
+	GhostDepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+	-- Awaryjny wygląd, gdy modelu `ItemDefinitions.bridge_builder.worldModel`
+	-- (dziś ReplicatedStorage.Bridge) nie ma — wtedy staje goły Part o wymiarach
+	-- z definicji itemu. Normalnie most bierze wygląd I WYMIARY z modelu Kacpra.
 	DefaultMaterial = Enum.Material.Wood,
 	DefaultColor = Color3.fromRGB(115, 80, 50),
 }
@@ -311,6 +595,61 @@ Config.Movement = {
 
 -- F key PvP push (PushService). Balans gameplay — hard rule #5: liczby w Config.
 -- Cooldown pusha jest w RateLimits.Push (wspólny kontrakt server/klient CooldownBar).
+-- OBRAŻENIA I RAGDOLL ZA UPADEK (FallDamageService, 2026-09-16).
+-- Ustalone z Kacprem: bezpiecznie do 25 studów, śmierć od 75, ragdoll od 2× progu,
+-- tylko w rundzie. Sens dla rozgrywki: push przestaje działać wyłącznie nad lawą —
+-- zepchnięcie kogoś z dachu zabija samo w sobie, a `KillService` przypisze zabójstwo
+-- spychającemu przez istniejące okno 5 s.
+Config.FallDamage = {
+	Enabled = true,
+	-- Do tylu studów upadek jest DARMOWY. Zeskok z piętra czy dwóch nie może karać,
+	-- bo gra ma być szybka — gracz, który waha się przed każdym zeskokiem, jest wolny.
+	SafeHeight = 25,
+	-- Od tylu studów upadek zabija (100% MaxHealth). Pomiędzy progami liniowo.
+	LethalHeight = 75,
+	-- Ragdoll od `SafeHeight × ten mnożnik` (czyli 30 studów). Schodziło dwa razy na
+	-- prośbę Kacpra: 50 → 35 → 30, bo przy wyższych progach efektu prawie nie było widać.
+	-- 30 studów to upadek za ~10 dmg, czyli przewraca już przy lekkim draśnięciu.
+	-- ⚠️ 1.0 (czyli 25) to PODŁOGA tej gałki — wtedy KAŻDY raniący upadek kładzie gracza
+	-- na 2 s, a to jest dokładnie ta opcja, którą Kacper świadomie odrzucił przy
+	-- projektowaniu ficzuru ("nie mogę wstać" w trakcie ucieczki przed lawą wkurza).
+	RagdollHeightMultiplier = 1.2,
+	RagdollDuration = 2,      -- s, tyle co ragdoll po bombie
+	RagdollTumble = 0.35,     -- ile poziomej prędkości z momentu uderzenia idzie w przewrotkę
+
+	-- 30 Hz, nie 12: przy 12 opóźnienie między dotknięciem ziemi a obrażeniami wynosiło
+	-- zmierzone 0.10 s i było wyczuwalne. Koszt to 1 raycast na gracza na próbkę, czyli
+	-- 600/s przy 20 graczach — pomijalne.
+	CheckHz = 30,
+	GroundProbe = 4.5,        -- stud w dół z HRP; HRP jest ~2.5 nad stopami w R15
+	-- RAGDOLL W POWIETRZU (2026-09-17). Jeden raycast w dół mówi, gdzie jest ziemia, więc
+	-- całą wysokość upadku znamy JUŻ PRZY ODERWANIU SIĘ OD DACHU — nie trzeba czekać na
+	-- uderzenie. Gdy prognoza przekroczy próg ragdolla, wywracamy gracza w locie.
+	-- To jest też właściwe rozwiązanie opóźnienia: toolbox potrzebuje pełnej drogi
+	-- serwer → klient, a tak ma na nią cały lot zamiast ułamka sekundy po uderzeniu.
+	PredictReach = 400,          -- stud w dół: zasięg szukania gruntu (i prognozy)
+	PreRagdollMinAirTime = 0.25, -- s w powietrzu zanim wywrócimy — zeskok z krawędzi
+	                             -- nie ma kłaść gracza natychmiast po odbiciu
+	-- Dwa warunki odróżniające SPADANIE od zwykłego „braku gruntu pod stopami"
+	-- (wspinaczka, drabina, wyskok w górę, stanie na wąskiej półce nad przepaścią).
+	-- Bez nich prognoza rosła razem ze wspinającym się graczem i wywracała go w połowie
+	-- ściany — zgłoszone 2026-09-17.
+	PreRagdollMinDrop = 10,      -- stud, które gracz musi już zjechać od swojego szczytu
+	PreRagdollMinSpeed = 30,     -- stud/s w dół; wspinaczka nigdy tyle nie osiąga,
+	                             -- a swobodny spadek przekracza to po ~0.15 s
+	RagdollAirSafety = 8,        -- s: bezpiecznik wstawania, gdy gracz nigdy nie wyląduje
+	                             -- (wpadł w lawę albo w przepaść)
+	MinAirTime = 0.25,        -- krócej w powietrzu = schodek/krawężnik, nie upadek
+	-- ⚠️ Były tu `MaxLookAhead` i `LandingCooldown` — OBA USUNIĘTE 2026-09-19, bo oba
+	-- gubiły prawdziwe upadki. `MaxLookAhead` był sufitem dla sondy sięgającej w PRZYSZŁOŚĆ
+	-- (dach, nad którym gracz przelatywał, meldował się jako lądowanie — „bomba mnie
+	-- wyrzuca i nie ma obrażeń"). `LandingCooldown` 0.8 s wyciszał każdy kolejny upadek
+	-- w tym oknie, także po nieszkodliwym lądowaniu („spadam na tory, potem niżej i już
+	-- nic"). Sonda liczy teraz PRZEBYTĄ DROGĘ, a „jedno lądowanie = jedna kara" wynika
+	-- ze struktury przejścia lot→ziemia, nie z licznika czasu.
+	Debug = false,            -- print przy każdym raniącym upadku (przydatne przy strojeniu liczb)
+}
+
 Config.Push = {
 	MaxRange = 7,   -- stud; close-combat only
 	ConeDot = 0.3,  -- min dot(look, kierunek do celu) — ~70° stożek przed pusherem
@@ -365,24 +704,64 @@ Config.Rewards = {
 -- wybuchu; siła/zasięg konkretnego itemu siedzi w ItemDefinitions.<item>.destruction.
 -- Wartości startowe CELOWO hojne (decyzja Kacpra: "dużo fragmentów, najwyżej będę hamował")
 -- — po testach kręcimy TU, nie w logice.
--- Sklep-NPC (ShopController + ShopService). Gracz podchodzi do NPC w lobby
--- (ProximityPrompt) → kamera przypina się kolejno do markerów kamer i CELUJE w wystawiony
--- model itemu, a na dole StarterGui.ShopUI (KUP / cena / opis).
+-- Sklep-NPC (ShopController + ShopService). Gracz podchodzi do sprzedawcy w lobby
+-- (ProximityPrompt) → kamera przeskakuje do SCENY SKLEPU i celuje w wystawiony model itemu,
+-- a na dole StarterGui.ShopUI (KUP / cena / opis). Sam gracz zostaje przy sprzedawcy.
 --
--- KONTRAKT MAPY (Workspace.Lobby):
---   SHOPNPC              — model sprzedawcy z ProximityPrompt
---   SHOPCAMERAS/SHOPCAMERA1..N — markery POZYCJI kamery (obrót nieistotny: kod sam celuje
---                          w item). Numer = pozycja itemu w ItemDefinitions.shopOrder,
---                          czyli SHOPCAMERA1 → shopOrder[1] (bomb), SHOPCAMERA2 → [2] (most).
---   SHOPITEMS/*          — modele itemów na wystawie (nazwy dowolne). Kamera N celuje
---                          w NAJBLIŻSZY jej model z tego folderu — zero konfiguracji.
--- Dodanie itemu do sklepu = kolejny SHOPCAMERA{N} + model obok niego. Zero zmian w kodzie.
+-- KONTRAKT MAPY (przebudowany 2026-09-20 pod nowe lobby Kacpra):
+--   Workspace.Lobby/…/WeaponsShop/NPC   — sprzedawca. Szukany REKURENCYJNIE, więc może
+--                        siedzieć dowolnie głęboko w dekoracjach. ProximityPrompt tworzy
+--                        ShopService, jeśli go nie ma (własny = nazwij go PromptName).
+--   Workspace.WeaponShopScene.Decorations.<sceneModel>  — model itemu na wystawie; nazwa
+--                        z ItemDefinitions.<item>.sceneModel (bomb → "Bomb", …).
+--   Workspace.WeaponShopScene.ShopCameras/*             — markery POZYCJI kamery. Nazwy
+--                        DOWOLNE: marker obsługuje item, naprzeciw którego stoi (parowanie
+--                        po odległości). Obrót markera nieistotny — kod sam celuje w model.
+--
+-- Dodanie itemu do sklepu = model na wystawie + marker obok + pole sceneModel w definicji.
+-- Item bez markera dostaje kadr policzony automatycznie, więc sklep działa od razu.
 Config.Shop = {
-	-- Nazwy obiektów w Workspace.Lobby (jedno miejsce na zmianę, gdyby Kacper przemianował).
-	NpcName = "SHOPNPC",
-	CamerasFolder = "SHOPCAMERAS",
-	CameraPrefix = "SHOPCAMERA", -- + numer: SHOPCAMERA1, SHOPCAMERA2, ...
-	ItemsFolder = "SHOPITEMS",
+	-- ── STRAGAN W LOBBY (gdzie gracz staje i naciska E) ─────────────────────────
+	-- Szukane REKURENCYJNIE pod Workspace.Lobby, więc stragan można przesuwać
+	-- w drzewie dekoracji bez wracania do kodu. Dziś leży w:
+	--   Workspace.Lobby.Lobby.Lobby.Decorations.Shops.WeaponsShop.NPC
+	ShopModelName = "WeaponsShop",
+	NpcName = "NPC",
+
+	-- ProximityPrompt: jeśli NPC go nie ma, ShopService tworzy własny na tych
+	-- wartościach. Postawisz swój w Studio → kod użyje Twojego i nie dotknie tych pól.
+	-- ⚠️ PromptMaxDistance MUSI być mniejszy niż InteractDistance, inaczej gracz
+	-- widzi prompt z miejsca, z którego serwer odrzuci mu zakup.
+	-- Nazwa promptu to JEDYNE, co łączy serwer z klientem w tej sprawie: serwer go
+	-- tworzy (albo zastaje Twój), klient szuka pod tą nazwą i nie musi znać ścieżki NPC.
+	PromptName = "ShopPrompt",
+	PromptActionText = "Sklep",
+	PromptObjectText = "Sprzedawca",
+	PromptKeyCode = Enum.KeyCode.E,
+	PromptMaxDistance = 12,
+
+	-- ── SCENA SKLEPU (osobne pomieszczenie, do którego jedzie kamera) ───────────
+	-- Gracz NIE jest tam teleportowany — zostaje przy sprzedawcy, leci sama kamera.
+	-- Dlatego scena może stać dowolnie daleko od lobby i kilku graczy może kupować
+	-- naraz, nie wchodząc sobie w kadr.
+	SceneName = "WeaponShopScene",
+	ItemsFolder = "Decorations",   -- modele na wystawie (nazwa z ItemDefinitions.sceneModel)
+	CamerasFolder = "ShopCameras", -- markery pozycji kamery
+
+	-- PAROWANIE KAMERY Z ITEMEM IDZIE PO ODLEGŁOŚCI, NIE PO NAZWIE MARKERA.
+	-- Marker obsługuje ten item, naprzeciw którego stoi — ten sam wzorzec, co dawne
+	-- SHOPCAMERA{N} → najbliższy model. Dostawienie itemu to postawienie modelu
+	-- i markera obok niego; literówka w nazwie markera niczego nie psuje.
+	-- (2026-09-20: w Studio nazwy są zamienione względem pozycji — BombCamera stoi
+	-- naprzeciw Blueprintu — a kadry i tak wychodzą poprawnie właśnie dzięki temu.)
+
+	-- Kadr awaryjny, gdy item nie ma markera: kamera odsuwa się od modelu w stronę
+	-- środka sceny (czyli do wnętrza pomieszczenia, nie w ścianę) i celuje w środek
+	-- jego bounding boxa. Dystans rośnie z wielkością modelu, żeby RPG nie wyszedł
+	-- poza kadr przy dystansie dobranym pod bombę.
+	AutoCameraDistance = 12,      -- stud, minimum
+	AutoCameraSizeFactor = 1.6,   -- × przekątna modelu
+	AutoCameraHeight = 1,         -- stud nad środkiem modelu
 
 	-- Server distance-check gracz↔NPC przy zakupie (hard rule #3). Większy niż zasięg
 	-- promptu, żeby lag/animacja kamery nie odrzuciły legalnego zakupu; wciąż blokuje
@@ -508,6 +887,20 @@ Config.Destruction = {
 	},
 
 	-- FIZYKA I CYKL ŻYCIA gruzu serwerowego (DebrisService).
+	--
+	-- PRZEBUDOWA 2026-09-13 (feedback Kacpra: "dużo gruzu zostaje i laguje" + "party
+	-- anchorują się w powietrzu"). Stary model miał JEDEN limit — `MaxMovingDebris` —
+	-- i liczył tylko gruz W RUCHU. Kawałek, który znieruchomiał, dostawał Anchored,
+	-- wypadał z licznika i ZWALNIAŁ budżet, więc suma partów nie była ograniczona
+	-- niczym poza końcem rundy. Pomiar na żywej sesji: 5620 partów w `BlastDebris`
+	-- przy mapie liczącej 25 332 party (+22% sceny do renderu i replikacji).
+	--
+	-- Model docelowy (decyzje Kacpra):
+	--   * DUŻE kawałki (>= PlatformMinVolume) zostają jako chodliwe platformy — limit
+	--     MaxPersistentDebris; DROBNICA gaśnie sama po TempLifetimeAfterSleep
+	--   * przy pełnym budżecie nowy wybuch jest ZAWSZE pełny — miejsce robi się
+	--     kasując najstarszy gruz (DebrisService.reserve), a nie tnąc świeży wybuch
+	--   * gruz zatopiony lawą znika (sprzątanie nasilające się z czasem rundy)
 	Debris = {
 		-- Materiał: bez tego default elasticity 0.5 + friction 0.3 = "gumowe klocki LEGO".
 		-- Density NIE zmienia toru lotu (prędkość nadajemy wprost) — tylko zderzenia:
@@ -524,10 +917,43 @@ Config.Destruction = {
 		SleepSpeed = 2,   -- stud/s — poniżej tego "leży"
 		SleepTime = 0.6,  -- s nieprzerwanie poniżej progu przed zakotwiczeniem
 		SleepCheckHz = 5,
-		-- Budżet globalny (soft): wybuch przy zapchanym serwerze i tak rusza MinChunksPerBlast,
-		-- bo bomba za 50$ która "nic nie zrobiła" wkurza bardziej niż chwilowy skok fizyki.
-		MaxMovingDebris = 450,
+
+		-- ===== BUDŻET (twardy — liczy TAKŻE uśpione party) =====
+		-- Sufit wszystkiego, co jest w rejestrze gruzu. To jest ta liczba, która realnie
+		-- decyduje o FPS na słabym sprzęcie — podnosić tylko po teście pod obciążeniem.
+		MaxTotalDebris = 260,
+		-- Ile z tego może spać jako platformy. Reszta budżetu należy do gruzu w locie,
+		-- więc świeży wybuch ma gdzie wylądować nawet przy pełnej mapie platform.
+		MaxPersistentDebris = 70,
+		-- Od tej objętości (studs³) kawałek jest PLATFORMĄ (zostaje), poniżej DROBNICĄ
+		-- (gaśnie). 45 ≈ 3.6³ — typowy kawałek z cięcia (TargetChunkSize 3.2 → ~29 studs³)
+		-- jest drobnicą, a płyty z remnantów i kolapsu sekcji zostają.
+		PlatformMinVolume = 45,
+		-- Gwarancja dla świeżego wybuchu: bomba za 50$, która "nic nie zrobiła", wkurza
+		-- bardziej niż chwilowy skok fizyki. reserve() kasuje stary gruz, żeby tyle dać.
 		MinChunksPerBlast = 40,
+
+		-- ===== WYGASANIE DROBNICY =====
+		TempLifetimeAfterSleep = 6, -- s leżenia, zanim drobnica zacznie gasnąć
+		TempMaxAge = 15,            -- s twardy sufit od spawnu (kawałek, który nigdy nie usnął)
+		RetireFade = 0.3,           -- s półprzezroczystości przed Destroy (nie znika "pyknięciem")
+		MaxRetiresPerTick = 40,     -- ile partów można wycofać w jednym ticku skanu (anty-spike)
+		-- Nie kasujemy gruzu spod nóg gracza — platforma znikająca pod stopami to
+		-- niezawiniona śmierć w lawie, czyli dokładnie to, co ma nie istnieć.
+		RetireSafeDistance = 12,
+
+		-- ===== PODPARCIE UŚPIONEGO GRUZU (fix "party anchorują się w powietrzu") =====
+		-- Kotwiczymy DOPIERO po sprawdzeniu, że kawałek ma coś pod sobą, a potem
+		-- re-weryfikujemy to cyklicznie: podpora mogła zostać wysadzona, wycofana przez
+		-- budżet albo zalana lawą. Bez tego floater wisi do końca rundy — uśpiony gruz
+		-- jest świadomie wykluczony z passu podparcia w DestructionService.
+		SleepGroundProbe = 1.2,      -- stud raycastu pod spodem = "ma na czym stać"
+		SupportRecheckInterval = 1,  -- s między sprawdzeniami tego samego uśpionego kawałka
+		SupportChecksPerTick = 14,   -- sufit raycastów na tick skanu (round-robin po śpiących)
+
+		-- ===== LAWA KASUJE ZATOPIONY GRUZ =====
+		LavaCullMargin = 0.5,   -- stud: kasujemy, gdy GÓRA kawałka jest pod powierzchnią
+		LavaSteamPerSecond = 3, -- sufit obłoczków pary/s (przy zalaniu tonie naraz kilkadziesiąt)
 	},
 
 	-- KOLAPS SEKCJI (etap 4 — StructureService). Filary (tag `Pillar`) grupowane w PASMA
@@ -561,7 +987,13 @@ Config.Destruction = {
 		FallFractureEnabled = true,
 		ImpactDeltaV = 55,        -- stud/s zmiany prędkości = twarde uderzenie
 		                          -- (sama grawitacja robi ~39 przy skanie 5Hz — próg wyżej)
-		MinFractureVolume = 18,   -- studs³ — drobnica nie pęka (za mała żeby było widać)
+		-- 18 → 60 (2026-09-13): fall-fracture to był GŁÓWNY mnożnik liczby partów
+		-- (1 kawałek → 3, przy każdym kolapsie razy 220 partów). Przy 60 studs³ pękają
+		-- tylko płyty, na których to realnie widać — typowy kawałek z cięcia (~29) nie.
+		MinFractureVolume = 60,   -- studs³ — drobnica nie pęka (za mała żeby było widać)
+		-- Pękanie WYŁĄCZA SIĘ, gdy rejestr gruzu jest zapełniony powyżej tego ułamka —
+		-- mnożenie partów przy napiętym budżecie tylko wypycha z niego świeży wybuch.
+		FractureBudgetHeadroom = 0.7,
 		FracturePieces = 3,       -- na ile kawałków max pęka przy uderzeniu
 		MaxGenerations = 1,       -- kawałek z kawałka JUŻ nie pęka
 		InheritVelocityFactor = 0.55, -- ile prędkości dziedziczą odłamki po uderzeniu
@@ -601,8 +1033,40 @@ Config.Destruction = {
 		FragDensity = 0.35,   -- niska masa: odłamek muska character zamiast go spychać
 		-- Szkło (etap 2): odłamki szyb renderowane lokalnie z payloadu BlastFX.
 		GlassMaxPanes = 40,    -- sufit szyb w payload (server tłucze WSZYSTKIE, FX najbliższe N)
-		ShardsPerPaneMax = 6,  -- max odłamków z jednej szyby (skaluje z powierzchnią)
+		-- ⚠️ ILE ODŁAMKÓW I JAK DUŻYCH — SKALOWANE POWIERZCHNIĄ TAFLI (poprawka 2026-09-21,
+		-- zgłoszenie „rzucam bombę i szyba po prostu znika, a mam duże szyby").
+		-- PRZYCZYNA BYŁA W LICZBACH, nie w wyglądzie. Stary wzór `clamp(area/10, 3, 6)`
+		-- dawał, zmierzone na tej mapie:
+		--     typowa tafla  30 std² (5×6)     -> 3 odłamki = 1 na 10 std²   (ledwo)
+		--     duża          102 std² (2.5×41) -> 6 odłamków = 1 na 17 std²  (za mało)
+		--     największa    594 std² (11×54)  -> 6 odłamków = 1 na 99 std²  (NIEWIDOCZNE)
+		-- Przy odłamku długości ~1 studa sześć sztuk na ścianie 11×54 to nic — tafla jest
+		-- KASOWANA i zastępowana czymś, czego nie widać. Stąd wrażenie, że znika.
+		-- Teraz liczba rośnie z powierzchnią, a **ROZMIAR odłamka rośnie razem z nią**:
+		-- wielka szyba ma się rozpaść na wielkie kawały, nie na tę samą drobnicę.
+		ShardAreaPerShard = 5,   -- studów² tafli na jeden odłamek
+		ShardsPerPaneMin = 4,
+		ShardsPerPaneMax = 26,   -- sufit na JEDNĄ taflę (było 6 — to był cały problem)
+		ShardsPerBlastMax = 150, -- sufit na CAŁY wybuch; tafle idą od najbliższej, więc
+		                         -- przy budżecie wyczerpanym gubią się te najdalsze
+		-- Skalowanie rozmiaru: „komórka" = sqrt(powierzchnia / liczba odłamków), czyli ile
+		-- tafli przypada na jeden kawałek. Odnosimy ją do typowej szyby (`ShardCellRef`)
+		-- i tym mnożymy bazowe wymiary. Duże tafle -> kawałki do `ShardScaleMax` razy większe.
+		ShardCellRef = 2.2,
+		ShardScaleMax = 3.0,
 		ShardLifetime = 2.5,   -- s życia odłamka szkła zanim fade
+		-- ⚠️ KSZTAŁT ODŁAMKA — OSTRY DRZAZG, NIE KWADRACIK (prośba Kacpra 2026-09-21).
+		-- Poprzednio odłamek był `Part` o wymiarach (0.25..0.7, 0.25..0.7, 0.08) — obie osie
+		-- w płaszczyźnie brane z TEGO SAMEGO zakresu, więc wychodziły prawie kwadratowe
+		-- płytki i całość czytała się jak konfetti. Teraz to `WedgePart` (zbiega się
+		-- do krawędzi = realny szpikulec) i jest WYDŁUŻONY: długość ~5× większa od szerokości.
+		-- ➜ Chcesz bardziej igłowate — rozjedź `Length` od `Width`. Chcesz grubsze szkło —
+		--   podnieś `Thickness`, ale powyżej ~0.2 przestaje wyglądać jak szkło.
+		ShardLengthMin = 0.50,
+		ShardLengthMax = 1.60,
+		ShardWidthMin = 0.10,
+		ShardWidthMax = 0.34,
+		ShardThickness = 0.07,
 		-- (Ślady opalenia USUNIĘTE 2026-08-12: raycast w dół z epicentrum kładł plamę na
 		-- ziemi także przy wybuchach w powietrzu — plama pojawiała się kilkadziesiąt
 		-- studów pod bombą, bez związku z tym, co gracz widział.)
@@ -648,6 +1112,10 @@ table.freeze(Config.UI)
 table.freeze(Config.Spawn)
 table.freeze(Config.Lava.Part)
 table.freeze(Config.Lava.HeatEffect)
+table.freeze(Config.Lava.Surface.LayerMultipliers)
+table.freeze(Config.Lava.Wobble)
+table.freeze(Config.Lava.FX)
+table.freeze(Config.Lava.Surface)
 table.freeze(Config.Lava)
 table.freeze(Config.Cash.Popup)
 table.freeze(Config.Cash.PickupTrail)

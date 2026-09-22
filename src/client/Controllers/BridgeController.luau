@@ -24,19 +24,26 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 local CooldownBarController = require(script.Parent.CooldownBarController)
 
 local BridgeController = {}
 
 local ITEM_ID = "bridge_builder"
-local TEMPLATE_NAME = "BridgeTemplate"
 
 local localPlayer = Players.LocalPlayer
 local mouse = localPlayer:GetMouse()
 
 local active = false
 local rotationY = 0
-local ghost: BasePart? = nil
+-- Ghost jest MODELEM (most Kacpra to 12 desek), więc trzymamy też płaską listę jego
+-- partów i gotowy offset pivota: jedno i drugie liczone RAZ, bo używamy ich co klatkę.
+local ghost: Instance? = nil
+local ghostParts: { BasePart } = {}
+local ghostPivotOffset = CFrame.identity
+local ghostInRange: boolean? = nil
+-- Sylwetka rysowana poza kolejką przezroczystości — jedyne, czego lawa nie zamaluje.
+local ghostHighlight: Highlight? = nil
 local renderConn: RBXScriptConnection? = nil
 local inputConn: RBXScriptConnection? = nil
 local lastBuildAt = 0
@@ -46,27 +53,102 @@ local function getDef()
 	return ItemDefinitions.get(ITEM_ID)
 end
 
-local function makeGhost(def: any): BasePart
-	-- Preferuj Kacper template (ReplicatedStorage.BridgeTemplate), fallback default.
-	local template = ReplicatedStorage:FindFirstChild(TEMPLATE_NAME)
-	local part: BasePart
-	if template and template:IsA("BasePart") then
-		part = template:Clone() :: BasePart
+-- Wymiary mostu z tego samego miejsca, co serwer (ItemDefinitions.worldSize) — inaczej
+-- podgląd kłamałby o tym, gdzie most stanie.
+local function getDims(def: any): Vector3
+	return ItemDefinitions.worldSize(ITEM_ID) or Vector3.new(def.width, def.thickness, def.length)
+end
+
+-- Ghost z modelu `def.worldModel`; brak modelu = prosty Part jak dawniej.
+-- Ghost jest tylko sygnałem „tu i w tę stronę", więc kolorujemy go na jeden kolor stanu.
+local function makeGhost(def: any): Instance
+	local template = if def.worldModel then Utils.getAsset(def.worldModel) else nil
+	local inst: Instance
+
+	if template and (template:IsA("Model") or template:IsA("BasePart")) then
+		inst = template:Clone()
 	else
-		part = Instance.new("Part")
-		part.Size = Vector3.new(def.width, def.thickness, def.length)
-		part.Material = def.material or Enum.Material.Wood
+		local dims = getDims(def)
+		local part = Instance.new("Part")
+		part.Size = dims
+		part.Material = def.material or Config.Bridge.DefaultMaterial
 		part.TopSurface = Enum.SurfaceType.Smooth
 		part.BottomSurface = Enum.SurfaceType.Smooth
+		inst = part
 	end
-	part.Name = "BridgeGhost"
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanTouch = false
-	part.CanQuery = false
-	part.Color = Config.Bridge.GhostColorOK
-	part.Transparency = Config.Bridge.GhostTransparency
-	return part
+
+	inst.Name = "BridgeGhost"
+	table.clear(ghostParts)
+	if inst:IsA("BasePart") then
+		table.insert(ghostParts, inst)
+	else
+		for _, d in ipairs(inst:GetDescendants()) do
+			if d:IsA("BasePart") then
+				table.insert(ghostParts, d)
+			end
+		end
+	end
+	for _, p in ipairs(ghostParts) do
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanTouch = false
+		p.CanQuery = false
+		p.CastShadow = false
+		p.Transparency = Config.Bridge.GhostTransparency
+	end
+
+	-- Offset pivot→środek bbox policzony RAZ: model się nie zmienia, a przeliczanie go
+	-- w RenderStepped to `GetBoundingBox` na kilkunastu partach 60 razy na sekundę.
+	if inst:IsA("Model") then
+		local bbCF = inst:GetBoundingBox()
+		ghostPivotOffset = inst:GetPivot():ToObjectSpace(bbCF):Inverse()
+	else
+		ghostPivotOffset = CFrame.identity
+	end
+	-- `Highlight` PO ustawieniu partów: bez niego ghost znika, gdy za nim jest lawa
+	-- (obie rzeczy są przezroczyste, a wielka tafla sortuje się niestabilnie — pełny
+	-- opis przy `Config.Bridge.GhostHighlight`).
+	ghostHighlight = nil
+	if Config.Bridge.GhostHighlight then
+		local hl = Instance.new("Highlight")
+		hl.Name = "GhostHighlight"
+		hl.Adornee = inst :: any
+		hl.FillTransparency = Config.Bridge.GhostFillTransparency
+		hl.OutlineTransparency = Config.Bridge.GhostOutlineTransparency
+		hl.DepthMode = Config.Bridge.GhostDepthMode
+		hl.Parent = inst
+		ghostHighlight = hl
+	end
+
+	ghostInRange = nil
+	return inst
+end
+
+local function setGhostCFrame(cf: CFrame)
+	local inst = ghost
+	if not inst then return end
+	if inst:IsA("BasePart") then
+		inst.CFrame = cf
+	else
+		(inst :: Model):PivotTo(cf * ghostPivotOffset)
+	end
+end
+
+-- Kolor przestawiamy TYLKO na zboczu stanu. Ustawianie go co klatkę to kilkanaście
+-- zapisów property na klatkę za coś, co zmienia się raz na kilka sekund.
+local function setGhostInRange(inRange: boolean)
+	if ghostInRange == inRange then return end
+	ghostInRange = inRange
+	local color = if inRange then Config.Bridge.GhostColorOK else Config.Bridge.GhostColorBad
+	for _, p in ipairs(ghostParts) do
+		p.Color = color
+	end
+	-- Sylwetka niesie ten sam sygnał co kolor partów — i to ona jest widoczna nad lawą.
+	local hl = ghostHighlight
+	if hl then
+		hl.FillColor = color
+		hl.OutlineColor = color
+	end
 end
 
 local function getHRP(): BasePart?
@@ -77,7 +159,23 @@ local function getHRP(): BasePart?
 	return nil
 end
 
-local function computeAnchorPosition(def: any): (Vector3, boolean)
+-- Wierzch stosu lawy, albo nil gdy lawy nie ma. Czytane ZA KAŻDYM RAZEM, bo tafla rośnie
+-- i faluje co klatkę — zapamiętana wartość rozjechałaby się w kilka sekund.
+-- (Warstw są dwie-trzy, więc to kilka porównań, nie pętla po mapie.)
+local function lavaTopY(): number?
+	local folder = Workspace:FindFirstChild("Lava")
+	if not folder then return nil end
+	local top: number? = nil
+	for _, p in ipairs(folder:GetChildren()) do
+		if p:IsA("BasePart") then
+			local t = p.Position.Y + p.Size.Y * 0.5
+			if not top or t > top then top = t end
+		end
+	end
+	return top
+end
+
+local function computeAnchorPosition(dims: Vector3): (Vector3, boolean)
 	-- Raycast z kamery przez mouse position. Filter: character, ghost, ActiveCash.
 	-- ActiveBridges NIE wykluczane — chcemy żeby kursor lądował NA istniejących mostach
 	-- (stacking + extending). Hit Y + thickness/2 = anchor (bliższa krawędź mostu).
@@ -96,10 +194,35 @@ local function computeAnchorPosition(def: any): (Vector3, boolean)
 
 	local maxDist = 300
 	local result = Workspace:Raycast(unitRay.Origin, unitRay.Direction * maxDist, rayParams)
+
+	-- LAWA JAKO PODŁOGA: tafla ma `CanQuery = false`, więc promień przez nią PRZELATUJE
+	-- i trafia w zatopiony grunt. Liczymy przecięcie z jej płaszczyzną osobno i bierzemy
+	-- to, co bliżej kamery. Pełny opis przy `Config.Bridge.LavaAsFloor`.
+	local lavaY = if Config.Bridge.LavaAsFloor then lavaTopY() else nil
+	local lavaPoint: Vector3? = nil
+	if lavaY and unitRay.Direction.Y < -1e-4 and unitRay.Origin.Y > lavaY then
+		local dist = (lavaY - unitRay.Origin.Y) / unitRay.Direction.Y
+		if dist > 0 and dist <= maxDist then
+			lavaPoint = unitRay.Origin + unitRay.Direction * dist
+		end
+	end
+
+	local hitPos: Vector3? = nil
 	if result then
-		-- Anchor Y = powierzchnia trafienia + thickness/2 (most siada spodem na powierzchni).
-		local anchorPos = result.Position + Vector3.new(0, def.thickness * 0.5, 0)
-		return anchorPos, true
+		-- Trafienie PONIŻEJ tafli znaczy, że gracz celował w lawę, a promień ją przeszył.
+		if lavaPoint and lavaY and result.Position.Y < lavaY then
+			hitPos = lavaPoint
+		else
+			hitPos = result.Position
+		end
+	elseif lavaPoint then
+		-- Sama lawa po horyzont — bez tego byłby fallback „80 stud przed kamerą".
+		hitPos = lavaPoint
+	end
+
+	if hitPos then
+		-- Anchor Y = powierzchnia trafienia + grubość/2 (most siada spodem na powierzchni).
+		return hitPos + Vector3.new(0, dims.Y * 0.5, 0), true
 	end
 	-- Brak hit → fallback 80 stud przed kamerą
 	return unitRay.Origin + unitRay.Direction * 80, false
@@ -112,9 +235,10 @@ local function forwardFromRotY(rotY: number): Vector3
 	return Vector3.new(math.sin(rad), 0, math.cos(rad))
 end
 
-local function anchorToCenter(anchorPos: Vector3, rotY: number, def: any): Vector3
-	-- Anchor = bliższa krawędź mostu (gdzie kursor). Centrum = anchor + length/2 wzdłuż +Z.
-	return anchorPos + forwardFromRotY(rotY) * (def.length * 0.5)
+local function anchorToCenter(anchorPos: Vector3, rotY: number, dims: Vector3): Vector3
+	-- Anchor = bliższa krawędź mostu (gdzie kursor). Centrum = anchor + długość/2 wzdłuż +Z.
+	-- Ten sam wzór liczy serwer w handleBuildBridge — muszą zostać zgodne.
+	return anchorPos + forwardFromRotY(rotY) * (dims.Z * 0.5)
 end
 
 local function isInRange(pos: Vector3, def: any): boolean
@@ -146,20 +270,20 @@ local function enterBuildMode()
 		return
 	end
 
+	local dims = getDims(def)
+
 	ghost = makeGhost(def)
 	ghost.Parent = Workspace
 
 	-- RenderStepped: follow mouse + rotation + range color
 	renderConn = RunService.RenderStepped:Connect(function()
 		if not ghost or not active then return end
-		local anchorPos, _hit = computeAnchorPosition(def)
-		local centerPos = anchorToCenter(anchorPos, rotationY, def)
-		ghost.CFrame = CFrame.new(centerPos) * CFrame.Angles(0, math.rad(rotationY), 0)
+		local anchorPos, _hit = computeAnchorPosition(dims)
+		local centerPos = anchorToCenter(anchorPos, rotationY, dims)
+		setGhostCFrame(CFrame.new(centerPos) * CFrame.Angles(0, math.rad(rotationY), 0))
 		-- Visual feedback: distance check liczony od anchor (= miejsca gdzie gracz "kładzie"),
 		-- nie od centrum mostu. Inaczej długi most byłby zawsze "za daleko".
-		ghost.Color = isInRange(anchorPos, def)
-			and Config.Bridge.GhostColorOK
-			or Config.Bridge.GhostColorBad
+		setGhostInRange(isInRange(anchorPos, def))
 	end)
 
 	-- InputBegan: R rotate, LMB confirm. Filter gameProcessed (HUD klikalny przez Roblox).
@@ -174,7 +298,7 @@ local function enterBuildMode()
 			clickDebounce = true
 			task.delay(0.15, function() clickDebounce = false end)
 
-			local anchorPos, _hit = computeAnchorPosition(def)
+			local anchorPos, _hit = computeAnchorPosition(dims)
 			if not isInRange(anchorPos, def) then
 				-- Klient wie że za daleko — nie spammujemy server. Visual już czerwony.
 				return
@@ -196,6 +320,10 @@ local function exitBuildMode()
 	if renderConn then renderConn:Disconnect() renderConn = nil end
 	if inputConn then inputConn:Disconnect() inputConn = nil end
 	if ghost then ghost:Destroy() ghost = nil end
+	-- Highlight jest dzieckiem ghosta, więc zginął razem z nim — zerujemy tylko referencję.
+	ghostHighlight = nil
+	table.clear(ghostParts)
+	ghostInRange = nil
 end
 
 function BridgeController.init()
