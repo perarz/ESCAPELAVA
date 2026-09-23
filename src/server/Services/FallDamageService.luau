@@ -68,6 +68,27 @@ type Track = {
 local tracks: { [Player]: Track } = {}
 local initialized = false
 
+-- Do kiedy (os.clock) NIE wolno wywracać gracza w locie. Ustawia to wyłącznie hak
+-- (GrappleService) na czas lotu po linii — patrz `suppressMidairRagdoll`.
+local midairRagdollSuppressedUntil: { [Player]: number } = {}
+
+-- Wyłącza WYŁĄCZNIE ragdoll w locie (pre-ragdoll), na podany czas. Nic więcej.
+--
+-- Powód: lot hakiem w dół wygląda dla tego serwisu jak swobodny spadek — spadek od
+-- szczytu > PreRagdollMinDrop przy prędkości > PreRagdollMinSpeed — więc bez tego
+-- gracz byłby wywracany w połowie zjazdu, a ragdoll toolboxa walczyłby z liną o prędkość.
+--
+-- ⚠️ CELOWO NIE RUSZA POMIARU UPADKU. Decyzja Kacpra 2026-09-23: zjazd hakiem w dół
+-- boli tak samo jak skok z punktu startu. Szczyt liczy się dalej normalnie, a przy
+-- lądowaniu `applyFall` nalicza obrażenia i ragdoll jak przy każdym innym upadku —
+-- przesuwa się tylko MOMENT wywrotki: z połowy lotu na lądowanie.
+function FallDamageService.suppressMidairRagdoll(player: Player, seconds: number)
+	local until_ = os.clock() + seconds
+	if until_ > (midairRagdollSuppressedUntil[player] or 0) then
+		midairRagdollSuppressedUntil[player] = until_
+	end
+end
+
 local rayParams = RaycastParams.new()
 rayParams.IgnoreWater = true
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -232,7 +253,8 @@ local function tick(dt: number)
 				track.peakY = feetY
 			end
 
-			if hum.Health > 0 and shouldRagdollMidair(track, hrp, feetY, groundY) then
+			local suppressed = (midairRagdollSuppressedUntil[player] or 0) > os.clock()
+			if hum.Health > 0 and not suppressed and shouldRagdollMidair(track, hrp, feetY, groundY) then
 				track.ragdollFired = true
 				RagdollService.knock(player, RagdollService.dampHorizontal(hrp.AssemblyLinearVelocity, CFG.RagdollTumble))
 				-- Bezpiecznik na wypadek, gdyby gracz nigdy nie wylądował (lawa, przepaść).
@@ -290,6 +312,7 @@ function FallDamageService.init()
 	end
 	Players.PlayerRemoving:Connect(function(player: Player)
 		tracks[player] = nil
+		midairRagdollSuppressedUntil[player] = nil
 	end)
 end
 

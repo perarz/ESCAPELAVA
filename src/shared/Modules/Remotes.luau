@@ -45,6 +45,22 @@ local REMOTE_NAMES = {
 	                      --   zawaleniem / sam kolaps. Klient robi pył, dźwięk i wstrząs
 	"DevCommand",         -- klient→server: FireServer(command: string) — "skip" | "endRound".
 	                      --   Server waliduje Dev.isDev(player); tryb dev = Config.Dev.Enabled
+	"FireGrapple",        -- klient→server: FireServer(targetPos: Vector3) — punkt, w który
+	                      --   gracz wycelował hakiem. Serwer bierze stąd WYŁĄCZNIE kierunek
+	                      --   i strzela własnym raycastem z HRP; zaczep powstaje tam, gdzie
+	                      --   trafi promień serwera, więc klient nie może skłamać o zasięgu
+	"Grappled",           -- server→właściciel: FireClient(anchor: Vector3, goal: Vector3,
+	                      --   maxTime: number) — DOKĄD lecieć i najdłużej jak długo. Lot prowadzi
+	                      --   KLIENT, bo postać ma network ownership gracza i serwerowa siła na
+	                      --   HRP zostałaby nadpisana (hard rule 12, jak Remotes.Pushed).
+	                      --   `anchor` jest tu, bo strzelec rysuje SWOJĄ linę razem z lotem:
+	                      --   wiązanie liny z lotem przez dwa różne remote'y byłoby wyścigiem
+	                      --   (kolejność dostarczenia między remote'ami nie jest gwarantowana)
+	"GrappleFX",          -- FireAllClients: (shooter: Player, anchor: Vector3, goal: Vector3,
+	                      --   maxTime: number) — lina od ręki strzelca do punktu zaczepu przez
+	                      --   cały lot. Czysta kosmetyka rysowana lokalnie; idzie do WSZYSTKICH,
+	                      --   żeby inni widzieli, skąd kolegę ciągnie, a nie samo odlecenie.
+	                      --   Strzelec IGNORUJE własny — swoją linę ma już z Remotes.Grappled
 }
 
 local function getRemotesFolder(): Folder

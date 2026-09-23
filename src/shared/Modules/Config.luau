@@ -662,10 +662,98 @@ Config.Push = {
 
 -- Rate limits per akcja (sekundy). Server enforces, klient mirrors dla wizualizacji
 -- CooldownBar. TE SAME wartości MUSZĄ być używane po obu stronach — dlatego jedno źródło.
+-- Hak (item `grapple`) — celujesz, trafiasz (w zasięgu), LECISZ PO ŁUKU DO TEGO PUNKTU
+-- i kończysz lot trochę nad nim. Specyfikacja Kacpra zebrana z trzech testów (2026-09-22/23):
+--   1. leci W KIERUNKU zaczepu („jak wysoko wbijesz, to wysoko lecisz"), nie do góry
+--   2. DOLATUJE do punktu, trochę wyżej — lot KOŃCZY się w punkcie, nie przelatuje
+--   3. po ŁUKU, nie po prostej — prosta linia wygląda jak winda, nienaturalnie
+--
+-- ⛔ HISTORIA — TRZY ODRZUCONE MODELE. KAŻDY SPEŁNIAŁ JEDNO WYMAGANIE KOSZTEM INNEGO:
+--   ① impuls balistyczny, wolny lot (TravelSpeed 55) → łamał 1: „wywala do góry".
+--     Przy g = 196.2 każda dziesiąta sekunda lotu dokłada ~10 stud/s pionu; kąt wychodził
+--     33-67° bez względu na cel.
+--   ② ta sama balistyka, szybki lot (TravelSpeed 120) → łamał 2: tor rzutu PRZECINA punkt
+--     z pełną prędkością (~120-170 stud/s), zamiast się w nim kończyć.
+--   ③ lina po prostej ze stałą prędkością → łamał 3: „nienaturalnie po prostej".
+--   ➜ LOT PROWADZONY PO KRZYWEJ (moduł GrappleArc): parabola od startu do celu ze szczytem
+--     nad linią prostą. Postać nie jest RZUCANA (wtedy przelatuje), tylko PROWADZONA
+--     (LinearVelocity) po łuku, który z definicji kończy się w punkcie. Spełnia wszystkie
+--     trzy naraz. ⚠️ Nie wracać do „dostrajania" ①/②: to nie była kwestia liczb.
+Config.Grapple = {
+	MaxRange = 70,        -- stud; dalej serwer odrzuca (mierzone od HRP do punktu)
+
+	-- ── Kształt i tempo lotu (GrappleArc) ──
+	-- Średnia prędkość WZDŁUŻ łuku; czas lotu = długość łuku / FlightSpeed.
+	FlightSpeed = 100,
+	-- Wysokość łuku nad linią prostą = dystans POZIOMY × ArcRatio, najwyżej ArcMax.
+	-- Liczone od poziomu celowo: przy wspinaczce pionowo w górę łuku nie ma (i wyglądałby
+	-- jak błąd), a przy locie poziomym jest pełny. 0.12 daje kąt startu ~28-34° przy celu
+	-- na wprost. 🎚️ GŁÓWNA GAŁKA „jak bardzo po łuku": wyżej = bardziej po łuku.
+	-- ⚠️ Nie przesadzać: kąt startu powyżej ~40° przy celu na wprost czyta się jak ①.
+	ArcRatio = 0.12,
+	ArcMax = 10,
+	-- Tempo po łuku: na starcie (1 + ArcEase) × średnia — szarpnięcie; na końcu
+	-- (1 − ArcEase) × średnia — „dolecisz", a nie „rąbniesz". 0 = stałe tempo.
+	ArcEase = 0.4,
+	-- Jak mocno lot poprawia odchyłkę od łuku (1/s). Bez tego postać dryfuje od krzywej
+	-- przez opóźnienie klatki i kończy lot obok punktu.
+	TrackGain = 10,
+
+	-- ── Gdzie kończy się lot ──
+	-- Cel = trafienie + Normal × Standoff + góra × Lift.
+	-- Standoff odsuwa cel OD POWIERZCHNI: środek HRP nie może stanąć na ścianie, więc bez
+	-- tego lot zawsze kończyłby się pchaniem w mur. Lift to „trochę wyżej": trafisz w ścianę
+	-- tuż pod krawędzią dachu → dolecisz ponad krawędź; trafisz w dach → staniesz na nim.
+	Standoff = 1.8,
+	Lift = 3.5,
+	ArriveRadius = 2.5,   -- lina INNEGO gracza gaśnie, gdy jego postać jest tak blisko celu
+
+	-- ── Wyjście z lotu ──
+	-- Część prędkości z końca łuku zostaje (bez tego lot urywa się szarpnięciem, bo koniec
+	-- łuku ma jeszcze ~40-60 stud/s) + wybicie w górę i W STRONĘ ŚCIANY, w którą trafiłeś —
+	-- to ono przerzuca przez krawędź dachu. Przy zaczepie o sam dach kierunek wybicia to
+	-- kierunek lotu. To samo po zahaczeniu i po timeoucie.
+	ExitCarry = 0.35,
+	ExitUp = 18,
+	ExitForward = 10,
+
+	-- ── Bezpieczniki ──
+	-- Czas lotu z GrappleArc + TimeMargin, przycięty do MaxFlightTime. Liczy go SERWER
+	-- i wysyła klientowi jako twardy sufit — jedno źródło prawdy dla klienta (koniec lotu),
+	-- anti-cheata i fall damage.
+	TimeMargin = 0.3,
+	MaxFlightTime = 1.2,
+	-- Zapas serwera na ping przy oknach bezkarności anti-cheata i wyłączeniu ragdolla w locie.
+	NetMargin = 0.4,
+	-- Zahaczenie po drodze: postać odstaje od łuku o więcej niż StuckDistance przez
+	-- StuckTime → koniec lotu. Po ODLEGŁOŚCI od krzywej, nie po prędkości — tempo na łuku
+	-- celowo się zmienia, więc „za wolno" nie znaczyłoby nic. Sprawdzane po StuckGrace,
+	-- bo w pierwszej klatce postać dopiero rusza.
+	StuckDistance = 3.5,
+	StuckTime = 0.15,
+	StuckGrace = 0.1,
+	-- Siła liny = masa postaci × grawitacja × ForceScale. Musi wyraźnie przebić ciężar
+	-- i kontroler Humanoida; 30 daje prędkość lotu w ~0.02 s. Skończona celowo: siła
+	-- nieograniczona przy zetknięciu z geometrią potrafi wypchnąć postać przez cienki part.
+	ForceScale = 30,
+
+	-- ── Lina (kosmetyka, rysowana lokalnie u KAŻDEGO klienta — Remotes.GrappleFX) ──
+	-- Trwa przez CAŁY lot i skraca się razem z nim. Bez tego lot wygląda jak lewitacja,
+	-- a inni gracze widzą kolegę odlatującego bez powodu.
+	RopeThickness = 0.12,
+	RopeColor = Color3.fromRGB(70, 60, 50),
+	RopeFadeTime = 0.12,
+
+	-- Feedback u strzelca — szarpnięcie na starcie ma być czuć.
+	ShakeIntensity = 1.3,
+	ShakeDuration = 0.25,
+}
+
 Config.RateLimits = {
 	BombThrow = 0.5,
 	Push = 4,
 	BridgeBuild = 0.5,
+	Grapple = 0.6,   -- hak: krótki, bo item jest zużywalny — limituje go cena, nie zegar
 	-- EquipItem+UnequipItem: klik hotbar slot. Spam clickowanie = flickering Tool
 	-- w rękach innych klientów + bandwidth. 0.15s = ~7 kliknięć/s max, ludzki reflex OK.
 	EquipItem = 0.15,

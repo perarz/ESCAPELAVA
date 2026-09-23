@@ -97,8 +97,29 @@ ItemDefinitions.bridge_builder = {
 	maxBuildDistance = 20,   -- stud (server-side anti-cheat)
 }
 
+ItemDefinitions.grapple = {
+	id = "grapple",
+	name = "Hak",
+	price = 40,
+	desc = "Celuj w ścianę albo dach — szarpnie Cię prosto tam. Jedno użycie.",
+	-- Wystawa w scenie sklepu: model Kacpra stoi już w WeaponShopScene.Decorations.
+	-- Markera kamery przy nim NIE MA, więc kadr liczy się z bounding boxa (AutoCamera*).
+	-- Postawienie markera obok modelu przejmie kadr bez żadnej zmiany w kodzie.
+	sceneModel = "HandHook",
+	-- Ten sam model trafia do ręki. W przeciwieństwie do bomby hak NIE jest pociskiem —
+	-- nic nie leci, więc Handle jest wyłącznie uchwytem i nie niesie żadnej fizyki.
+	-- ⚠️ Największa bryła tego modelu to płaski Union 0.09 × 1.80 × 1.80, czyli
+	-- `Utils.largestPart` wybierze na Handle dysk. Dla trzymanego przedmiotu to bez
+	-- znaczenia (Massless + weld), ale gdyby hak kiedyś miał wystrzeliwać fizyczny grot,
+	-- nośnika fizyki trzeba będzie wskazać jawnie — tak jak bomba wskazuje swoją kulę.
+	toolModel = "HandHook",
+	maxStack = 9999,
+	-- Cała mechanika (zasięg, czas lotu, clampy) siedzi w Config.Grapple — tutaj nic
+	-- nie dublujemy, bo to są liczby do strojenia, a nie kontrakt itemu.
+}
+
 -- Kolejność wyświetlania w sklepie (porządek deterministyczny)
-ItemDefinitions.shopOrder = { "bomb", "bridge_builder" }
+ItemDefinitions.shopOrder = { "bomb", "bridge_builder", "grapple" }
 
 -- Realny rozmiar rzeczy, którą item stawia w świecie (`worldModel`), z fallbackiem na
 -- wymiary wpisane w definicji. TUTAJ, a nie w każdym serwisie osobno, bo odpowiedź MUSI
