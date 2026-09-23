@@ -2,7 +2,7 @@
 
 > Dokument dla asystenta pomagającego w organizacji pracy (TODO, planowanie, decyzje).
 > Celowo bez szczegółów kodu — od logiki gry jest Claude Code w repo.
-> Stan na: 2026-09-21.
+> Stan na: 2026-09-23.
 
 ---
 
@@ -10,7 +10,8 @@
 
 **ESCAPE LAVA** — gra na Roblox, arcade survival. 15-20 graczy na serwerze. Lawa zalewa
 mapę od dołu coraz szybciej, gracze uciekają w górę po wieżowcach miasta ("Downtown"),
-kupują itemy (bomby do wysadzania przeciwników i terenu, mosty do budowania przepraw),
+kupują itemy (bomby do wysadzania przeciwników i terenu, mosty do budowania przepraw,
+hak do wciągania się na dachy),
 spychają się nawzajem (klawisz F) i walczą o przetrwanie do końca rundy.
 
 **Pętla gry:** Lobby (15s zakupy) → odliczanie (5s) → runda (~80s: lawa przyspiesza w
@@ -52,11 +53,21 @@ Zasady współpracy:
   destrukcji v2, patrz TODO punkt 0). Ściany pękają na nieregularne kawałki, gruz zostaje
   jako platformy, a kto stoi za ścianą, dostaje słabiej.
 - **Most** (100$): budowanie przeprawy z podglądem "ducha", obracanie. Mosty są
-  niszczalne, więc sabotaż PvP działa.
+  niszczalne, więc sabotaż PvP działa. Od 21.09 celowanie w lawę działa jak celowanie
+  w podłogę — most da się postawić na lawie (i tak utonie, bo lawa rośnie).
+- **Hak** (40$, 22-23.09, trzeci item) — celujesz w ścianę albo dach w zasięgu 70 studów,
+  klikasz i lecisz **po łuku prosto w to miejsce**, lądując trochę nad punktem trafienia.
+  Trafisz tuż pod krawędzią dachu → przeskoczysz na dach. Jedno użycie = jeden zaczep.
+  Zjazd hakiem w dół boli przy lądowaniu jak skok z tej wysokości (Twoja decyzja).
+  **Odczucie lotu zaakceptowane w Play.** Model lotu przeszedł cztery wersje, bo każda
+  kolejna naprawiała jedną rzecz kosztem poprzedniej: najpierw wywalało do góry, potem
+  leciało dobrze, ale przelatywało przez punkt, potem dolatywało, ale po sztywnej prostej.
+  Dopiero łuk prowadzony do punktu spełnia wszystko naraz.
+  ⚠️ **Nie widać go w pasku** — pasek ma tylko 2 sloty. Działa z klawisza 3.
 - **Push (F)**: spychanie przeciwników z cooldownem 4s — kill credit jak wpadną w lawę.
 - **Kasa**: zbierana z mapy (przyciąganie magnetyczne + animacja lotu ze złotym trailem),
-  za zabójstwa (25$), za przetrwanie rundy (100$), popupy "+10$", licznik jako ozdobne
-  cyfry z teksturą studs.
+  za zabójstwa (25$), za przetrwanie rundy (100$), popupy "+10$", licznik kasy w HUD
+  w Twoim stylu (cyfry-obrazki ze studs zostały wyłączone 11.08, bo wyglądały źle).
 - **Sklep w nowym lobby** (20.09, przetestowane) — po przebudowie lobby sprzedawca broni
   stoi w swoim straganie, a wystawa z itemami przeniosła się do osobnego pomieszczenia,
   do którego zjeżdża sama kamera (Ty zostajesz przy sprzedawcy, więc kilka osób może
@@ -70,17 +81,16 @@ Zasady współpracy:
   krój: rękaw krótki albo długi, nogawki długie albo szorty. Zestaw przypisywany raz
   i zapamiętywany. To jest pierwszy krok systemu skinów — sklep będzie potem podmieniał
   pojedyncze elementy tego samego zapisu.
-  ⚠️ **Do włączenia przez Ciebie**: Game Settings → Security → „Enable Studio Access to API
-  Services". Bez tego w Studio wygląd **nie zapisuje się** i losuje od nowa przy każdym
-  wejściu — przez to wyglądało, że krój rękawa nie działa.
-  ⚠️ **Do decyzji**: głowa w rigu to „dynamiczna" głowa z twarzą wbudowaną w teksturę i nie
-  da się na nią nałożyć wybranej twarzy. Żeby twarze dało się sprzedawać jako skiny, trzeba
-  podmienić ją na klasyczną, kanciastą.
+  Zapis działa też w Studio (sprawdzone 21.09 — kasa przeniosła się między sesjami).
+  **Twarz: widoczna i poprawna** (potwierdzone 22.09) — głowa ma twarz wbudowaną. Gdyby
+  twarze miały być skinem na sprzedaż, trzeba będzie podmienić głowę na klasyczną, kanciastą —
+  ta decyzja wraca dopiero przy sklepie kosmetycznym.
 - **Ragdoll naprawiony u źródła** (21.09) — postać leci po bombie jak trzeba. Przyczyną
   „trzepania" był nowy typ szkieletu postaci, którego nie znosi używany przez nas ragdoll:
   na jednym ciele pracowały dwa zestawy stawów naraz. Szkielet został przerobiony na starszy
-  typ i problem zniknął. Przy okazji powinno wrócić obracanie głowy za kamerą, które po cichu
-  nie działało. **Zapisz plac (Cmd+S)** — ta zmiana siedzi w pliku placu, nie w kodzie.
+  typ i problem zniknął (potwierdzone w Play). **Zapisz plac (Cmd+S)** — ta zmiana siedzi
+  w pliku placu, nie w kodzie. ⚠️ **Niepotwierdzone**: czy wróciło obracanie głowy za kamerą,
+  które po cichu nie działało, i czy zmalało „śliskie" sterowanie.
 - **Twoje modele w grze** (20.09, przetestowane) — bomba, którą trzymasz w ręce, jest tą
   samą bombą, która leci i wybucha; w trybie budowania trzymasz plan; most to Twój model
   z 12 desek, niszczalny deska po desce. **Most jest większy niż wcześniejszy zastępczy
@@ -90,12 +100,24 @@ Zasady współpracy:
   i po prostu spadał przy starcie gry, zabierając ze sobą miejsce, w które gra teleportuje
   graczy. Kod kotwiczy go teraz sam i mówi o tym w logu.
 - **Hotbar** z equipem itemów (klawisze 1-5, białe podświetlenie wybranego slotu).
+  ⚠️ W Studio są tylko **2 sloty** — każdy kolejny item potrzebuje kolejnego (skopiuj Slot2).
 - ~~Daily rewards~~ — **skasowane 12.09**, bo stare UI się nie podobało. Do zrobienia od nowa.
 - **Ruch**: sprint (Shift) ze staminą, kamera 3rd person z płynnym wygładzaniem,
   dynamiczny FOV, wstrząsy ekranu przy trafieniach, kurz przy lądowaniu, obracanie głowy
   za kamerą (widoczne dla innych).
 - **Klimat**: lawa z unoszącymi się iskrami i dymem, "żar" na ekranie gdy gracz jest
   nisko nad lawą, słup pary przy śmierci w lawie.
+- **Lawa rani zamiast zabijać od razu** (21.09, Twoja decyzja) — 7 sekund kontaktu zabija,
+  wyjdziesz z lawy, przestaje boleć. Zmienia lawę ze ściany śmierci w zagrożenie, przed którym
+  da się uciec. Przy okazji zdrowie w całej grze przestało się samo regenerować (inaczej
+  krótkie wejścia goiłyby się między sobą).
+- **Szyby się tłuką** (21.09) — 367 szyb w 9 budynkach. Bomba tłucze średnio ~17 szyb
+  w promieniu 35 studów, także na sąsiednich budynkach; im większa szyba, tym więcej i większych
+  odłamków. Wcześniej nie tłukła się żadna, bo wszystkie szyby miały zły materiał.
+- **Latarnie i sygnalizatory znowu świecą** (21.09) — zaznaczenie całej mapy i nadanie jej
+  jednego materiału **po cichu** zgasiło 36 latarni i 150 żarówek sygnalizacji i zamieniło szyby
+  w zwykłe ściany. Nic nie znikało, więc nikt tego nie zauważył. Naprawione skryptami, które
+  można puścić ponownie po każdej takiej operacji.
 - **Lawa jako trzy warstwy** (16.09, Twój pomysł) — zamiast jednej płaskiej tafli stos:
   nieprzezroczysty spód i dwie półprzezroczyste warstwy nad nim, każda w innym kolorze.
   To pierwsze podejście do wyglądu lawy, które nie próbuje namalować głębi na płasko,
@@ -108,7 +130,8 @@ Zasady współpracy:
   nim. Zepchnięcie kogoś z dachu liczy się jako Twoje zabójstwo. ⚠️ **Przepisane 19.09 od
   zera i NIEPRZETESTOWANE** — zgłosiłeś dwa błędy (wyrzut bombą bez obrażeń, drugi upadek
   bez obrażeń) i oba miały jedną przyczynę, którą sam wcześniej wprowadziłem. Lista pięciu
-  rzeczy do sprawdzenia jest w CLAUDE.md w sekcji STATUS.
+  rzeczy do sprawdzenia jest w CLAUDE.md w sekcji STATUS. Zjazd hakiem w dół liczy się
+  jak zwykły upadek z punktu startu — hak wyłącza tylko przewracanie w połowie lotu.
 - **Nowe oświetlenie** (16.09) — stare było rozjaśnione „ambientem" tak mocno, że cienie
   miały prawie ten sam kolor co światło i wszystko wyglądało płasko, a filtr koloru
   próbował to ratować kontrastem i niebieskim odcieniem, który gryzł się z pomarańczem
@@ -116,11 +139,11 @@ Zasady współpracy:
   delikatnie blakną, więc miasto czyta się jako wysokie) i świecenie tylko tego, co
   naprawdę gorące. Słońce jest widoczne na niebie. Skybox bez zmian. Gdyby coś nie
   siadło — w repo leży plik cofający wszystko jedną komendą.
-- **Oprawa lawy** (14-16.09) — zrobione w kodzie, ale **czeka na Ciebie i na test**:
-  powierzchnia przewija się (Ty dajesz teksturę, kod ją animuje), tafla faluje, wypychają
-  się z niej bąble i pękają z iskrami, ciepłe światła sunące po powierzchni podświetlają
-  dolne piętra, a tam gdzie lawa podchodzi pod ulicę unosi się para. **Nic z tego nie było
-  jeszcze w Play.** Blokada: wrzucenie tekstury na part lawy.
+- **Oprawa lawy** (14-21.09) — powierzchnia przewija się (Ty dajesz teksturę, kod ją
+  animuje), tafla faluje, wypychają się z niej bąble i pękają z iskrami, ciepłe światła
+  podświetlają dolne piętra, a tam gdzie lawa podchodzi pod ulicę unosi się para. Od 21.09
+  **zapala się dopiero, gdy lawa wyjdzie na ulice** — dopóki siedzi w kanale pod miastem,
+  efekty przebijałyby przez jezdnię. Tekstura powierzchni jest po Twojej stronie.
 - **Pasek staminy przy postaci** (12.09): nie element HUD, tylko pionowy wskaźnik unoszący
   się obok Twojej postaci w świecie — widzi go **tylko właściciel**. Pokazuje się sam przy
   sprincie i chowa po naładowaniu, ze sprężystą animacją; kolor idzie od niebieskiego przez
@@ -128,7 +151,7 @@ Zasady współpracy:
 - **HUD**: killfeed, banner zwycięzców, paski cooldownów; **pełne skalowanie na każdy
   monitor** (projekt w px przy 1440p, reszta skaluje się automatycznie, elementy przypięte
   do krawędzi/rogów ekranu).
-- **Zaplecze**: zapis postępu graczy (kasa/itemy/winy/streak) odporny na awarie,
+- **Zaplecze**: zapis postępu graczy (kasa/itemy/winy/wygląd) odporny na awarie,
   tab-leaderboard (Cash + Wins), anti-cheat, rate limity, walidacja wszystkiego po
   stronie serwera.
 - **Audyt techniczny (11.08)** — przegląd całego kodu serwera pod kątem błędów i skali.
@@ -146,7 +169,15 @@ Zasady współpracy:
 
 ## TODO (priorytety)
 
-**A. Wizja ustalona 12.09 — kolejny duży blok pracy (jeszcze nierobione):**
+**Najpierw — zaległe testy w Play** (bez nich kolejne kroki stoją na niesprawdzonym):
+obracanie głowy za kamerą i „śliskie" sterowanie po przeróbce szkieletu, pięć przypadków
+obrażeń od upadku (lista w CLAUDE.md), a z haka przypadki brzegowe: bomba w trakcie lotu,
+zjazd w dół, kilka zaczepów z rzędu (czy anti-cheat nie zabija), lina widoczna u kolegi.
+
+**Do postawienia w Studio (Twoja strona):** trzeci slot w pasku (hak jest niewidoczny),
+marker kamery obok haka na wystawie (dziś kadr liczy się automatycznie).
+
+**A. Wizja ustalona 12.09 — kolejny duży blok pracy:**
 - **Ekwipunek i loadout**: hotbar skrócony do **3 slotów**, a gracz wybiera 3 itemy
   z docelowych **6**. Sens: zmusić do decyzji (mobilność vs atak vs wsparcie) zamiast
   brania samych ułatwień w bieganiu. Daje 20 różnych zestawów.
@@ -155,14 +186,11 @@ Zasady współpracy:
   system** (zapis posiadanych skinów, zakładanie na postać przy odrodzeniu, assety) —
   robić dopiero po loadoucie.
 - **Daily rewards od nowa** jako UI.
-- **4 nowe itemy** do kompletu 6. Propozycje przyniesione 16.09, Kacper jeszcze nie wybrał.
-  Rekomendacja: **hak** (przyciąga do ściany/dachu), **lotnia** (szybowanie — ratuje po
-  zepchnięciu, więc jest kontrą na cudzy item), **stawiana ściana** (osłania przed wybuchem)
-  i **kontrolowana rozbiórka** (ładunek na filar zrzuca całe piętro — najmocniejszy moment
-  na klip). Pozostałe pomysły w zanadrzu: trampolina, mina, sticky bomb z detonatorem,
-  zastygacz (chwilowa wyspa na lawie), granat grawitacyjny, zamiana miejsc z wrogiem.
-  ⚠️ Przy wyborze uważać na itemy nagradzające **kemping na szczycie** (mina, ściana) —
-  dopóki lawa nie dochodzi do najwyższego dachu, wzmacniałyby problem z punktu B.
+- **Szóstka itemów WYBRANA** (22.09 — odczytana z modeli, które postawiłeś na wystawie):
+  bomba, most, **hak ✅**, **RPG**, **sticky bomb**, **energy drink**. Zostają trzy.
+  Żaden z nich nie nagradza kempingu na szczycie, więc obawa przy wyborze (mina, ściana)
+  odpadła. Pozostałe pomysły z 16.09 w zanadrzu: lotnia, stawiana ściana, kontrolowana
+  rozbiórka, trampolina, mina, zastygacz, granat grawitacyjny, zamiana miejsc.
 
 **Decyzje podjęte 16.09 (do przekazania builderowi):**
 - **Avatar: zostajemy przy R15.** Chodziło Ci o kwadratowy kształt, a nie o konkretny rig —
@@ -183,11 +211,12 @@ Zasady współpracy:
   ⚠️ **Zanim oddasz robotę: zdecyduj, gdzie ma być wybór loadoutu** (ten sam NPC co sklep,
   trzecie stoisko, czy HUD). To jedyna rzecz, przez którą builder mógłby coś przerabiać.
 
-**B. Otwarte pytanie designowe**: przy obecnych liczbach lawa w 80-sekundowej rundzie
-podnosi się tylko o ~120 studów, więc wyższe piętra są od niej bezpieczne z definicji —
-czyli wejście na najwyższy budynek to darmowe przetrwanie. Do rozstrzygnięcia przed
-budową mapy: czy lawa ma dogonić szczyt, czy wież ma być kilka podobnej wysokości,
-czy szczyt ma być świadomą pułapką (tłum + bomby + walące się piętra).
+**B. Otwarte pytanie designowe — czy najwyższy dach jest „darmowym przetrwaniem"**:
+pomiar na gotowej mapie (14.09) pokazał, że problem jest mniejszy, niż się wydawało —
+lawa kończy rundę **~3 study pod najwyższym dachem**, czyli dogania go o włos i dopiero
+w ostatnich sekundach. Minimalna zmiana, żeby zalewała wszystko, to jedna liczba (ostatnia
+faza 3.0 → ~3.2 stud/s). **Decyzja 22.09: rozstrzygamy po teście z ludźmi** — najpierw
+zobaczyć, czy ktokolwiek w ogóle dochodzi na szczyt.
 
 
 0. **System destrukcji v2** — stary wybuch skasowany 11.08, tego samego dnia zaprojektowany
@@ -215,12 +244,16 @@ czy szczyt ma być świadomą pułapką (tłum + bomby + walące się piętra).
    (popup kasy, paski cooldownów — do ostylowania).
 3. **Monetyzacja (Day 5)**: gamepass VIP, dev producty (kup kasę za Robuxy) — do
    zaprojektowania oferta i ceny, potem implementacja.
-4. **Pozostałe itemy** (opcjonalnie przed launchem): hook (wciąganie się), sabotage,
-   shield — system jest gotowy na dokładanie.
+4. **Pozostałe itemy z szóstki**: RPG, sticky bomb, energy drink — modele już stoją na
+   wystawie, kod dokłada się według wzorca bomby/mostu/haka. Każdy kolejny item to też
+   kolejny slot w pasku (Twoja robota w UI).
 5. **Polish przed launchem (Day 6)**: dźwięki (assety = Kacper), eventy losowe
    (spadające kule ognia, wiatr) — pomysły z GDD, do decyzji czy w v1.0.
 6. **Launch (Day 7)**: closed beta z ekipą → publish → TikToki (formaty z GDD sekcja 14).
-   Przed publishem: MinPlayers 1→2, test pełnej pętli na żywym serwerze.
+   **Przed publishem cofnąć trzy ustawienia testowe** (gra krzyczy o nich w logu przy
+   każdym starcie): runda wydłużona do 240 s z 3× wolniejszą lawą → z powrotem 80 s; tryb
+   dev z nieskończonymi itemami **dla wszystkich graczy** → wyłączyć; minimum graczy 1 → 2.
+   Potem test pełnej pętli na żywym serwerze.
 7. **Test pod obciążeniem** (przed/tuż po launchu): audyt kodu jest zrobiony (11.08),
    zostaje sprawdzenie na żywym serwerze z ekipą — zapis danych przy 20 graczach,
    wyłączanie serwera. Koszt fizyki przy kilku bombach naraz wraca na listę dopiero
@@ -243,7 +276,7 @@ Każdy pomysł "a może dodamy..." → odpowiedź brzmi: **po launchu, nie teraz
 
 ## Fakty techniczne (minimum dla orientacji)
 
-- Kod w repo Git (`C:\Users\User\Desktop\ESCAPELAVA`), synchronizacja do Roblox Studio
+- Kod w repo Git (`~/escapelava`, macOS), synchronizacja do Roblox Studio
   przez **Rojo** (`rojo serve` + plugin Connect w Studio). Kod źródłowy = repo,
   wygląd/mapa = plik place w Studio (zapisywać Ctrl+S!).
   **Gdy coś "nagle przestało działać", najpierw sprawdź czy Rojo serwuje.** Padnięty
@@ -255,13 +288,18 @@ Każdy pomysł "a może dodamy..." → odpowiedź brzmi: **po launchu, nie teraz
 - Zapis graczy: DataStore z pełnym zabezpieczeniem (atomowość, retry, session lock,
   zapis przy zamknięciu serwera).
 - Ragdoll: gotowy toolbox (ARTFVL) — folder w Workspace, nie ruszać.
+- **Commitować po każdej skończonej rzeczy.** 13-22.09 dziewięć dni pracy (lawa, oświetlenie,
+  upadki, postacie, szyby) leżało tylko na dysku, poza historią — zabezpieczone jednym
+  commitem 22.09. Jeden padnięty dysk i nie byłoby czego odtwarzać.
 - Dokument referencyjny dla AI kodującego: `CLAUDE.md` w repo (pełny stan techniczny).
 
 ## Kluczowe liczby (balans)
 
 - Runda: 5s spawn + 20s easy + 20s mid + 20s hard + 15s endgame = 80s. Lobby 15s.
-- Lawa: 0.6 → 1.2 → 2.0 → 3.0 stud/s.
-- Bomba 50$ (odpalenie 2.5s, zasięg rażenia graczy 22, zasięg niszczenia terenu 20),
-  most 100$, push F co 4s.
-- Nagrody: przetrwanie 100$, kill 25$, kasa z mapy 10$/szt, daily 50-500$.
+- Lawa: 0.6 → 1.2 → 2.0 → 3.0 stud/s. Kontakt z lawą zabija po 7 s (nie od razu).
+  ⚠️ Obecnie testowo: runda 240 s i lawa 3× wolniej — do cofnięcia przed launchem.
+- Bomba 50$ (odpalenie 2.5s, zasięg rażenia graczy 22, niszczenie terenu 24, szyby 35),
+  most 100$, **hak 40$ (zasięg 70)**, push F co 4s.
+- Nagrody: przetrwanie 100$, kill 25$, kasa z mapy 10$/szt. (Daily skasowane 12.09 —
+  do zrobienia od nowa.)
 - Start gracza: 100$ na dzień dobry.
