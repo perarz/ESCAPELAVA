@@ -11,7 +11,7 @@
 - ✅ **PvP push** — F key, server-side target, velocity przez Pushed.
 - ✅ **Cash pickupy** — cash na mapie, magnet pickup, pickup arc animacja.
 - ✅ **Kill/Win rewards** — KillService (kill 25$ z tagowaniem) + RewardsService (survival 100$) + killfeed + win banner.
-- ✅ **Movement system** — sprint+stamina, 3rd person, dynamic FOV, smooth camera, landing dip, screen shake. ⚠️ **Head tracking NIE DZIAŁA i nie działał nigdy** (23.09) — przyczyna i fix w STATUS.
+- ✅ **Movement system** — sprint+stamina, 3rd person, dynamic FOV, smooth camera, landing dip, screen shake, **head tracking** (✅ od 23.09 — wcześniej nie działał nigdy, choć figurował tu jako gotowy), **kamera zza ramienia** (✅ 23.09, prawe ramię, staje na ścianach).
 - ✅ **Anti-cheat** — detekcja po realnie przebytej drodze (WalkSpeed cap był atrapą, patrz AntiCheatService).
 - ✅ **CooldownBar UI**.
 - ✅ **Sklep-NPC** (2026-09-12) — podejście do sprzedawcy, kamera jadąca po wystawie, dolny panel z ceną/opisem, zakup walidowany dystansem. **Przetestowany w Play.**
@@ -125,8 +125,9 @@
   💾 **Kopia zapasowa oryginalnego rigu: `ServerStorage.StarterCharacter_BACKUP`** — gdyby
   konwersja okazała się zła, wystarczy ją przenieść z powrotem do `StarterPlayer`.
   ⚠️ **To zmiana w datamodelu Studio — ginie bez Cmd+S.**
-  ✅ **OCENIONE przez Kacpra (21-23.09)**: ragdoll przestał trzepać, ślizg zniknął. ❌ Głowa NIE
-  podąża za kamerą — ale NIE przez rig: head tracking nie działał nigdy, przyczyna w STATUS.
+  ✅ **OCENIONE przez Kacpra (21-23.09)**: ragdoll przestał trzepać, ślizg zniknął. ✅ Głowa podąża
+  za kamerą od 23.09 — ale NIE dzięki rigowi: head tracking nie działał nigdy (obrót pisany do
+  `Transform`, który nadpisuje animator), naprawiony przez `C0`.
   ~~`AppearanceService` wyłączony flagą na czas testów~~ — flaga zdjęta, **w kodzie jej nie ma**
   (sprawdzone 2026-09-22).
   ✅ **ETAP ① SYSTEMU WYGLĄDU DZIAŁA (2026-09-21, zweryfikowane w grze).** Po konwersji rigu

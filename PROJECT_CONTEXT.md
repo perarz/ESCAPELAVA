@@ -90,9 +90,8 @@ Zasady współpracy:
   na jednym ciele pracowały dwa zestawy stawów naraz. Szkielet został przerobiony na starszy
   typ i problem zniknął (potwierdzone w Play). **Zapisz plac (Cmd+S)** — ta zmiana siedzi
   w pliku placu, nie w kodzie. „Śliskie" sterowanie też zniknęło (potwierdziłeś 23.09).
-  ⚠️ **Obracanie głowy za kamerą nie działało nigdy** — i nie przez szkielet: kod obracał głowę
-  w sposób, który animacje postaci od razu nadpisywały. Przyczyna znaleziona 23.09, poprawka
-  jest mała.
+  **Obracanie głowy za kamerą działa od 23.09** (potwierdziłeś). Wcześniej nie działało nigdy —
+  i nie przez szkielet: kod obracał głowę w sposób, który animacje postaci od razu nadpisywały.
 - **Twoje modele w grze** (20.09, przetestowane) — bomba, którą trzymasz w ręce, jest tą
   samą bombą, która leci i wybucha; w trybie budowania trzymasz plan; most to Twój model
   z 12 desek, niszczalny deska po desce. **Most jest większy niż wcześniejszy zastępczy
@@ -109,8 +108,8 @@ Zasady współpracy:
   ramienia** (23.09): kamera nad prawym ramieniem, postać po lewej stronie ekranu, jak
   w Fortnite (porównałeś obie strony — „prawa zostaje"). Kamera zatrzymuje się na ścianach:
   plac miał ustawiony tryb, w którym ściany zamiast zatrzymywać kamerę robiły się przezroczyste
-  (x-ray, dało się podglądać przez mury) — naprawione, czeka na Twój test. (Obracanie głowy
-  za kamerą jest w kodzie, ale nigdy nie działało — patrz przy ragdollu.)
+  (x-ray, dało się podglądać przez mury) — naprawione i potwierdzone 23.09. Głowa i lekko tułów
+  podążają za kamerą, widać to też u innych graczy (od 23.09).
 - **Klimat**: lawa z unoszącymi się iskrami i dymem, "żar" na ekranie gdy gracz jest
   nisko nad lawą, słup pary przy śmierci w lawie.
 - **Lawa rani zamiast zabijać od razu** (21.09, Twoja decyzja) — 7 sekund kontaktu zabija,
@@ -178,8 +177,8 @@ Zasady współpracy:
 ## TODO (priorytety)
 
 **Najpierw — zaległe testy w Play**: pięć przypadków obrażeń od upadku (lista w CLAUDE.md).
-Rozstrzygnięte 23.09: śliskie sterowanie zniknęło, hak przeszedł testy, obracanie głowy nie
-działało nigdy (przyczyna znaleziona, poprawka zrobiona 23.09 — czeka na Twój test).
+Rozstrzygnięte 23.09: śliskie sterowanie zniknęło, hak przeszedł testy, obracanie głowy
+i kamera zza ramienia naprawione i potwierdzone.
 Znalezione w logu i odłożone: zaczep hakiem pod własne nogi zużywa sztukę za nic (na
 produkcji strata 40$ za misklik) i szum w logu wybuchów.
 
