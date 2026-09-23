@@ -68,7 +68,7 @@ local remoteAim: { [Player]: AimState } = {}
 type JointCache = {
 	neck: Motor6D?,
 	waist: Motor6D?,
-	neckC0: CFrame?,     -- rest C0 do reset gdy joint znika
+	neckC0: CFrame?,     -- C0 SPOCZYNKOWY: punkt odniesienia obrotu (C0 = neckC0 * kąty) i reset
 	waistC0: CFrame?,
 }
 local jointCache: { [Player]: JointCache } = {}
@@ -95,6 +95,14 @@ local stateChangedConn: RBXScriptConnection? = nil
 
 -- Elastic camera rotation — lagged CFrame renderowany zamiast surowego (default camera).
 local smoothedCam: CFrame? = nil
+-- Kamera zza ramienia: bieżące (wygładzone) przesunięcie w bok + promień do ścian.
+-- RespectCanCollide: lawa, liny haka i efekty nie mają kolizji, więc nie ściskają kadru.
+local shoulderCurrent = 0
+local shoulderRayParams = RaycastParams.new()
+shoulderRayParams.FilterType = Enum.RaycastFilterType.Exclude
+shoulderRayParams.IgnoreWater = true
+shoulderRayParams.RespectCanCollide = true
+local shoulderFilterChar: Model? = nil
 
 -- FOV punch (bomba) — chwilowy additive offset FOV, decays do 0. Niezależny od sprint FOV.
 local fovPunch: number = 0
@@ -659,34 +667,53 @@ end
 
 local function isCharacterRagdolled(character: Model): boolean
 	-- Per CLAUDE.md zasada 11: toolbox ARTFVL ragdoll = PlatformStand=true.
-	-- W trakcie ragdoll'u NIE dotykamy Motor6D Transform (BallSocketConstraints driveją fizykę,
+	-- W trakcie ragdoll'u NIE obracamy stawów (BallSocketConstraints driveją fizykę,
 	-- nasze write'y by się fightowały z constraint physics → dziwne wykrzywienia).
 	local hum = character:FindFirstChildOfClass("Humanoid")
 	if not hum then return false end
 	return hum.PlatformStand == true or hum.Health <= 0
 end
 
+-- ⚠️ OBRÓT IDZIE PRZEZ `C0`, NIE PRZEZ `Transform` (2026-09-23). Pierwsza wersja mnożyła
+-- `Motor6D.Transform` w RenderStepped, zakładając, że animator działa w RenderStep z priorytetem
+-- `Character` i wystarczy być po nim. Nie działa: `RenderPriority.Character` to tylko numer
+-- kolejki dla skryptów, a animator nadpisuje `Transform` w całości we własnej fazie klatki.
+-- Skutek: head tracking NIE DZIAŁAŁ NIGDY, choć stawy były znajdowane (w logach nie było ani
+-- jednego „brak Motor6D"), i przez miesiące figurował w CLAUDE.md jako gotowy.
+-- `C0` to statyczna część stawu — animator go nie dotyka — więc obrót od zapisanego C0
+-- spoczynkowego jest odporny na to, JAK dokładnie animator nadpisuje `Transform`. Animacja
+-- dalej gra, bo `Transform` zostaje w łańcuchu: Part0 * C0 * Transform * C1⁻¹.
+local function restoreRestC0(cache: JointCache)
+	if cache.neck and cache.neckC0 then cache.neck.C0 = cache.neckC0 end
+	if cache.waist and cache.waistC0 then cache.waist.C0 = cache.waistC0 end
+end
+
 local function applyAim(player: Player, character: Model, yaw: number, pitch: number)
 	local cache = ensureJointCache(player)
 	if not cache then return end
-	if isCharacterRagdolled(character) then return end
+	if isCharacterRagdolled(character) then
+		-- `C0`, w odróżnieniu od `Transform`, NIE resetuje się sam — bez tego głowa leżałaby
+		-- wykręcona o ostatni kąt przez cały ragdoll.
+		restoreRestC0(cache)
+		return
+	end
 
 	-- Pitch wyłącznie na neck. Yaw rozdzielamy: WaistYawRatio idzie na waist (talia
 	-- skręca lekko za kamerą), reszta na neck.
 	local waistYaw = yaw * CFG_HT.WaistYawRatio
 	local neckYaw = yaw - waistYaw
 
-	if cache.waist then
-		-- .Transform po animatorze (BindToRenderStep priority Character+1) zawiera animacyjny
-		-- output dla tej klatki. Multiply zachowuje animację + dodaje skręcenie.
-		cache.waist.Transform = cache.waist.Transform * CFrame.Angles(0, waistYaw, 0)
+	-- Zawsze OD C0 SPOCZYNKOWEGO, nigdy od bieżącego — inaczej obrót kumulowałby się co
+	-- klatkę i głowa kręciłaby się w kółko.
+	if cache.waist and cache.waistC0 then
+		cache.waist.C0 = cache.waistC0 * CFrame.Angles(0, waistYaw, 0)
 	end
-	if cache.neck then
-		-- Pitch sign: R15 neck local frame ma +Y up, -Z forward. CFrame.Angles(rx, 0, 0)
-		-- z dodatnim rx obraca głowę W GÓRĘ (top of head do tyłu). Kamera patrząc w dół:
-		-- camLook.Y < 0 → pitch = asin(Y) < 0 → CFrame.Angles(pitch, ...) z ujemnym rx →
-		-- głowa w dół. Stąd `pitch` (nie -pitch). Jeśli wygląda na flipped — odwróć znak.
-		cache.neck.Transform = cache.neck.Transform * CFrame.Angles(pitch, neckYaw, 0)
+	if cache.neck and cache.neckC0 then
+		-- Znaki na tym rigu (C0 bez rotacji, przód = −Z): dodatnie rx podnosi przód głowy,
+		-- więc kamera w dół (pitch < 0) → głowa w dół; dodatni yaw skręca przód w −X, czyli
+		-- w lewo, zgodnie z `computeLocalAimFromCamera`. Sprawdzone rachunkiem 2026-09-23,
+		-- NIE okiem — wcześniej obrót nigdy nie był widoczny. Odwrotnie w grze = zmienić znak.
+		cache.neck.C0 = cache.neckC0 * CFrame.Angles(pitch, neckYaw, 0)
 	end
 end
 
@@ -733,7 +760,8 @@ end
 
 local function onRenderStepHeadAim(dt: number)
 	-- Liczy target dla local (z kamery) + lerpuje wszystkich + aplikuje Transform.
-	-- Priorytet Character+1 = po Animatorze → nasze write'y wygrywają.
+	-- Priorytet Character+1 = PO kamerze (Camera+1), więc głowa czyta już wygładzoną kamerę.
+	-- (NIE „po animatorze" — animator nie jest w kolejce RenderStep; patrz applyAim.)
 	computeLocalAimFromCamera()
 	lerpAimState(localAim, dt)
 	-- Apply local (sami też widzimy swoją głowę kręcącą się w 3rd person — immersja).
@@ -848,10 +876,99 @@ end
 -- CAMERA
 -- ====================================================================
 
+-- Czy przez to wolno patrzeć kamerą. Postacie i party półprzezroczyste (szyby) przepuszczamy —
+-- tak samo robi tryb `Zoom` Robloxa; inaczej kamera kleiłaby się do szyby albo do kolegi obok.
+local function isSeeThrough(inst: Instance): boolean
+	if inst:IsA("BasePart") and inst.Transparency >= CFG_CAM.ShoulderOffset.SeeThroughTransparency then
+		return true
+	end
+	local model = inst:FindFirstAncestorOfClass("Model")
+	return model ~= nil and model:FindFirstChildOfClass("Humanoid") ~= nil
+end
+
+-- Filtr promieni kamery (własna postać) podmieniany tylko przy zmianie postaci — bez alokacji
+-- tablicy co klatkę.
+local function refreshCameraFilter()
+	if shoulderFilterChar ~= currentCharacter then
+		shoulderFilterChar = currentCharacter
+		shoulderRayParams.FilterDescendantsInstances = if currentCharacter then { currentCharacter } else {}
+	end
+end
+
+-- Promień dla kamery: dystans do pierwszej przeszkody, przez którą NIE da się patrzeć, albo nil.
+-- Przezroczyste trafienia przeskakujemy (maks. 4), zamiast kończyć na nich promień.
+local function castForCamera(origin: Vector3, dir: Vector3): number?
+	local total = dir.Magnitude
+	if total < 1e-3 then return nil end
+	local unit = dir / total
+	local travelled = 0
+	for _ = 1, 4 do
+		local hit = Workspace:Raycast(origin + unit * travelled, unit * (total - travelled), shoulderRayParams)
+		if not hit then return nil end
+		local d = travelled + hit.Distance
+		if not isSeeThrough(hit.Instance) then return d end
+		travelled = d + 0.05
+		if travelled >= total then return nil end
+	end
+	return nil
+end
+
+-- Kamera zza ramienia (Config.Movement.Camera.ShoulderOffset). Zwraca przesunięcie
+-- w układzie kamery (X = w prawo); `shoulderCurrent` trzyma bieżącą, wygładzoną wartość.
+local function computeShoulderOffset(camera: Camera, base: CFrame, dt: number): Vector3
+	local so = CFG_CAM.ShoulderOffset
+	if not (so and so.Enabled) or so.Side == 0 then
+		shoulderCurrent = 0
+		return Vector3.zero
+	end
+
+	local target = so.Side
+
+	-- Ściana ZA PLECAMI: tryb `Zoom` Robloxa przysuwa wtedy kamerę do postaci, a pełne
+	-- przesunięcie z bliska dałoby widok z boku głowy — maleje więc razem z odległością.
+	local dist = (camera.Focus.Position - base.Position).Magnitude
+	target *= math.clamp(dist / so.FullOffsetDistance, 0, 1)
+
+	-- Ściana Z BOKU: przesunięcie kończy się przed nią (kamera zostaje na swoim dystansie,
+	-- tylko mniej wychodzi w bok). Narożniki łapie dopiero `keepLineOfSight`.
+	if math.abs(target) > 0.01 then
+		local reach = math.abs(target) + so.WallMargin
+		local hitDist = castForCamera(base.Position, base.RightVector * (math.sign(target) * reach))
+		if hitDist then
+			local free = math.max(0, hitDist - so.WallMargin)
+			target = math.sign(target) * math.min(math.abs(target), free)
+		end
+	end
+
+	local alpha = 1 - math.exp(-so.LerpSpeed * dt)
+	shoulderCurrent += (target - shoulderCurrent) * alpha
+	return Vector3.new(shoulderCurrent, 0, 0)
+end
+
+-- ⚠️ OSTATNIA LINIA OBRONY PRZED X-RAYEM: między głową postaci a kamerą NIE może stać ściana.
+-- Tryb `Zoom` Robloxa pilnuje tego wyłącznie dla kamery PRZED naszymi efektami, a oba potrafią
+-- wyprowadzić ją za przeszkodę: przesunięcie w bok — za narożnik, wygładzanie przy szybkim
+-- obrocie — po cięciwie przez róg. Jeden promień OD GŁOWY łapie oba: głowa zawsze stoi
+-- w wolnej przestrzeni, więc promień nie startuje w ścianie (a w takiej promień niczego nie
+-- widzi — boczny promień z pozycji kamery nie miał tej gwarancji).
+-- Zgłoszenie Kacpra 2026-09-23: „kamera ma się zatrzymywać na ścianie, a nie x-ray".
+local function keepLineOfSight(camera: Camera, cf: CFrame): CFrame
+	local focus = camera.Focus.Position
+	local toCam = cf.Position - focus
+	local dist = toCam.Magnitude
+	if dist < 0.05 then return cf end
+	local hitDist = castForCamera(focus, toCam)
+	if not hitDist then return cf end
+	local safe = math.max(0, hitDist - CFG_CAM.ShoulderOffset.WallMargin)
+	return CFrame.new(focus + toCam / dist * safe) * cf.Rotation
+end
+
 local function onRenderStepCamera(dt: number)
-	-- Dwa efekty na finalnym CFrame kamery, liczone PO default camera (priorytet Camera+1):
+	-- Trzy efekty na finalnym CFrame kamery, liczone PO default camera (priorytet Camera+1):
 	--   1. Elastic rotation smoothing — renderujemy lagged wersję (kamera dogania mysz).
-	--   2. Screen shake — camera-local jitter, DZIAŁA W RAGDOLLU (nie zależy od CameraOffset).
+	--   2. Kamera zza ramienia — przesunięcie w bok (Config ShoulderOffset).
+	--   3. Screen shake — camera-local jitter, DZIAŁA W RAGDOLLU (nie zależy od CameraOffset).
+	-- Na końcu `keepLineOfSight`: żaden z efektów nie może wyprowadzić kamery za ścianę.
 	-- Default camera nie czyta z powrotem camera.CFrame, więc override nie psuje jej stanu
 	-- (mysz śledzona 1:1, my modyfikujemy tylko co widać).
 	local camera = Workspace.CurrentCamera
@@ -862,8 +979,12 @@ local function onRenderStepCamera(dt: number)
 	-- Scriptable = inny system kamery (cutscene itp.) — nie ruszamy w ogóle.
 	if camera.CameraType == Enum.CameraType.Scriptable then
 		smoothedCam = nil
+		-- Po wyjściu ze sklepu przesunięcie wjeżdża płynnie od zera, zamiast skoczyć.
+		shoulderCurrent = 0
 		return
 	end
+
+	refreshCameraFilter()
 
 	local raw = camera.CFrame
 	local base = raw
@@ -883,19 +1004,20 @@ local function onRenderStepCamera(dt: number)
 		end
 	end
 
-	-- 2. Shake — camera-local translacja (X=right, Y=up, Z=back). Zero gdy nieaktywny.
-	local shake = computeShakeOffset()
+	-- 2. Kamera zza ramienia. Liczona od WYGŁADZONEJ bazy, ale NIE wchodzi do `smoothedCam`:
+	--    wygładzanie lerpuje czystą kamerę Robloxa, a przesunięcie nakładamy na wynik.
+	--    Inaczej przesunięcie i lerp karmiłyby się nawzajem co klatkę.
+	local shoulder = computeShoulderOffset(camera, base, dt)
+
+	-- 3. Shake — camera-local translacja (X=right, Y=up, Z=back). Zero gdy nieaktywny.
+	local offset = shoulder + computeShakeOffset()
 
 	-- Ustaw CFrame tylko gdy faktycznie coś modyfikujemy — inaczej zostaw default camera
-	-- w spokoju (mniej redundantnych setów, brak konfliktu gdy oba efekty wyłączone/idle).
-	if cfg.Enabled then
-		if shake ~= Vector3.zero then
-			camera.CFrame = base * CFrame.new(shake)
-		else
-			camera.CFrame = base
-		end
-	elseif shake ~= Vector3.zero then
-		camera.CFrame = raw * CFrame.new(shake)
+	-- w spokoju (mniej redundantnych setów, brak konfliktu gdy efekty wyłączone/idle).
+	-- Każda NASZA kamera przechodzi przez `keepLineOfSight` — to on gwarantuje brak x-raya.
+	if cfg.Enabled or offset ~= Vector3.zero then
+		local cf = if offset ~= Vector3.zero then base * CFrame.new(offset) else base
+		camera.CFrame = keepLineOfSight(camera, cf)
 	end
 end
 
@@ -955,8 +1077,9 @@ function MovementController.init()
 	-- Main loop: drain/regen/lerp WalkSpeed + camera effects + head replikacja.
 	RunService.Heartbeat:Connect(updateLoop)
 
-	-- Head tracking apply: BindToRenderStep priorytet po Character (animator). Inaczej
-	-- Animator nadpisze nasze .Transform write'y w następnej klatce.
+	-- Head tracking apply: priorytet Character+1, czyli PO kamerze (Camera+1) — głowa
+	-- czyta już wygładzoną kamerę. Priorytet NIE chroni przed animatorem (animator nie jest
+	-- w tej kolejce); przed nim chroni to, że obracamy `C0`, a nie `Transform` — patrz applyAim.
 	RunService:BindToRenderStep(
 		"MovementHeadAim",
 		Enum.RenderPriority.Character.Value + 1,

@@ -147,6 +147,9 @@
         "CameraMinZoomDistance": 8.0,
         "CharacterBreakJointsOnDeath": false,
         "CharacterUseJumpPower": false,
+        "DevCameraOcclusionMode": {
+          "Enum": 0
+        },
         "EnableMouseLockOption": false,
         "PlayerModuleStatus": {
           "Int32": 0

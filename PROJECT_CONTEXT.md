@@ -59,7 +59,7 @@ Zasady współpracy:
   klikasz i lecisz **po łuku prosto w to miejsce**, lądując trochę nad punktem trafienia.
   Trafisz tuż pod krawędzią dachu → przeskoczysz na dach. Jedno użycie = jeden zaczep.
   Zjazd hakiem w dół boli przy lądowaniu jak skok z tej wysokości (Twoja decyzja).
-  **Odczucie lotu zaakceptowane w Play.** Model lotu przeszedł cztery wersje, bo każda
+  **Przetestowane w Play** (odczucie lotu i przypadki brzegowe, 23.09). Model lotu przeszedł cztery wersje, bo każda
   kolejna naprawiała jedną rzecz kosztem poprzedniej: najpierw wywalało do góry, potem
   leciało dobrze, ale przelatywało przez punkt, potem dolatywało, ale po sztywnej prostej.
   Dopiero łuk prowadzony do punktu spełnia wszystko naraz.
@@ -89,8 +89,10 @@ Zasady współpracy:
   „trzepania" był nowy typ szkieletu postaci, którego nie znosi używany przez nas ragdoll:
   na jednym ciele pracowały dwa zestawy stawów naraz. Szkielet został przerobiony na starszy
   typ i problem zniknął (potwierdzone w Play). **Zapisz plac (Cmd+S)** — ta zmiana siedzi
-  w pliku placu, nie w kodzie. ⚠️ **Niepotwierdzone**: czy wróciło obracanie głowy za kamerą,
-  które po cichu nie działało, i czy zmalało „śliskie" sterowanie.
+  w pliku placu, nie w kodzie. „Śliskie" sterowanie też zniknęło (potwierdziłeś 23.09).
+  ⚠️ **Obracanie głowy za kamerą nie działało nigdy** — i nie przez szkielet: kod obracał głowę
+  w sposób, który animacje postaci od razu nadpisywały. Przyczyna znaleziona 23.09, poprawka
+  jest mała.
 - **Twoje modele w grze** (20.09, przetestowane) — bomba, którą trzymasz w ręce, jest tą
   samą bombą, która leci i wybucha; w trybie budowania trzymasz plan; most to Twój model
   z 12 desek, niszczalny deska po desce. **Most jest większy niż wcześniejszy zastępczy
@@ -103,8 +105,12 @@ Zasady współpracy:
   ⚠️ W Studio są tylko **2 sloty** — każdy kolejny item potrzebuje kolejnego (skopiuj Slot2).
 - ~~Daily rewards~~ — **skasowane 12.09**, bo stare UI się nie podobało. Do zrobienia od nowa.
 - **Ruch**: sprint (Shift) ze staminą, kamera 3rd person z płynnym wygładzaniem,
-  dynamiczny FOV, wstrząsy ekranu przy trafieniach, kurz przy lądowaniu, obracanie głowy
-  za kamerą (widoczne dla innych).
+  dynamiczny FOV, wstrząsy ekranu przy trafieniach, kurz przy lądowaniu. **Kamera zza
+  ramienia** (23.09): kamera nad prawym ramieniem, postać po lewej stronie ekranu, jak
+  w Fortnite (porównałeś obie strony — „prawa zostaje"). Kamera zatrzymuje się na ścianach:
+  plac miał ustawiony tryb, w którym ściany zamiast zatrzymywać kamerę robiły się przezroczyste
+  (x-ray, dało się podglądać przez mury) — naprawione, czeka na Twój test. (Obracanie głowy
+  za kamerą jest w kodzie, ale nigdy nie działało — patrz przy ragdollu.)
 - **Klimat**: lawa z unoszącymi się iskrami i dymem, "żar" na ekranie gdy gracz jest
   nisko nad lawą, słup pary przy śmierci w lawie.
 - **Lawa rani zamiast zabijać od razu** (21.09, Twoja decyzja) — 7 sekund kontaktu zabija,
@@ -169,10 +175,11 @@ Zasady współpracy:
 
 ## TODO (priorytety)
 
-**Najpierw — zaległe testy w Play** (bez nich kolejne kroki stoją na niesprawdzonym):
-obracanie głowy za kamerą i „śliskie" sterowanie po przeróbce szkieletu, pięć przypadków
-obrażeń od upadku (lista w CLAUDE.md), a z haka przypadki brzegowe: bomba w trakcie lotu,
-zjazd w dół, kilka zaczepów z rzędu (czy anti-cheat nie zabija), lina widoczna u kolegi.
+**Najpierw — zaległe testy w Play**: pięć przypadków obrażeń od upadku (lista w CLAUDE.md).
+Rozstrzygnięte 23.09: śliskie sterowanie zniknęło, hak przeszedł testy, obracanie głowy nie
+działało nigdy (przyczyna znaleziona, poprawka zrobiona 23.09 — czeka na Twój test).
+Znalezione w logu i odłożone: zaczep hakiem pod własne nogi zużywa sztukę za nic (na
+produkcji strata 40$ za misklik) i szum w logu wybuchów.
 
 **Do postawienia w Studio (Twoja strona):** trzeci slot w pasku (hak jest niewidoczny),
 marker kamery obok haka na wystawie (dziś kadr liczy się automatycznie).

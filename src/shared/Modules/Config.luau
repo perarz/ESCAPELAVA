@@ -571,6 +571,41 @@ Config.Movement = {
 			SnapDistance = 30,
 		},
 
+		-- Kamera ZZA RAMIENIA (2026-09-23, prośba Kacpra: „kamera lekko w lewo od gracza").
+		-- Przesunięcie w bok w układzie SAMEJ kamery, nakładane po wygładzaniu. Mysz, zoom
+		-- i obrót zostają domyślne Robloxa — zmienia się tylko miejsce postaci w kadrze.
+		-- Celowanie bombą i hakiem bez zmian: kursor jest wolny, a `mouse.Hit` liczy się
+		-- z tej samej, przesuniętej kamery, więc trafia tam, gdzie widać kursor.
+		ShoulderOffset = {
+			Enabled = true,
+			-- Study w bok. DODATNIE = kamera w PRAWO, czyli postać stoi po LEWEJ stronie ekranu
+			-- (nad prawym ramieniem, jak w Fortnite). UJEMNE = odwrotnie.
+			-- 23.09: najpierw −1.5 (postać po prawej), potem próba drugiej strony — i Kacper:
+			-- „prawa zostaje". Czyli kamera nad prawym ramieniem, jak w Fortnite.
+			Side = 1.5,
+			-- 🔴 X-RAY (zgłoszenie Kacpra 2026-09-23: „kamera ma się zatrzymywać na ścianie").
+			-- Plac miał `StarterPlayer.DevCameraOcclusionMode = Invisicam` — tryb, w którym kamera
+			-- Robloxa w ogóle NIE zatrzymuje się na ścianach, tylko robi je przezroczystymi.
+			-- Przesunięcie w bok częściej stawiało ścianę między kamerą a postacią, więc wbudowany
+			-- x-ray wyszedł na wierzch. Naprawa w dwóch miejscach:
+			--   • `default.project.json` → `DevCameraOcclusionMode = Zoom` (kamera staje na ścianie);
+			--   • `keepLineOfSight` w MovementController — promień OD GŁOWY do kamery, bo `Zoom`
+			--     pilnuje kamery tylko PRZED naszym przesunięciem i wygładzaniem.
+			-- ⚠️ Lekcja: plan zakładał tryb Zoom, a sprawdziłem tylko zakres zoomu. Przy każdej
+			-- zmianie kamery sprawdzić NAJPIERW `DevCameraOcclusionMode`.
+			-- Odstęp kamery od ściany (i w bok, i na linii głowa → kamera).
+			WallMargin = 0.5,
+			-- Party co najmniej tak przezroczyste kamera przepuszcza (szyby mają 0.60) — tak samo
+			-- robi tryb Zoom; inaczej kamera kleiłaby się do każdej szyby. Postacie też przepuszcza.
+			SeeThroughTransparency = 0.5,
+			-- ⚠️ Ściana za plecami: tryb Zoom przysuwa wtedy kamerę do postaci, a pełne
+			-- przesunięcie z bliska daje widok z boku głowy. Poniżej tej odległości kamera–postać
+			-- przesunięcie maleje proporcjonalnie. = CameraMinZoom, bo tyle ma kamera normalnie.
+			FullOffsetDistance = 8,
+			-- Dochodzenie do przesunięcia (1-exp(-k·dt)) — przejście obok słupa nie szarpie.
+			LerpSpeed = 12,
+		},
+
 		-- Landing dip — kamera w dół przy hard landing. Sine pulse (0 → -intensity → 0).
 		LandingDipMin = 0.4,        -- minimum intensity (małe spadki)
 		LandingDipMax = 1.5,        -- max intensity (długi spadek)
