@@ -124,13 +124,15 @@ Zasady współpracy:
   jednego materiału **po cichu** zgasiło 36 latarni i 150 żarówek sygnalizacji i zamieniło szyby
   w zwykłe ściany. Nic nie znikało, więc nikt tego nie zauważył. Naprawione skryptami, które
   można puścić ponownie po każdej takiej operacji.
-- **Lawa jako trzy warstwy** (16.09, Twój pomysł) — zamiast jednej płaskiej tafli stos:
-  nieprzezroczysty spód i dwie półprzezroczyste warstwy nad nim, każda w innym kolorze.
+- **Lawa jako stos warstw** (16.09, Twój pomysł) — zamiast jednej płaskiej tafli stos:
+  nieprzezroczysty spód i półprzezroczyste warstwy nad nim, każda w innym kolorze.
   To pierwsze podejście do wyglądu lawy, które nie próbuje namalować głębi na płasko,
   tylko ją naprawdę ma — plus warstwy falują jedna względem drugiej i przesuwają się
   różnie przy ruchu kamery. Stos stoi już w Studio (**zapisz plac Ctrl+S!**), kod
   sprawdzony w Play. Liczba warstw jest dowolna: dołożysz czwartą w Studio i zadziała
-  bez zmian w kodzie. Uwaga: wierzch lawy jest teraz 1.7 studa wyżej niż był.
+  bez zmian w kodzie. **Stan na 23.09 (zmierzony)**: stos ma **dwie** warstwy — spodnią
+  usunąłeś, a nieprzezroczystym spodem jest teraz środkowa — i leży w kanale pod ulicami:
+  lawa startuje z wysokości ≈ 2,5, nie jak wcześniej z −14,75.
 - **Obrażenia od upadku + ragdoll** (16-19.09) — spadek z wysokości rani, a od 30 studów
   przewraca postać, i to **jeszcze w locie**, żeby wywrotka wypadła na uderzeniu, a nie po
   nim. Zepchnięcie kogoś z dachu liczy się jako Twoje zabójstwo. ⚠️ **Przepisane 19.09 od
@@ -218,12 +220,16 @@ marker kamery obok haka na wystawie (dziś kadr liczy się automatycznie).
   ⚠️ **Zanim oddasz robotę: zdecyduj, gdzie ma być wybór loadoutu** (ten sam NPC co sklep,
   trzecie stoisko, czy HUD). To jedyna rzecz, przez którą builder mógłby coś przerabiać.
 
-**B. Otwarte pytanie designowe — czy najwyższy dach jest „darmowym przetrwaniem"**:
-pomiar na gotowej mapie (14.09) pokazał, że problem jest mniejszy, niż się wydawało —
-lawa kończy rundę **~3 study pod najwyższym dachem**, czyli dogania go o włos i dopiero
-w ostatnich sekundach. Minimalna zmiana, żeby zalewała wszystko, to jedna liczba (ostatnia
-faza 3.0 → ~3.2 stud/s). **Decyzja 22.09: rozstrzygamy po teście z ludźmi** — najpierw
-zobaczyć, czy ktokolwiek w ogóle dochodzi na szczyt.
+**B. Otwarte pytanie designowe — jak ma się kończyć runda na najwyższych dachach**:
+⚠️ **Korekta z 23.09 — wcześniejszy zapis był nieaktualny i na nim oparłeś decyzję z 22.09.**
+Pomiar z 14.09 mówił, że lawa kończy rundę ~3 study pod najwyższym dachem — ale liczył start
+lawy od −14,75, a Ty potem przeniosłeś stos do kanału (start ≈ 2,5). Stan faktyczny przy
+produkcyjnych liczbach: lawa **dochodzi do najwyższego dachu ~5 s przed końcem rundy i kończy
+14 studów nad nim**. Ponieważ rani przez 7 s zamiast zabijać od razu, gracz z pełnym życiem
+na jednym z dwóch najwyższych dachów **przeżyje, stojąc całkowicie zanurzony w lawie**; na
+niższych budynkach już nie. Czyli pytanie nie brzmi „czy szczyt jest za bezpieczny", tylko
+**„czy przetrwanie pod powierzchnią lawy jest OK"**. Decyzja „rozstrzygamy po teście z ludźmi"
+dalej ma sens — teraz wiadomo, na co patrzeć.
 
 
 0. **System destrukcji v2** — stary wybuch skasowany 11.08, tego samego dnia zaprojektowany
@@ -298,7 +304,9 @@ Każdy pomysł "a może dodamy..." → odpowiedź brzmi: **po launchu, nie teraz
 - **Commitować po każdej skończonej rzeczy.** 13-22.09 dziewięć dni pracy (lawa, oświetlenie,
   upadki, postacie, szyby) leżało tylko na dysku, poza historią — zabezpieczone jednym
   commitem 22.09. Jeden padnięty dysk i nie byłoby czego odtwarzać.
-- Dokument referencyjny dla AI kodującego: `CLAUDE.md` w repo (pełny stan techniczny).
+- Dokumentacja dla AI kodującego: `CLAUDE.md` w repo (zasady i aktualny stan) + folder `docs/`
+  (architektura kodu, kontrakt Studio, roadmapa, historia). Podzielona 23.09 — wcześniej jeden
+  plik ~185 KB ładowany w całości na start każdej sesji, z 17 wewnętrznymi sprzecznościami.
 
 ## Kluczowe liczby (balans)
 
