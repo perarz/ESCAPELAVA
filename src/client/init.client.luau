@@ -17,6 +17,7 @@ local function disableDefaultBackpack()
 end
 disableDefaultBackpack()
 
+local QualityController = require(script.Controllers.QualityController)
 local UIController = require(script.Controllers.UIController)
 local ShopController = require(script.Controllers.ShopController)
 local HotbarController = require(script.Controllers.HotbarController)
@@ -38,6 +39,8 @@ local ExplosionFXController = require(script.Controllers.ExplosionFXController)
 local DebrisFXController = require(script.Controllers.DebrisFXController)
 local DevController = require(script.Controllers.DevController)
 
+-- Pierwszy: tryb grafiki (Ziemniak / Pełny) czytają kontrolery efektów przy każdym wybuchu.
+QualityController.init()
 UIController.init()
 ShopController.init()
 HotbarController.init()

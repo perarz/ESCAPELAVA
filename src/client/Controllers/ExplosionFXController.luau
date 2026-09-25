@@ -1,10 +1,11 @@
 --!strict
 -- ExplosionFXController.luau
 -- Wizualia wybuchu — CAŁY render po stronie klienta (system destrukcji v2, etap 1).
--- Serwer wysyła jeden Remotes.BlastFX(center, radius, seed); każdy klient renderuje
+-- Serwer wysyła jeden Remotes.BlastFX({center, radius, seed, ...}); każdy klient renderuje
 -- lokalnie: kulę ognia, falę uderzeniową, błysk światła, dym, iskry, embery i pył przy
 -- ziemi + ambientowy screen shake skalowany odległością od kamery.
 -- Zero kosztu replikacji poza jednym eventem — im słabszy sprzęt, tym łatwiej to skalować.
+-- Ilość cząsteczek skaluje tryb grafiki gracza (QualityController, 2026-09-23).
 --
 -- Kosmetyczne ODŁAMKI gruzu robi osobno DebrisFXController (ten sam event, ten sam seed).
 -- Dźwięk: Config.Destruction.FX.ExplosionSoundId — puste do czasu assetu Kacpra (etap 5);
@@ -19,6 +20,7 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Destructible = require(ReplicatedStorage.Shared.Modules.Destructible)
 local MovementController = require(script.Parent.MovementController)
+local QualityController = require(script.Parent.QualityController)
 
 local ExplosionFXController = {}
 
@@ -105,6 +107,12 @@ local function flash(anchor: Part, radius: number)
 	end)
 end
 
+-- Liczba cząsteczek × mnożnik trybu grafiki (Ziemniak: połowa). Nigdy zero — wybuch
+-- bez ognia i dymu wyglądałby jak bug, nie jak oszczędzanie.
+local function scaled(count: number): number
+	return math.max(1, math.round(count * QualityController.profile().ParticleScale))
+end
+
 local function particles(anchor: Part, radius: number)
 	-- Ogień: krótki gorący burst.
 	local fire = Instance.new("ParticleEmitter")
@@ -120,7 +128,7 @@ local function particles(anchor: Part, radius: number)
 	fire.Parent = anchor
 	-- Liczby zbite ~2× (2026-08-12): poprzednie wartości robiły zasłonę dymną, przez którą
 	-- nie było widać dziury ani lecącego gruzu. Wybuch ma pokazywać zniszczenie, nie je kryć.
-	fire:Emit(20)
+	fire:Emit(scaled(20))
 
 	-- Dym: ciemny, duży, wolno gaśnie — zostaje po błysku jako "ciężar" wybuchu.
 	local smoke = Instance.new("ParticleEmitter")
@@ -143,7 +151,7 @@ local function particles(anchor: Part, radius: number)
 	smoke.Rotation = NumberRange.new(0, 360)
 	smoke.RotSpeed = NumberRange.new(-70, 70)
 	smoke.Parent = anchor
-	smoke:Emit(18)
+	smoke:Emit(scaled(18))
 
 	-- Iskry: szybkie smugi.
 	local sparks = Instance.new("ParticleEmitter")
@@ -157,7 +165,7 @@ local function particles(anchor: Part, radius: number)
 	sparks.Speed = NumberRange.new(45, 75)
 	sparks.LightEmission = 1
 	sparks.Parent = anchor
-	sparks:Emit(24)
+	sparks:Emit(scaled(24))
 
 	-- Embery z grawitacją: ogniste łuki opadające dłużej niż iskry.
 	local embers = Instance.new("ParticleEmitter")
@@ -176,7 +184,7 @@ local function particles(anchor: Part, radius: number)
 	embers.Acceleration = Vector3.new(0, -70, 0)
 	embers.LightEmission = 1
 	embers.Parent = anchor
-	embers:Emit(16)
+	embers:Emit(scaled(16))
 end
 
 -- Pierścień pyłu przy ziemi — wybuch "siada" na podłożu zamiast wisieć w powietrzu.
@@ -209,7 +217,7 @@ local function groundDust(center: Vector3)
 	dust.Rotation = NumberRange.new(0, 360)
 	dust.RotSpeed = NumberRange.new(-50, 50)
 	dust.Parent = anchor
-	dust:Emit(14)
+	dust:Emit(scaled(14))
 end
 
 -- Wspólny odtwarzacz 3D dla całego systemu destrukcji (etap 5). Puste id = cisza,
@@ -241,14 +249,21 @@ local function ambientShake(center: Vector3)
 	MovementController.screenShake(t * FX.ShakeMax, FX.ShakeDuration)
 end
 
-local function onBlastFX(center: Vector3, radius: number, _seed: number, glassPanes: any?)
+-- Payload BlastFX to jedna tabela od v3 (2026-09-23) — kontrakt w Remotes.luau.
+local function onBlastFX(blast: any)
 	-- Walidacja — server jest zaufany, ale typy potrafi popsuć half-sync rojo.
+	if typeof(blast) ~= "table" then return end
+	local center = blast.center
+	local radius = blast.radius
+	local glassPanes = blast.glass
 	if typeof(center) ~= "Vector3" or typeof(radius) ~= "number" then return end
 
 	-- Daleki wybuch (poza zasięgiem wzroku z sensownym detalem): tylko światło i fala,
-	-- bez particli — oszczędność na słabym sprzęcie przy kilku bombach naraz.
+	-- bez particli — oszczędność na słabym sprzęcie przy kilku bombach naraz. W trybie
+	-- Ziemniak „daleko” zaczyna się bliżej (zasięg rysowania gruzu z profilu).
 	local camera = Workspace.CurrentCamera
-	local far = camera and (camera.CFrame.Position - center).Magnitude > 250
+	local farDistance = math.min(250, QualityController.profile().FXDistance + 60)
+	local far = camera and (camera.CFrame.Position - center).Magnitude > farDistance
 
 	local anchor = makeAnchor(center, 3)
 	fireballCore(center, radius)
@@ -296,7 +311,7 @@ local function structureDust(position: Vector3, magnitude: number, collapse: boo
 	dust.Rotation = NumberRange.new(0, 360)
 	dust.RotSpeed = NumberRange.new(-40, 40)
 	dust.Parent = anchor
-	dust:Emit(collapse and math.floor(40 + 40 * magnitude) or 14)
+	dust:Emit(scaled(collapse and math.floor(40 + 40 * magnitude) or 14))
 end
 
 local function onStructureFX(kind: any, position: any, magnitude: any)

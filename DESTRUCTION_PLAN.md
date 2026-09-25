@@ -1,8 +1,19 @@
-# DESTRUCTION_PLAN.md — system destrukcji v2 ("topka Roblox")
+# DESTRUCTION_PLAN.md — system destrukcji v2 ("topka Roblox") → v3
 
 > Plan zatwierdzony 2026-08-11 (decyzje Kacpra niżej). Stary system (BlastService) skasowany
 > bez śladu — NIE odtwarzamy go, budujemy wg tego dokumentu. Implementacja etapami,
 > każdy etap grywalny i testowany w Play zanim zaczniemy następny.
+>
+> 🏗️ **2026-09-24: v4 — fazy A-D NAPISANE, OrangeBuilding w grze na v4; poprawki po pierwszym teście
+> Kacpra CZEKAJĄ NA PONOWNY TEST W PLAY; następna faza E (RiderTracker).** Rozdział „v4” na samym końcu
+> pliku jest AKTUALNY: zastępuje pass podparcia v3 (dla budynków z danymi) i usunięty `StructureService`.
+> Rozdziały v2/v3 zostają jako historia i opis kodu, który dalej działa na reszcie mapy.
+>
+> 🧨 **2026-09-23: CAŁA DESTRUKCJA DO NAPRAWY (decyzja Kacpra)** — stan i start naprawy: rozdział „v3” na końcu + STATUS w CLAUDE.md.
+> 🔴 **2026-09-23: v3 — przeczytaj rozdział „v3” na KOŃCU tego pliku.** Zmienia on kilka
+> zasad z v2 opisanych niżej (kawałki dziur nie są już gruzem serwera, drobnica ma własne
+> reguły, podparcie liczone „przed i po”, pocięty part jest przycinany, nie kasowany).
+> Rozdziały v2 zostają jako historia decyzji — tam, gdzie się rozjeżdżają, rację ma v3.
 
 ## Decyzje designowe (zatwierdzone)
 
@@ -208,3 +219,287 @@ Nowe:
   za drogo — kolaps sekcjami po pół piętra zamiast całości naraz.
 - **Duży panel cięty adaptacyjnie**: target wielkości kawałka ~3-4 stud w promieniu wybuchu,
   poza promieniem większe płyty — cięcie nie może produkować 100 kawałków z jednej ściany.
+
+---
+
+## v3 (2026-09-23) — „serwer trzyma stan gry, klient animuje resztę” + tryby grafiki
+
+> 🧨 **STAN: ZAIMPLEMENTOWANE, NIEPRZETESTOWANE — a Kacper na koniec sesji 23.09: „cała destrukcja
+> będzie do naprawy”.** Ten rozdział opisuje KOD, nie potwierdzone działanie. Naprawę zaczynamy od
+> listy usterek Kacpra i jego testu (niżej „Jak testować”), zebranych w jedną tabelę — nie od zgadywania.
+
+### Zgłoszenie (test Kacpra na telefonach, na serwerach z kolegami)
+„4 bomby w jednym momencie i lagi”, „przenikanie przez podłogę, mimo że w tym miejscu nie ma
+dziury (wybuch obok → dziura w podłodze, ale ja przenikam)”, „często wyskakuje, że part jest
+niezanchorowany i nie został pocięty”, „w zielonym budynku z wieszakami wszystko się rozpierdala,
+znikają, bugi — lepiej jakby padały trochę chaotycznie”. Plus pomysł: dwa tryby grafiki.
+
+### Przyczyny — ZMIERZONE na mapie w Edit (bez Play)
+1. **Pass podparcia v2 zrzucał party, których wybuch nie dotknął.** Symulacja na nietkniętej mapie:
+   **~3500 partów „niepodpartych” bez żadnego wybuchu** (zielony 1724 — prawie same wieszaki,
+   hotel 590, szkoła 426, Sand 379, Cyan 336). Dwa powody: tolerancja „całkowicie powyżej” 0.5
+   odbierała partom cieńszym niż 0.5 podparcie z boku; rzeczy WISZĄCE nie liczą się jako podparte
+   przez to, na czym wiszą. Każda bomba w promieniu kolumny (~31 studów) robiła z nich gruz
+   serwera, limit 260 kasował nadwyżkę natychmiast = **„wieszaki znikają”**, a każda rejestracja
+   ponad limitem sortowała cały rejestr = skok CPU (`spadło=472`, `ms=80` z logu).
+2. **Kawałki dziur (do 110/wybuch) były fizyką SERWERA** — każdy replikował pozycję do każdego
+   gracza przez kilka sekund. 4 bomby = kilkaset ruchomych partów w łączu telefonu.
+3. **Każdy ranny part dostawał serwerowy emiter pyłu** — jedna bomba w zielonym: 338 emiterów.
+4. **78% partów mapy (20 376 z 26 039) to drobnica** (objętość < 4 albo bok < 2.8), a system
+   traktował ją jak ściany (HP, ciemnienie, pył, gruz serwera, graf podparcia).
+5. **Podłogi to wielkie pojedyncze party** (57×57×0.5, największa 7200 std²). Wybuch tnie CAŁY
+   part, któremu przekroczy HP — także ten, na którym gracz stoi 40 studów dalej. v2 kasował
+   oryginał i stawiał resztki jako NOWE party; pod obciążeniem kasowanie docierało do telefonu
+   przed resztkami → gracz przez chwilę stał na niczym i spadał, a resztka pojawiała się nad nim.
+   ⚠️ Mechanizm wywnioskowany z kodu i pomiarów, NIE zaobserwowany bezpośrednio — patrz testy.
+6. **Komunikat „nie został pocięty”** = własny pocisk bomby w zasięgu (w całej mapie jest jeden
+   niezanchorowany part — chroniony `Spawn`).
+
+### Decyzje Kacpra (2026-09-23)
+| Pytanie | Wybór |
+|---|---|
+| Jak gracz wybiera tryb grafiki | **w ustawieniach** (panel w UI) |
+| Wieszaki, krzesła, skrzynie | **cały mebel pada** (blisko bomby lekko odrzucony, dalej pada chaotycznie) |
+| Drobny gruz jako efekt klienta | **OK — ranią i zostają platformą tylko duże płyty** |
+| Jak długo gruz leży | **Ziemniak 3 s, Pełny 20 s** |
+
+### Architektura v3 (ownership)
+| Kto | Co robi |
+|---|---|
+| `Fracture.planHole` (shared) | JEDEN plan dziury z seeda. Serwer bierze resztki (SCALONE po drzewie podziałów: 30.2 → 11.6 nowego parta na pocięty part), klient kawałki dziury. Sprawdzone 300 próbami: deterministyczny, objętość zachowana, zero nakładania |
+| `Shockwave` (shared) | matematyka wyrzutu — ta sama dla gruzu serwera i kawałków u klienta |
+| `Destructible.isSmall` / `assemblyOf` (shared) | drobnica i MEBEL (Model z samej drobnicy, ≤18 studów, ≤200 partów, bez Locked) |
+| `DestructionService` | plan → graf „przed” → `BlastFX` + `DebrisFall` → zastosowanie → graf „po” (osobny wątek). Przycina pocięty part zamiast kasować. Budżet CPU 6 ms/klatkę dla wszystkich wybuchów |
+| `DebrisService` | już tylko DUŻY gruz serwera (≤30/wybuch) |
+| `SettingsService` | zapis trybu grafiki (`data.settings.graphics`) + atrybut gracza |
+| `QualityController` (klient) | tryb: zapis → wybór w sesji → automat (telefon/konsola Ziemniak, PC Pełny); panel ustawień z kontraktu; dev: klawisz G |
+| `DebrisFXController` (klient) | jedna pula lokalnego gruzu: odłamki, szkło, kawałki dziur, przejęte meble; sufity i czasy z profilu trybu. **Gruz BEZ KOLIZJI** — lądowanie i stertę liczy własnym promieniem; meble się przewracają (animacja), w Pełnym rozsypują |
+| `ExplosionFXController` (klient) | cząsteczki × `ParticleScale` profilu |
+
+Nowe remote'y: `DebrisFall` (przekazanie drobnicy: klient kopiuje i animuje, serwer kasuje po
+0.25 s) i `SetGraphicsMode`. `BlastFX` niesie jedną tabelę z planami dziur (`cuts`).
+
+### Zasady v3 (zmieniają v2)
+- **Drobnica**: bez HP; próg jednorazowy `Categories.Small.HP` 80 → pęka do 12 studów; mosty
+  (`Bridge.HP` 40) do 18. Najbliższa część mebla decyduje: odrzut (obrażenia ≥ `LaunchDamage` 120,
+  czyli do ~6 studów, z `LaunchSpeedFactor` 0.35 impulsu bomby) albo upadek (lekki losowy ruch).
+- **Konstrukcja**: jak v2 (HP, dziura z modelu obrażeń, ciemnienie — bez pyłu na serwerze).
+- **Dziura**: serwer stawia resztki, klient animuje kawałki. **Oryginał parta zostaje** — przycięty
+  do resztki, na której stoi najwięcej graczy; reszta resztek powstaje PRZED przycięciem.
+- **Podparcie**: graf konstrukcji liczony przed i po; spada tylko to, co podparcie straciło.
+  Tolerancja „nad” ≤ połowa grubości parta. Drobnica poza grafem; drobnica na tym, co znika
+  (dziura, wyrzucona bryła, spadająca płyta), pada razem z tym.
+- **Gruz serwera**: tylko płyty bez podparcia i bryły ≥ `PlatformMinVolume` 45 wyrzucone w całości,
+  ≤ `MaxServerPiecesPerBlast` 30 na wybuch (największe pierwsze), reszta → `DebrisFall`.
+  Crush i platformy działają tylko dla nich.
+- 🔴 **Lokalny gruz NIE MA KOLIZJI** (poprawka tego samego wieczoru, pytanie Kacpra: „dwie osoby
+  z innymi ustawieniami widzą inne party i mogą chodzić po innym gruzie”). `CanCollide`, `CanQuery`
+  i `CanTouch` = false (Roblox honoruje `CanQuery = false` TYLKO przy `CanCollide = false` — z kolizją
+  gruz łapał promienie klienta, w tym celownik mostu). Leci fizyką silnika bez zderzeń; odbicia,
+  lądowanie płasko i stertę liczy klient promieniem, który omija postacie. Nikt nie stanie na gruzie
+  i nikogo nie popchnie — tryb grafiki zmienia WYŁĄCZNIE obraz. Meble się przewracają (zakotwiczona
+  animacja od wybuchu), w Pełnym potem rozsypują na części.
+
+### Jak testować (Kacper)
+1. **Zielony budynek, wieszaki**: bomba między wieszakami. Wieszaki przewracają się i rozsypują
+   CAŁE (nic nie wisi w powietrzu), blisko bomby lekko odlatują. Nie znikają od razu: leżą
+   3 s (Ziemniak) albo 20 s (Pełny), potem gasną. Brak skoku lagów.
+2. **Dach / budynek obok, NIC nie trafione bezpośrednio**: dekoracje kilka pięter wyżej
+   i dalej ZOSTAJĄ na miejscu. W v2 zrzucały je wszystkie bomby w okolicy.
+3. **Przenikanie**: stań na dużej podłodze, rzuć bombę ~12-15 studów obok (dziura ma powstać,
+   ale nie pod tobą). Nie wolno ci spaść. Ten sam test w Studio z opóźnieniem sieci
+   (File → Studio Settings → Network → **Incoming Replication Lag** 0.3-0.5 s) i w
+   Test → Clients and Servers z 2 graczami, obaj na tej samej podłodze.
+4. **4 bomby naraz** (koledzy, telefon): lagi dużo mniejsze niż w teście sprzed 23.09. W logu
+   `[Destr]` sprawdź `cpu=` (czysty czas serwera, cel: kilka ms) i `klatek=`.
+5. **Tryby**: klawisz **G** (dev) przełącza Ziemniak ↔ Pełny — w F9 widać `[Quality] tryb
+   grafiki: …`. W Ziemniaku wyraźnie mniej kawałków i mebel pada jako jedna bryła; w Pełnym
+   pobojowisko zostaje ~20 s. Na telefonie bez klikania ma być Ziemniak.
+6. **Komunikat „nie został pocięty”** nie pojawia się przy zwykłym rzucie.
+7. **Dziury w ścianach wyglądają jak wcześniej**: wyrwa nieregularna, kawałki lecą, resztka ściany
+   stoi; ściana z dziurą przy ziemi nie „wisi”, jeśli pod nią nic nie zostało.
+8. **Mosty graczy**: bomba przy moście zrzuca cały most (deski lecą w lawę).
+9. **Gruz przenika graczy**: w trybie Pełnym wejdź w stertę gruzu i w leżący mebel — przechodzisz
+   przez nie, nic cię nie popycha ani nie podnosi. Drugi gracz na Ziemniaku nie widzi, żebyś
+   „wisiał” nad podłogą. Postaw most, celując w gruz — ghost ma trafić w podłogę pod gruzem.
+
+### Ryzyka (uczciwie)
+- Kolejność „remote przed skasowaniem” zakłada, że klient dostanie `DebrisFall` przed usunięciem
+  partów (0.25 s zapasu). Przy ekstremalnym lagu mebel zniknie bez animacji — gra dalej działa.
+- Przycięcie oryginału chroni gracza, który stoi na resztce-oryginale. Dwóch graczy na RÓŻNYCH
+  resztkach tej samej płyty: drugi dalej zależy od szybkości replikacji (mniejszej niż w v2,
+  bo nowych partów jest o ~62% mniej, a gruzu serwera prawie wcale). Jeśli test 3 z dwoma
+  graczami dalej przenika — kolejny krok to lokalna prognoza resztek u klienta z tego samego planu.
+- Plan dziury po obu stronach liczy się z tych samych liczb, ale różne procesory mogą w skrajnych
+  przypadkach dać inną ostatnią cyfrę — kawałek z samej granicy dziury poleci „z resztki”. Rzadkie
+  i czysto wizualne.
+
+---
+
+## v4 (2026-09-24) — graf konstrukcji + plan kolapsu + budżet fizyki
+
+> 🏗️ **STAN NA 25.09: A-D napisane, D + 4 poprawki po teście z 24.09 CZEKAJĄ NA PONOWNY TEST KACPRA
+> W PLAY; następna faza E (RiderTracker).** Architektura uzgodniona w debacie Claude ↔ drugi czat
+> 23-24.09 (decyzje Kacpra niżej). ⚠️ Liczby P0 poniżej sprzed `BakeVersion` 2 — od kiedy szkło jest
+> pasażerem, doczepionych jest **193 (w tym 18 szyb)**, nie 175.
+> **Faza P0 — `StructureBake` NAPISANY i sprawdzony na OrangeBuilding w Edit (24.09, odczyt, bez Play):**
+> `src/server/Structure/StructureBake.luau` + `STRUCTURE_BAKE.luau` (Command Bar) + `Config.Structure`.
+> Wynik: 278 partów → 228 chunków, 1131 interfejsów, 175 listew doczepionych (0 bez właściciela),
+> 158 nachodzących par; **nietknięty budynek stoi (0 spadających)**; jeden / dwa / wszystkie 6 słupów
+> podcięte przy ziemi → 0 spada (trzymają filarki); cały parter pod wieżą → spada 111 ze 113 chunków
+> wieży; cały parter → 175 (pełna kaskada); zachłanny szacunek: **~6 bomb** (cel ~8); jeden solve
+> 0,03-0,25 ms, analiza 11-15 ms. **Podgląd kolorami obejrzany przez Kacpra 24.09: „wszystko git”**
+> (cały budynek zielony; ramy okien, drabina i klocki to listwy/ozdoby — od tej poprawki rysowane
+> na jasnoniebiesko, wcześniej wyglądały na „wycięte”). Zapis danych (TRYB 3) celowo NIE uruchomiony:
+> dane potrzebne dopiero runtime'owi (faza B/C), a każda zmiana reguł bake'u i tak wymusi ponowny zapis.
+>
+> **Fazy B/C — NAPISANE i sprawdzone offline na OrangeBuilding (24.09, Edit, obliczenia, bez Play):**
+> `StructureCore` (wspólne: klasyfikacja, solver, odcisk), `BuildingState` (stan budynku: dziury
+> zwężają interfejsy i przecinają przekroje, osłabianie SUMUJE się — decyzja Kacpra 24.09, CAS,
+> rewizja, przyczyna, jeden flush na paczkę wybuchów), `CollapsePlanner` (grupy kolapsu),
+> `Fracture.planWindow` (dziura-prostokąt), `StructureTests` + `STRUCTURE_TEST.luau`. Wyniki:
+> nietknięty stoi ✅ · dziura w stropie nic nie zrzuca ✅ · słup: 1. bomba obok osłabia (93 obr.),
+> 2. kruszy ✅ · bomby w parter: wieża leży po **6** (cel ~8) ✅ · 2 bomby w jednej klatce = ten
+> sam wynik co po kolei ✅ · bomba w spadającą grupę nic nie zmienia ✅ · ostatni kolaps: 5 grup,
+> największa 13 chunków / rzut 39, przyczyna = ostatni zamachowiec + 4 asysty · całość 276 ms.
+> ⚠️ Do oceny w Play: 3 bomby w rzędzie na stropie (~21 studów od siebie) sumą osłabień kruszą
+> 27 nośnych elementów między nimi i zrzucają 6 chunków (same dziury: 8 przeciętych belek, nic
+> nie spada) — gałka `Config.Structure.Damage.StructuralPowerFactor` / `HP`.
+>
+> **Faza D — NAPISANA 24.09, CZEKA NA TEST KACPRA W PLAY** (kompiluje się, dojechała do Studio;
+> geometria wykonawcy sprawdzona offline: odejmowanie pudełek bez straty objętości, pełny kolaps
+> wieży = 21 grup, 48 kawałków w locie, max 7 w grupie, 17 nowych instancji z podziału).
+> OrangeBuilding idzie w grze ścieżką v4, reszta mapy dalej v3:
+> `StructuralService` (stan + kawałki + dziury-prostokąty; dane liczone przy starcie rundy, gdy nie
+> ma zapisanych — `Config.Structure.AnalyzeIfMissing`), `CollapseService` (budżet, kolejka od jeźdźców,
+> podział kawałków po granicy grupy, spawanie, NoCollision dla nachodzących par, fizyka serwera,
+> osiadanie → platforma do końca rundy / małe znikają po 4 s, lawa, przygniecenie przez
+> `DebrisService.applyCrush`, kruszenie osłabionych, budzenie leżących brył wybuchem), `Pieces`
+> (geometria kawałków), klient: kawałki dziury wypełniają prostokąt (`win`). Martwy `StructureService`
+> i `Config.Destruction.Collapse` USUNIĘTE.
+> **Test Kacpra 24.09 + poprawki (przyczyny zmierzone, poprawki NIEPRZETESTOWANE w Play):**
+> | Zgłoszenie | Przyczyna | Poprawka |
+> |---|---|---|
+> | górne piętra „za szybko”, na 3. piętrze nie ma ścian | log `[Collapse]`: kolaps wieży = 25 grup, **16 ponad budżetem** → oddane klientom → serwer je kasował, u gracza znikały. Solver NIE był winny (symulacja: piony 3. piętra padają dopiero przy ~93% zniszczonego parteru) | `MaxCost` 60 → 100; grupa bez budżetu CZEKA w kolejce do `MaxQueueWait` 1,5 s (grupy osiadają w ~1 s), kolejka od dołu = piętra wyżej spadają po niższych |
+> | szyby lewitują | bake pomijał szkło — nie było pasażerem ściany | szkło = pasażer (`StructureCore.classify` → Trim), `BakeVersion` 2 |
+> | przenikalne party lewitują | gruz KLIENTA lądował promieniem na RUCHOMEJ bryle kolapsu albo leżał na stropie, który potem spadł; listwy skruszonego elementu zostawały | klient: lądowanie ignoruje ruchome party, sterta tylko nad podłożem, leżący gruz i meble sprawdzają podłoże (`FX.RestChecksPerFrame`) i spadają dalej; serwer: listwy/szyby skruszonego elementu i nad dziurą v4 spadają |
+> | pudła, szafki „pobugowane” | 1474 duże party dekoracji szły ścieżką ścian (poszarpane dziury), drobne części tego samego mebla odpadały osobno | REKWIZYTY (`Destructible.propOf`, `Config.Destruction.Props`): wszystko w `Decorations` pada W CAŁOŚCI (najwyższy Model ≤ 24 studów); 18 316 partów w 1021 meblach, poza regułą 65 (dywany, płoty, szyny drabin) |
+>
+> ⚠️ Świadome braki fazy D: obrażenia jeźdźca to zwykły upadek (0,5 i grace = faza E — RiderTracker),
+> krawędź dziury prosta (bez poszarpanej wargi), meble ze spadającego stropu padają animacją u klientów
+> (nie jadą z bryłą), fragmenty L3 idą przez budżet DebrisService (osobny od budżetu kolapsu — do
+> scalenia), klient dalej wyłącza lokalnie kolizję przekazanych mebli (kontrakt pkt 13, do poprawy).
+> Reszta niezaimplementowana;
+> w grze dalej działa v3. Kod zaczyna się od jednego budynku (OrangeBuilding), reszta mapy jedzie
+> na v3, dopóki budynek nie ma danych.
+
+### Dlaczego v4 (zmierzone w Edit, bez Play)
+- v3 liczy podparcie przy KAŻDYM wybuchu od nowa z geometrii w kolumnie wokół epicentrum — nie zna
+  pięter ani słupów; kolaps sekcji (`StructureService`) martwy: 0 partów z tagiem `Pillar`.
+- Cięcie: bomba leżąca na podłodze tnie średnio 12,7 partu konstrukcji i stawia **45 nowych partów
+  (max 149)** — 200 losowych prób. Model „okna” (dziura = prostokąt, resztki ≤ 4 pasy): **6,0 (max 16)**.
+  Matematyka planu ~1 ms — koszt to nowe instancje, nie obliczenia.
+- Mapa: 10 budynków; konstrukcja większa niż drobnica to 2 666 partów, z czego tylko ~1 000 to płyty
+  i ściany — reszta to listwy/belki (500), płaskie pasy: gzymsy, parapety, balkony (733), pionowe
+  obramowania (463). Ściany przez wiele pięter: GreenBuilding 24 ściany po 92 studach.
+- OrangeBuilding (prototyp): rama — 6 słupów 5×5×67 przez całą wysokość, belki obwodowe na każdym
+  poziomie, filarki 3×5×12 między oknami; stropy Y≈30 / 52-54 / 74; **158 par partów konstrukcji
+  na siebie nachodzi (125 o > 0,5 studa)** — odkotwiczony part nachodzący na stojący silnik
+  gwałtownie wypycha, więc kolaps MUSI filtrować te pary (NoCollisionConstraint z listy z bake'u).
+- `StreamingEnabled = true`.
+
+### Decyzje Kacpra (24.09)
+| Pytanie | Wybór |
+|---|---|
+| Gracz na spadającym piętrze | **jedzie razem z nim** (fizyka serwera z kolizją z graczem) |
+| Utrata podparcia | **natychmiast, bez ostrzeżenia** — dozwolone tylko techniczne rozłożenie na kilka klatek |
+| Dokładność dziury | **wizualnie dokładna, kolizja uproszczona** — krawędź widoczna ≤ ~1 stud od kolizji |
+| Gruz po kolapsie | drobny: kilka sekund; **duże elementy po zatrzymaniu zostają do końca rundy** |
+| Ściany jako fizyczne fragmenty | **tak** |
+| Kaskada | **pełna, aż do dachu** |
+| Fizyka | **bardzo ważna** — domyślnie prawdziwa fizyka; animacja tylko jako degradacja |
+| Wybuchy w jednym miejscu | realnie **4-5 w kilka sekund** |
+| Low-end | **średnie telefony** |
+| Priorytet | balans / wydajność z zachowanym „wow” |
+| Ile bomb kładzie budynek | **~8 dobrze rozmieszczonych** (cel strojenia, nie twarda liczba) |
+| Jeździec przy lądowaniu | **0,5 × przejechana wysokość** (`RideImpactFactor`) |
+| Prototyp | **OrangeBuilding** |
+| Reset mapy (`MapService`) | bez zmian — najpierw pomiar w MicroProfilerze |
+| Charakter | **„sandbox i naturalnie, nie sztucznie”** |
+
+### Architektura
+```
+EXPLOSION → DestructionService
+   ├─ GeometryDamage → cięcie „okna” (kolizja, ≤ 4 pasy na part, sufit na wybuch)
+   └─ StructuralDamage → StructuralService (stan chunków, CAS, dirty)
+                            → Solver (raz na klatkę na brudny budynek)
+                            → Planner → CollapsePlan (grupy, głębokość, zawias — same fakty)
+                            → PhysicsDirector → ExecutionPlan (L3/L2/L1/L0, klatka, budżet)
+                            → DebrisService (settle → Anchored, czas życia, crush)
+KLIENT: VFX, pył, gruz bez kolizji, kopie mebli, poszarpana warga dziur — ilość wg trybu grafiki
+```
+| Moduł | Rola |
+|---|---|
+| `StructureBake` (Studio, Command Bar) | klasyfikacja, chunki, interfejsy, TRIM, nachodzenia, kolory, statystyki, „nietknięty = 0 spadających” |
+| `ServerStorage.StructureData.<Budynek>` | dane z bake'u (w placu, poza Rojo, nie replikowane) + `BakeVersion`, `GeometryHash`, `MapRevision` |
+| `StructuralService` (nowy) | JEDYNY właściciel stanu chunków; indeks SID→Part po każdym resecie mapy |
+| `CollapseService` / PhysicsDirector (nowy) | grupy → spawanie, NoCollision dla nachodzących par, odkotwiczenie, budżet |
+| `DebrisService` (zostaje) | cykl życia fizyki serwera |
+| `RiderTracker` (nowy) | kto jedzie na spadającej grupie; obrażenia od upadku i grace anty-cheata |
+| usuwane | `StructureService`, pass podparcia w `DestructionService`, HP per part, resztki `planHole` na serwerze, `Categories.Pillar`, `Config.Destruction.Collapse/Support`, fall-fracture dla brył kolapsu |
+
+### Model (skrót — pełna wersja w debacie 24.09)
+- **Chunk** = logiczny kawałek konstrukcji (Slab / Wall / Column / Beam / Block): stropy dzielone
+  do ~20 studów z liniami cięcia przyciąganymi do belek/ścian/słupów, pionowe elementy dzielone
+  na pasma po poziomach stropów. Chunk ≠ part: słup 67 studów to jeden part i 3 chunki.
+- **Interfejs** = „A podpiera B przez odcinek o szerokości W”: `Bearing` (A pod B), `Lateral`
+  (pion trzyma poziom z boku), `Continuity` (ten sam element / to samo ułożenie; nalicza przęsło).
+  ⚠️ Z boku pion trzyma tylko BELKA (węzeł ramy), strop nie (`LateralHoldsVertical`). I KLUCZOWE:
+  oparcie na poziomym elemencie DZIEDZICZY jego zasięg (zeruje go tylko pion) — bez tego podparcie
+  „prało się” przez oparcie i wieża stała na wsporniku stropu sąsiedniej bryły (złapane na
+  OrangeBuilding 24.09: cały parter pod wieżą zniszczony, a wieża nie spadała).
+- **Solver**: Dijkstra po „zasięgu” = odległość od ostatniej prawdziwej podpory; spada chunk bez
+  zasięgu ≤ `MaxSpan`. Cięcie przez cały przekrój nośny (słup 5×5 vs dziura 18×18) = `Severed`.
+- **TRIM/Other** nie są węzłami: `AttachedTo` właściciela, idą z nim (Follow / Cosmetic / Destroy).
+- **Brak niewidzialnych awarii**: interfejs traci szerokość tylko, gdy znika materiał; podpora
+  „zniszczona” strukturalnie kruszy się (znika jej geometria).
+- **CollapsePlan** (logika) ≠ **ExecutionPlan** (poziom fizyki, czas, koszt). Poziom nie zmienia
+  wyniku strukturalnego (Falling → Settled zawsze), tylko to, jak element leci.
+- **Budżet**: jedna pula kosztu (1 + prymitywy z kolizją w locie), priorytety P0 (jeździec) … P4,
+  rezerwa dla P0, zwrot dokładnie raz przy Settled/Retired.
+- **Przyczyna**: `CauseRef {CauseId, AttackerUserId, Seq, Time}`; kolaps przypisany zdarzeniu
+  o najwyższym `Seq` na granicy spadającego obszaru — nigdy kolejności u klientów.
+- **Stan dla klientów**: replikowany folder `ReplicatedStorage.StructureState.<Budynek>`
+  (Revision, Enabled, dziury do wargi, aktywne grupy) — nie protokół „daj snapshot”.
+
+### Kontrakt (niezmienniki)
+1. Serwer zna dokładny stan. 2. Każda zmiana ma `Revision`. 3. Każdy kolaps ma `CollapseId`.
+4. Każde zniszczenie ma `CauseId`. 5. Członkostwo grup deterministyczne. 6. Każdy obiekt fizyki
+ma rezerwację budżetu. 7. Każdy dynamiczny obiekt ma settle/cleanup. 8. Klient dostaje dość stanu,
+żeby odtworzyć tę samą rozgrywkę. 9. Tryb grafiki NIGDY nie zmienia geometrii gry. 10. Nic nie
+skanuje 10 budynków co klatkę. 11. Stan konstrukcji nie przeczy widocznej geometrii. 12. Solver
+nie yielduje; przejścia stanów przez jedną funkcję CAS. 13. **Klient nigdy nie zmienia
+`CanCollide/CanQuery/CanTouch/Anchored` instancji serwera** — ⚠️ v3 łamie to w `hideLocally`
+(meble tracą kolizję u klienta do 0,25 s przed skasowaniem), do poprawy. 14. Rezerwacja budżetu
+zwalniana dokładnie raz. 15. Nic nie wisi w powietrzu: gruz leżący na spadającej grupie jest budzony.
+
+### Zakres v1 (świadomie odchudzony — dokładamy dopiero, gdy test pokaże potrzebę)
+- **Robimy**: bake, solver, planner grup, fizyka L2 (spawane grupy, pasażerowie bez kolizji w locie),
+  NoCollision dla nachodzących par, RiderTracker (0,5), jedna pula budżetu, cięcie okna.
+- **Odkładamy**: L1 (animacja — tylko jeśli test jeźdźca z opóźnieniem nie przejdzie), zawias
+  na krawędzi urwania, L0, wywłaszczanie budżetu, warga dziur dla spóźnionych klientów.
+
+### Fazy (każda = test przed następną)
+A `StructureBake` (0 czerwonych) → B solver offline (nietknięty, 1 dziura, kilka dziur, ściana,
+częściowa i pełna utrata podparcia, pełna kaskada) → C CollapsePlan bez fizyki → D jedna grupa +
+fizyka + gracz na niej → E RiderTracker (jazda, zeskok, zatrzymanie niżej, obrażenia) → F 5 wybuchów
+w 3 s (jeden flush, budżet) → G 2 klientów, opóźnienie replikacji, Ziemniak vs Pełny, streaming.
+Dopiero potem pozostałe budynki.
+
+### Test akceptacyjny
+~8 bomb kładzie budynek · dziura w stropie nie zabija stropu · parter może zrzucić wszystko do dachu ·
+bomba w trakcie kolapsu nie psuje stanu · da się jechać na spadającym fragmencie i z niego zeskoczyć ·
+obrażenia od upadku poprawne · duże elementy zostają platformami · drobny gruz znika · Ziemniak
+i Pełny = ta sama kolizja · 5 wybuchów w 3 s bez niekontrolowanego wzrostu fizyki · 2 klientów widzi
+ten sam wynik · spóźniony klient dostaje aktualny stan · nietknięty budynek nigdy sam nie spada ·
+produkcja bez czerwonych chunków.

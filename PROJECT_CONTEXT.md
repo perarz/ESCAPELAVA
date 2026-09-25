@@ -50,8 +50,21 @@ Zasady współpracy:
   nagrody → restart. Mapa naprawia się sama po każdej rundzie.
 - **Bomba** (50$): rzut, odliczanie z migającym lontem, rani i odrzuca graczy (ragdoll),
   zabójstwa nagradzane kasą — a od 11-12.08 **znowu wybucha i niszczy mapę** (system
-  destrukcji v2, patrz TODO punkt 0). Ściany pękają na nieregularne kawałki, gruz zostaje
-  jako platformy, a kto stoi za ścianą, dostaje słabiej.
+  destrukcji, patrz TODO punkt 0). Ściany pękają na nieregularne kawałki, duże płyty zostają
+  jako platformy, a kto stoi za ścianą, dostaje słabiej. **Od 23.09 (v3, czeka na test)**:
+  drobny gruz i meble (wieszaki, krzesła, skrzynie) padają już tylko „u gracza” — cały mebel
+  przewraca się i rozsypuje, leży chwilę i gaśnie; ranią i służą za platformy tylko duże
+  płyty. Do tego **dwa tryby grafiki**: Ziemniak (telefon — mniej gruzu, szybko znika)
+  i Pełny (mocny PC — pobojowisko zostaje ~20 s); wybór w ustawieniach, zapisywany.
+  Gruz „u gracza” nie ma kolizji — przechodzi się przez niego, więc tryb zmienia wyłącznie
+  obraz, a gracze z różnymi ustawieniami grają dokładnie w tę samą grę.
+  **Od 24.09 pomarańczowy budynek działa na nowej destrukcji (v4, czeka na ponowny test)**:
+  bomba wycina w ścianie czy stropie prostokątną dziurę, kolejne bomby w tę samą konstrukcję
+  osłabiają ją, aż się skruszy, a gdy część budynku straci podparcie — spada naprawdę, grupami,
+  piętro po piętrze, i da się na niej jechać. Duże bryły zostają jako nowe platformy do końca
+  rundy, drobne znikają po kilku sekundach. Meble i pudła padają w całości. Pierwszy test 24.09:
+  „takto wszystko działa raczej” + cztery usterki, poprawione, do ponownego sprawdzenia.
+  Reszta miasta jeszcze na starym systemie.
 - **Most** (100$): budowanie przeprawy z podglądem "ducha", obracanie. Mosty są
   niszczalne, więc sabotaż PvP działa. Od 21.09 celowanie w lawę działa jak celowanie
   w podłogę — most da się postawić na lawie (i tak utonie, bo lawa rośnie).
@@ -176,14 +189,39 @@ Zasady współpracy:
 
 ## TODO (priorytety)
 
-**Najpierw — zaległe testy w Play**: pięć przypadków obrażeń od upadku (lista w CLAUDE.md).
+**Najpierw — NOWA DESTRUKCJA (v4): pomarańczowy budynek już w grze, czeka na ponowny test.**
+Stan na 25.09: zbudowane „mapa konstrukcji” pomarańczowego budynku, dziury, osłabianie i kolaps
+prawdziwą fizyką. Pierwszy test 24.09 wyłapał cztery rzeczy (górne piętra znikały zamiast spadać,
+szyby wisiały w powietrzu, część gruzu lewitowała, pudła i szafki rozpadały się bez sensu) —
+przyczyny znalezione, poprawki czekają na ponowne sprawdzenie. Dalej, po kolei: obrażenia dla
+kogoś, kto jedzie na spadającym piętrze (dziś liczą się jak zwykły upadek, a mają być o połowę
+mniejsze), test kilku bomb naraz, test z dwoma graczami i słabym internetem, potem przeniesienie
+kolejnych budynków (zielony jako następny).
+Kierunek ustalony 24.09. Po debacie dwóch asystentów
+architektura jest zamknięta decyzjami Kacpra: budynek dostaje w Studio „mapę konstrukcji” (które kawałki
+trzymają które), bomba robi dziurę dokładnie tam, gdzie wybuchła, a gdy część budynku traci
+podparcie, spada prawdziwą fizyką — gracz może na niej jechać (przy lądowaniu dostaje połowę
+obrażeń za przejechaną wysokość). Cały budynek da się położyć ~8 dobrze rozmieszczonymi bombami,
+bez ostrzeżenia, kaskadą do dachu. Duże ruiny zostają do końca rundy jako nowe platformy.
+Tryb grafiki nigdy nie zmienia tego, po czym się chodzi. Najpierw jeden budynek (pomarańczowy),
+potem reszta. Szczegóły: `DESTRUCTION_PLAN.md` → „v4”.
+(Stare: v3 — niżej — nie był zamkniętym tematem; do czasu przełączenia budynków działa w grze.)
+**Test destrukcji v3 (23.09 wieczorem, zgłoszenie „gruba ryba”)**: po teście na
+telefonach z kolegami wyszło: 4 bomby naraz = lagi, przenikanie przez podłogę, komunikat „part
+nie został pocięty” co chwilę, wieszaki w zielonym budynku rozlatują się i znikają. Przyczyny
+zmierzone na mapie i naprawione w kodzie (szczegóły i lista testu: `DESTRUCTION_PLAN.md` → „v3”).
+Do sprawdzenia: wieszaki, przenikanie (także z opóźnieniem sieci w Studio), 4 bomby naraz
+z kolegami, oba tryby grafiki (w trybie dev klawisz G).
+**Potem — zaległe testy w Play**: pięć przypadków obrażeń od upadku (lista w CLAUDE.md).
 Rozstrzygnięte 23.09: śliskie sterowanie zniknęło, hak przeszedł testy, obracanie głowy
 i kamera zza ramienia naprawione i potwierdzone.
 Znalezione w logu i odłożone: zaczep hakiem pod własne nogi zużywa sztukę za nic (na
-produkcji strata 40$ za misklik) i szum w logu wybuchów.
+produkcji strata 40$ za misklik). (Szum w logu wybuchów — naprawiony w v3.)
 
 **Do postawienia w Studio (Twoja strona):** trzeci slot w pasku (hak jest niewidoczny),
-marker kamery obok haka na wystawie (dziś kadr liczy się automatycznie).
+marker kamery obok haka na wystawie (dziś kadr liczy się automatycznie), **panel ustawień
+z wyborem trybu grafiki** (nazwy w `docs/STUDIO_CONTRACT.md` → „Ustawienia”; do tego czasu
+tryb dobiera się sam: telefon → Ziemniak, PC → Pełny).
 
 **A. Wizja ustalona 12.09 — kolejny duży blok pracy:**
 - **Ekwipunek i loadout**: hotbar skrócony do **3 slotów**, a gracz wybiera 3 itemy
@@ -242,8 +280,13 @@ dalej ma sens — teraz wiadomo, na co patrzeć.
    pięter, pękanie gruzu przy upadku, przygniecenia, kolaps całych sekcji budynku po
    filarach z ostrzeżeniem, ślady opalenia. **Zostaje: dźwięki (assety Kacpra — 5 pól
    w konfiguracji, kod gotowy) i balans po testach.**
-   Do testu Kacper stawia: party Material Glass (szyby) i party z tagiem "Pillar"
-   (Tag Editor) — najlepiej 4 filary na piętro, żeby zobaczyć creak przy 2 i kolaps przy 3.
+   Do testu Kacper stawia: party Material Glass (szyby — zrobione 21.09, 367 szt.) i party
+   z tagiem "Pillar". ⚠️ **Na mapie jest 0 filarów, a tagować jeszcze NIE WOLNO**: kolaps
+   uznaje za „budynek” całe miasto (tak jest zbudowana hierarchia mapy) i zrzucałby party
+   z całej mapy — najpierw poprawka w kodzie.
+   **v3 (23.09)**: serwer trzyma tylko stan gry (dziury, resztki ścian, duże płyty), drobnicę
+   i kawałki dziur animuje każdy gracz u siebie, w swoim trybie grafiki; spada tylko to, co
+   wybuch realnie pozbawił podparcia; pocięta podłoga nie znika spod nóg (jest przycinana).
 1. **Mapa Downtown** — NAJWIĘKSZY BRAKUJĄCY ELEMENT. Kacper buduje w Studio: 10-15
    budynków 3-8 pięter, punkty spawn (multi-spawn), markery spawn kasy. Bez mapy nie ma gry.
    **Zasady budowania POD NOWĄ DESTRUKCJĘ** (pełny kontrakt w `DESTRUCTION_PLAN.md`):
@@ -268,8 +311,8 @@ dalej ma sens — teraz wiadomo, na co patrzeć.
    Potem test pełnej pętli na żywym serwerze.
 7. **Test pod obciążeniem** (przed/tuż po launchu): audyt kodu jest zrobiony (11.08),
    zostaje sprawdzenie na żywym serwerze z ekipą — zapis danych przy 20 graczach,
-   wyłączanie serwera. Koszt fizyki przy kilku bombach naraz wraca na listę dopiero
-   z nowym systemem wybuchów (pkt 0).
+   wyłączanie serwera. Koszt kilku bomb naraz: pierwszy test z kolegami (23.09) pokazał
+   lagi → przebudowa v3 tego samego dnia; potwierdzenie = kolejny test z ekipą.
 
 ## Czego ŚWIADOMIE NIE robimy w v1.0
 

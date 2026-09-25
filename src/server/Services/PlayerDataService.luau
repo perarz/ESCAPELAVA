@@ -63,6 +63,9 @@ local function defaultData(): any
 		-- Celowo BRAK w defaultach: nieobecne pole = „jeszcze nie losowano", i to jest
 		-- sygnał dla AppearanceService, żeby wylosować zestaw przy pierwszym wejściu.
 		-- Stare save'y sprzed 2026-09-21 wchodzą tą samą ścieżką, bez migracji.
+		-- settings — ustawienia gracza { graphics = "Potato" | "Full" } (SettingsService,
+		-- 2026-09-23). Też celowo BRAK w defaultach: nieobecne = tryb grafiki dobierany
+		-- automatycznie po urządzeniu, dopóki gracz sam nie wybierze.
 		_sessionId = nil,        -- ustawiamy po load — wykryjemy "fork" gdy ktoś zacznie w innym serwerze
 		_savedAt = 0,
 	}

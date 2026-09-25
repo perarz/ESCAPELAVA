@@ -18,6 +18,13 @@
 --
 -- Gruz żyje w Workspace.BlastDebris (POZA Workspace.Map) — MapService restore go nie widzi,
 -- sprzątamy go sami. Anchored remnants ścian zostają w Map i sprząta je restore.
+--
+-- v3 (2026-09-23): trafia tu już TYLKO duży gruz — płyty, które straciły podparcie,
+-- i duże bryły wyrzucone w całości (najwyżej `MaxServerPiecesPerBlast` na wybuch).
+-- Kawałki dziur i drobnica są animowane u klientów (DestructionService → DebrisFall /
+-- BlastFX), bo replikacja pozycji setek ruchomych partów do każdego gracza była głównym
+-- źródłem lagów przy kilku bombach naraz. (Kliencki gruz nie ma kolizji w ogóle —
+-- patrz DebrisFXController — więc nie potrzebuje stąd żadnych grup kolizji.)
 
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
@@ -232,10 +239,12 @@ function DebrisService.register(part: BasePart, generation: number?)
 		return
 	end
 
-	-- Twardy sufit także dla callerów, którzy nie wołali reserve() (kolaps sekcji,
-	-- spadające remnanty z passu podparcia) — rejestr nie może rosnąć w nieskończoność.
+	-- Twardy sufit także dla callerów, którzy nie wołali reserve() — rejestr nie może
+	-- rosnąć w nieskończoność. Zwalniamy PACZKĘ (~10% budżetu), nie jeden part: makeRoom
+	-- sortuje cały rejestr, a v2 wołał go przy KAŻDEJ rejestracji ponad limitem — przy
+	-- wybuchu, który zrzucił 472 party, to było 212 pełnych sortowań w jednej klatce.
 	if totalCount >= DBR.MaxTotalDebris then
-		makeRoom(1)
+		makeRoom(math.max(1, math.floor(DBR.MaxTotalDebris * 0.1)))
 	end
 
 	part.CustomPhysicalProperties = DEBRIS_PROPERTIES
@@ -673,22 +682,8 @@ local function crushCheck()
 			local speedT = math.clamp(velocity.Magnitude / IMP.CrushSpeedForMax, 0, 1)
 			local dmg = math.max(IMP.CrushMinDamage, IMP.CrushMaxDamage * volumeT * speedT)
 
-			-- Kill credit dla tego, kto wystrzelił kawałek (chyba że to własny gruz —
-			-- samozgniecenie bez creditu, ale damage zostaje: fizyka nie wybacza).
 			local attackerId = part:GetAttribute(ATTACKER_ATTR)
-			if typeof(attackerId) == "number" and attackerId ~= player.UserId then
-				local attacker = Players:GetPlayerByUserId(attackerId :: number)
-				if attacker then
-					KillService.tag(hum, attacker, "crush")
-				end
-			end
-
-			-- Gracz zaraz poleci od uderzenia — bez grace anti-cheat uznałby go za hackera.
-			AntiCheatService.grantGrace(player)
-			hum:TakeDamage(dmg)
-			lastCrushAt[player] = now
-			-- Feedback trafionego: reuse BombHit (shake + FOV punch), skala z siły zgniotu.
-			Remotes.BombHit:FireClient(player, math.clamp(dmg / IMP.CrushMaxDamage, 0.25, 1) * 0.8)
+			DebrisService.applyCrush(player, dmg, if typeof(attackerId) == "number" then attackerId else nil, IMP.CrushMaxDamage)
 
 			if Config.Destruction.Debug then
 				print(("[Debris] crush %s dmg=%.0f vol=%.0f speed=%.0f"):format(
@@ -697,6 +692,36 @@ local function crushCheck()
 			break -- jeden zgniot na tick na gracza (cooldown i tak blokuje)
 		end
 	end
+end
+
+-- Jedno miejsce, które zadaje obrażenia od przygniecenia — gruz v3 i spadające grupy
+-- kolapsu v4 (CollapseService) idą tą samą ścieżką: kill credit, grace anti-cheata,
+-- feedback, wspólny cooldown gracza. Zwraca false, gdy gracz jest w cooldownie.
+function DebrisService.applyCrush(player: Player, dmg: number, attackerId: number?, maxDamage: number): boolean
+	local now = os.clock()
+	if now - (lastCrushAt[player] or 0) < IMP.CrushCooldown then
+		return false
+	end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then
+		return false
+	end
+	-- Kill credit dla sprawcy (chyba że to własny gruz — samozgniecenie bez creditu,
+	-- ale damage zostaje: fizyka nie wybacza).
+	if attackerId and attackerId ~= player.UserId then
+		local attacker = Players:GetPlayerByUserId(attackerId)
+		if attacker then
+			KillService.tag(hum, attacker, "crush")
+		end
+	end
+	-- Gracz zaraz poleci od uderzenia — bez grace anti-cheat uznałby go za hackera.
+	AntiCheatService.grantGrace(player)
+	hum:TakeDamage(dmg)
+	lastCrushAt[player] = now
+	-- Feedback trafionego: reuse BombHit (shake + FOV punch), skala z siły zgniotu.
+	Remotes.BombHit:FireClient(player, math.clamp(dmg / maxDamage, 0.25, 1) * 0.8)
+	return true
 end
 
 -- ============================================================================

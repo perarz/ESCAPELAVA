@@ -36,13 +36,36 @@ local REMOTE_NAMES = {
 	"PlayerKilled",       -- FireAllClients: (killer: Player, victim: Player, weapon: string, reward: number) — killfeed
 	"AliveChanged",       -- FireClient: (isAlive: boolean) — server-side aliveSet zmiana (round spawn=true, death=false)
 	"BombHit",            -- FireClient: (intensity: number 0..1) — trafiony wybuchem: screen shake + FOV punch
-	"BlastFX",            -- FireAllClients: (center: Vector3, radius: number, seed: number,
-	                      --   glassPanes: {{cf: CFrame, size: Vector3, color: Color3}}) —
-	                      --   klienci renderują CAŁE VFX wybuchu lokalnie (ExplosionFXController)
-	                      --   + kosmetyczne odłamki z seed i odłamki szyb (DebrisFXController)
+	"BlastFX",            -- FireAllClients: (blast: {
+	                      --     center: Vector3, radius: number, impulse: number, minT: number,
+	                      --     seed: number,
+	                      --     glass: {{cf: CFrame, size: Vector3, color: Color3}},
+	                      --     cuts: {{cf: CFrame, size: Vector3, lc: Vector3, seed: number,
+	                      --             hole: number, color: Color3, mat: Enum.Material,
+	                      --             var: string, tr: number}} })
+	                      --   Klienci renderują CAŁE VFX wybuchu lokalnie (ExplosionFXController)
+	                      --   + odłamki z seed, odłamki szyb i KAWAŁKI DZIUR (DebrisFXController).
+	                      --   `cuts` (v3, 2026-09-23): party pocięte przez wybuch — klient liczy
+	                      --   z `Fracture.planHole(size, lc, hole, seed)` te same kawałki dziury,
+	                      --   których serwer nie postawił, i animuje je u siebie. Dane parta są
+	                      --   w payloadzie, nie jako referencja: przy StreamingEnabled klient
+	                      --   może go nie mieć, a serwer i tak zaraz go przytnie.
+	"DebrisFall",         -- FireAllClients: (fall: { center: Vector3, radius: number,
+	                      --     impulse: number, nLaunch: number, launch: {Instance},
+	                      --     nDrop: number, drop: {Instance} })
+	                      --   PRZEKAZANIE drobnicy (v3): meble i drobne party, które serwer
+	                      --   skasuje za `Config.Destruction.Small.HandoffDelay`. Klient w tym
+	                      --   czasie je KOPIUJE, chowa oryginał i animuje kopię (`launch` —
+	                      --   odrzut od wybuchu, `drop` — upadek). Liczniki `nLaunch`/`nDrop`
+	                      --   są osobno, bo referencja do parta, którego klient nie ma
+	                      --   (StreamingEnabled), dojeżdża jako nil i robi dziurę w tablicy
+	"SetGraphicsMode",    -- klient→server: FireServer(mode: "Potato" | "Full") — wybór trybu
+	                      --   grafiki w ustawieniach. Serwer tylko ZAPISUJE (DataStore) i odsyła
+	                      --   przez atrybut gracza `Config.Graphics.AttributeName`; nic w grze
+	                      --   od tego nie zależy (SettingsService)
 	"StructureFX",        -- FireAllClients: (kind: "creak"|"collapse", position: Vector3, magnitude: number)
-	                      --   kolaps sekcji budynku (StructureService): ostrzeżenie przed
-	                      --   zawaleniem / sam kolaps. Klient robi pył, dźwięk i wstrząs
+	                      --   kolaps grupy budynku v4 (CollapseService: "collapse" przy starcie
+	                      --   lotu grupy; "creak" dziś nieużywany). Klient robi pył, dźwięk i wstrząs
 	"DevCommand",         -- klient→server: FireServer(command: string) — "skip" | "endRound".
 	                      --   Server waliduje Dev.isDev(player); tryb dev = Config.Dev.Enabled
 	"FireGrapple",        -- klient→server: FireServer(targetPos: Vector3) — punkt, w który

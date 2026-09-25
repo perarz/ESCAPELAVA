@@ -18,8 +18,10 @@ local GameLoopService = require(script.Services.GameLoopService)
 local CashService = require(script.Services.CashService)
 local ItemService = require(script.Services.ItemService)
 local ShopService = require(script.Services.ShopService)
+local SettingsService = require(script.Services.SettingsService)
 local DebrisService = require(script.Services.DebrisService)
-local StructureService = require(script.Services.StructureService)
+local StructuralService = require(script.Services.StructuralService)
+local CollapseService = require(script.Services.CollapseService)
 local DestructionService = require(script.Services.DestructionService)
 local BombService = require(script.Services.BombService)
 local MapService = require(script.Services.MapService)
@@ -46,14 +48,22 @@ local DevService = require(script.Services.DevService)
 PlayerDataService.init()
 CashService.init()
 ItemService.init()
--- Debris → Structure → Destruction → Bomb. System v2: DESTRUCTION_PLAN.md.
--- Debris pierwszy (rejestr gruzu, collision group, pętla usypiania), Structure przed
--- Destruction (musi mieć zeskanowane pasma filarów zanim padnie pierwszy filar),
--- wszystko przed BombService — zanim jakakolwiek bomba może wybuchnąć.
--- StructureService.init robi pierwszy skan; kolejne same lecą na COUNTDOWN.
+-- Subskrybent "loaded" jak Cash/Item — musi być przed pierwszym PlayerAdded, inaczej
+-- zapisany tryb grafiki gracza nie dojedzie do klienta (atrybut ustawiany po wczytaniu).
+SettingsService.init()
+-- Debris → Structural → Destruction → Collapse → Bomb. DESTRUCTION_PLAN.md (v3 + „v4”).
+-- Debris pierwszy (rejestr gruzu, collision group, pętla usypiania). Structural (v4) buduje
+-- budynki z `Config.Structure.Buildings` przy starcie i na każdym COUNTDOWN — przed
+-- Destruction, która pyta go, czy part należy do budynku v4. Collapse (wykonawca v4)
+-- dostaje od Destruction przekazanie klientom wstrzyknięte, bo Destruction woła Collapse
+-- (bezpośredni require w obie strony = cykl). Wszystko przed BombService.
 DebrisService.init()
-StructureService.init()
+StructuralService.init()
 DestructionService.init()
+CollapseService.init({
+	handOff = DestructionService.handOffToClients,
+	dropResting = DestructionService.dropResting,
+})
 BombService.init()
 LavaService.init()
 -- PRZED PlayerService: ten spawnuje graczy, a spawn idzie już przez AppearanceService.

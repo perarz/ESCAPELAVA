@@ -333,15 +333,21 @@ end
 local function detonate(root: Instance, center: Vector3, thrower: Player, def: any)
 	if not root.Parent then return end
 
+	-- Pocisk znika PRZED destrukcją (2026-09-23). Wcześniej był kasowany na końcu, więc
+	-- wybuch łapał WŁASNĄ bombę w zasięgu i przy KAŻDYM rzucie drukował ostrzeżenie
+	-- „N partów nie zostało pociętych — Anchored=false … BombProjectile” (zgłoszenie
+	-- „często wyskakuje, że part jest niezanchorowany”). Do tego detonate potrafi teraz
+	-- odczekać klatkę na budżet CPU, a bomba nie może wisieć w świecie po błysku.
+	root:Destroy()
+
 	-- Destrukcja PRZED damage: gdy bomba zdmuchnie ścianę, gracz za nią jest już odsłonięty
-	-- w momencie liczenia obrażeń (etap 2 doda occlusion raycast, który na tej kolejności
-	-- polega). VFX wybuchu odpala DestructionService (Remotes.BlastFX → klienci renderują).
+	-- w momencie liczenia obrażeń (occlusion polega na tej kolejności). VFX wybuchu
+	-- odpala DestructionService (Remotes.BlastFX → klienci renderują).
 	DestructionService.detonate(center, def.destruction, thrower)
 
 	applyDamageAndKnockback(center, thrower, def)
 
 	log(thrower, "detonate", "pos=" .. tostring(center))
-	root:Destroy()
 end
 
 -- Lecąca bomba z modelu Kacpra (`ItemDefinitions.bomb.toolModel` — ten sam model, którym

@@ -43,9 +43,12 @@ Config.Dev = {
 	-- robimy właśnie w Studio, więc kolizja jest realna.
 	-- Przy zmianie tych klawiszy sprawdź, czy nie kolidują z: WASD, Space (skok),
 	-- LeftShift (sprint), F (push), 1-5 (hotbar), R (obrót mostu), Q (wyjście ze sklepu),
-	-- E (ProximityPrompt).
+	-- E (ProximityPrompt), G (tryb grafiki — niżej).
 	SkipKey = Enum.KeyCode.K,     -- skip bieżącej fazy/stanu (LOBBY→ROUND w 2 klik)
 	EndRoundKey = Enum.KeyCode.O, -- natychmiastowy koniec rundy (restore mapy, nagrody)
+	-- Przełącznik Ziemniak ↔ Pełny (2026-09-23) — do porównania trybów grafiki, zanim
+	-- stanie panel ustawień. Działa jak kliknięcie w ustawieniach (zapisuje wybór).
+	GraphicsToggleKey = Enum.KeyCode.G,
 }
 
 Config.Game = {
@@ -71,7 +74,7 @@ Config.Lava = {
 	-- (`FX.MinSurfaceY`), więc przy nierosnącej lawie nie było jej jak zobaczyć.
 	Enabled = true,
 	StartY = -5,
-	MaxY = 250,
+	MaxY = 0,
 	-- DESIGN: szybka i dynamiczna gra. Runda ~80s total, nie 5+ minut.
 	--
 	-- ⚠️ WYDŁUŻONE DO 10 MINUT NA TESTY (2026-08-12, prośba Kacpra) — długa runda daje
@@ -792,6 +795,11 @@ Config.RateLimits = {
 	-- EquipItem+UnequipItem: klik hotbar slot. Spam clickowanie = flickering Tool
 	-- w rękach innych klientów + bandwidth. 0.15s = ~7 kliknięć/s max, ludzki reflex OK.
 	EquipItem = 0.15,
+	-- Zmiana trybu grafiki w ustawieniach. Zapis idzie tylko do pamięci serwera (DataStore
+	-- dostaje go przy auto-save / wyjściu), więc limit chroni wyłącznie przed spamem
+	-- remote'a. Kliknięcie w trakcie limitu NIE przepada — serwer zapisze ostatni wybór
+	-- po jego upływie (SettingsService), bo „kliknąłem, a zapisało się poprzednie" wkurza.
+	SetGraphicsMode = 0.25,
 }
 
 -- Anti-cheat: wykrywanie speedhacka/teleportu u żywych graczy w ROUND.
@@ -919,19 +927,74 @@ Config.Destruction = {
 		-- HP nie regeneruje się (attribute DestrHP żyje do restore mapy), więc trafienia
 		-- z całej rundy sumują się. Feedback pęknięć (ciemnienie + pył) = DamageFeedback niżej.
 		Pillar = { HP = 140 },
-		-- Mosty (ActiveBridges): kruche drewno — bomba w pobliżu łamie na deski, deski
-		-- lecą w lawę (sabotaż PvP). Remnants mostu bez podparcia też spadają (Support).
+		-- Mosty (ActiveBridges): kruche drewno — bomba w pobliżu łamie deski, deski
+		-- lecą w lawę (sabotaż PvP). Deski mostu to DROBNICA (3 studs³), więc od v3
+		-- ten próg działa jak próg drobnicy, tylko niższy: most pęka do 24×(1−40/160) =
+		-- 18 studów, zwykła drobnica do 12. Most jest modelem → pada CAŁY (Small niżej).
 		Bridge = { HP = 40 },
+		-- DROBNICA (v3, 2026-09-23 — patrz `Small` niżej): próg JEDNORAZOWY, bez pamięci
+		-- HP. Obrażenia ≥ progu = pęka, mniej = nic. Bomba 160/24 łamie drobnicę do
+		-- 24×(1−80/160) = 12 studów (ściany: do 9). Liczone z modelu obrażeń, nie osobnym
+		-- promieniem, żeby mocniejsza bomba łamała dalej bez dodatkowej gałki.
+		Small = { HP = 80 },
 	},
 	PillarTag = "Pillar", -- nazwa tagu CollectionService którym Kacper oznacza filary
 
 	-- FEEDBACK OBRAŻEŃ STRUKTURALNYCH: ranny part ciemnieje proporcjonalnie do utraconego
-	-- HP + puff pyłu przy trafieniu. Kolor wraca sam po rundzie (MapService restore).
+	-- HP. Kolor wraca sam po rundzie (MapService restore).
+	-- (2026-09-23: USUNIĘTY pył przy trafieniu. Był osobnym ParticleEmitterem tworzonym
+	-- NA SERWERZE dla każdego rannego parta — zmierzone: jedna bomba w zielonym budynku
+	-- = 338 emiterów replikowanych do każdego gracza. Pył robi klient w ExplosionFX.)
 	DamageFeedback = {
 		DarkenMax = 0.45,   -- max przyciemnienie koloru przy ~100% zniszczenia
-		DustPerHit = 10,    -- particli pyłu przy przyjęciu obrażeń
-		DustMinDamage = 20, -- poniżej tego dmg bez pyłu (krawędź zasięgu nie spamuje emitterami)
 	},
+
+	-- ===== DROBNICA vs KONSTRUKCJA (v3, 2026-09-23) =====
+	-- Zmierzone na mapie: 20 376 z 26 039 partów (78%) ma objętość < 4 studs³ albo
+	-- najdłuższy bok < 2.8 — wieszaki, ubrania, listwy, nogi krzeseł. System v2
+	-- traktował je jak ściany (HP, ciemnienie, pył, gruz serwerowy, pass podparcia), więc
+	-- jedna bomba w sklepie z ubraniami robiła setki partów fizyki serwera, a limit gruzu
+	-- natychmiast je kasował („wieszaki znikają”). Teraz:
+	--   * drobnica NIE ma HP, nie ciemnieje, nie jest gruzem serwera i nie wchodzi do
+	--     grafu podparcia. Pęka od progu `Categories.Small.HP` i serwer PRZEKAZUJE ją
+	--     klientom (Remotes.DebrisFall) — każdy animuje upadek u siebie, w swoim trybie
+	--     grafiki. Serwer kasuje oryginały dopiero po `HandoffDelay`.
+	--   * MEBEL (decyzja Kacpra: „cały mebel pada”): Model z SAMEJ drobnicy, najwyżej
+	--     `AssemblyMaxSize` studów i `AssemblyMaxParts` partów, bez partów Locked. Gdy
+	--     pęka jego jakakolwiek część — pada cały (zero ubrań wiszących bez wieszaka).
+	--     Warunek „sama drobnica” CELOWY: model z dużą bryłą (automat, komoda, lada,
+	--     schody) mógłby być elementem rozgrywki, więc takie pękają jak ściany.
+	Small = {
+		MaxVolume = 4,        -- studs³ — poniżej: drobnica
+		-- Najdłuższy bok poniżej = drobnica. 2.8 = 2 × Fracture.MinChunkSize — krótszego
+		-- parta i tak nie da się przeciąć na dwa kawałki, więc „dziura” w nim nie istnieje.
+		MinCutSize = 2.8,
+		-- Obrażenia od tego progu = drobnica jest ODRZUCANA od wybuchu, poniżej po prostu
+		-- PADA. 120 → do 6 studów od epicentrum (bomba 160/24).
+		LaunchDamage = 120,
+		-- Prędkość odrzutu drobnicy = impuls bomby × ten ułamek. Mebel to nie pocisk:
+		-- przy pełnym impulsie (95 stud/s) wieszaki rozlatywały się po całym piętrze.
+		LaunchSpeedFactor = 0.35,
+		AssemblyMaxSize = 18, -- studów (największy wymiar bbox modelu)
+		AssemblyMaxParts = 200,
+		-- Opóźnienie kasowania na serwerze. Klient musi DOSTAĆ listę i skopiować party,
+		-- zanim ich usunięcie do niego dojedzie — kopia z już skasowanego parta nie istnieje.
+		HandoffDelay = 0.25,
+		-- Sufit instancji (modeli/partów) przekazanych w jednym wybuchu. Mebel = 1 wpis,
+		-- więc to jest sufit rozmiaru payloadu, nie liczby partów. Ponad nim drobnica
+		-- ZOSTAJE na miejscu (lepiej niż zniknąć bez animacji).
+		MaxHandoffPerBlast = 300,
+		-- Luz przy szukaniu drobnicy „przyczepionej” do parta, który zniknął (dekoracja
+		-- na ścianie z dziurą, rzeczy na spadającej płycie).
+		AttachPadding = 0.3,
+	},
+
+	-- Budżet CPU destrukcji na JEDNĄ klatkę serwera (wszystkie wybuchy razem). Gdy kilka
+	-- bomb wybucha w tej samej klatce, kolejny etap czeka na następną klatkę zamiast
+	-- zamrażać serwer na sumę kosztów (zgłoszenie 2026-09-23: 4 bomby naraz = lag u
+	-- wszystkich). Przesunięcie skutków o 1-3 klatki jest niewidoczne.
+	FrameBudgetMs = 6,
+	MaxBudgetWaitFrames = 8, -- sufit czekania — wybuch nie może czekać w nieskończoność
 
 	-- OSŁONA GRACZY: każda ściana między graczem a epicentrum tnie damage/knockback.
 	-- Destrukcja geometrii liczy się PRZED obrażeniami graczy, więc zdmuchnięta ściana
@@ -949,21 +1012,41 @@ Config.Destruction = {
 	-- mają też piętra WYSOKO nad wybuchem): part bez transytywnej drogi podparcia w dół
 	-- SPADA jak gruz. Kierunkowo — sąsiad CAŁKOWICIE powyżej parta go NIE podpiera
 	-- ("wiszenie na niebie" nie istnieje); kontakt boczny (przęsło, wspornik) podpiera.
-	-- UWAGA kontrakt mapy: platformy/ozdoby które MAJĄ wisieć w powietrzu z designu →
-	-- Locked=true albo Workspace.Map.Locked, inaczej spadną przy pierwszej bombie obok.
 	-- Mosty graczy (ActiveBridges) NIE wchodzą do sprawdzenia z samej bliskości — wiszą
-	-- z designu; sprawdzane są tylko ich POŁAMANE kawałki.
+	-- z designu.
+	--
+	-- 🔴 v3 (2026-09-23): SPADA TYLKO TO, CO PODPARCIE STRACIŁO. Graf liczony jest DWA
+	-- razy — przed wybuchem i po — i spada wyłącznie część wspólna „było podparte, nie
+	-- jest”. Powód zmierzony na mapie: w KAŻDYM budynku setki partów są „niepodparte”
+	-- według tej reguły jeszcze przed jakimkolwiek wybuchem (zielony 1724, hotel 590,
+	-- szkoła 426, łącznie ~3500 — cienkie listwy, wieszaki, rzeczy wiszące), więc każda
+	-- bomba w promieniu kolumny zrzucała je hurtem jako fizykę serwera. Stąd `spadło=472`
+	-- w logu z dachu i znikające wieszaki. Drobnica (patrz `Small`) w grafie w ogóle nie
+	-- bierze udziału — ani jako podpora, ani jako kandydat.
+	-- Konsekwencja: `Locked` na „wiszących z designu” platformach przestaje być
+	-- konieczny, ale dalej nie szkodzi.
 	Support = {
 		Enabled = true,
 		Padding = 0.2,          -- luz dotyku (stud) przy szukaniu sąsiadów-podpór
 		ColumnRadiusFactor = 1.3, -- XZ zasięg sprawdzenia = radius wybuchu × ten mnożnik
 		ColumnHeight = 400,     -- pełna wysokość kolumny sprawdzenia (stud)
-		AboveEpsilon = 0.5,     -- tolerancja "całkowicie powyżej" (stud)
+		-- Tolerancja „sąsiad całkowicie powyżej” (stud) — ale najwyżej POŁOWA grubości
+		-- parta. Stała 0.5 sprawiała, że part cieńszy niż 0.5 studa nie mógł mieć
+		-- podparcia z boku: sąsiad na tej samej wysokości liczył się jako „powyżej”.
+		AboveEpsilon = 0.5,
+		-- Sufit partów, które mogą spaść z jednego wybuchu (graf i tak ogranicza kolumna).
+		-- Ponad nim zostają zakotwiczone — lepiej coś zawieszone niż zamrożony serwer.
+		MaxFelledPerBlast = 400,
 	},
 
 	-- CIĘCIE partów na kawałki (Fracture.luau). Part w kuli wybuchu jest docinany do
 	-- TargetChunkSize; kawałki poza kulą zostają DUŻE i wracają jako anchored "remnants"
 	-- (dziura z drobnym gruzem + reszta panelu w 2-4 płytach).
+	-- v3 (2026-09-23): plan cięcia liczy `Fracture.planHole` z SEEDEM — serwer bierze z
+	-- niego resztki (scalone w możliwie duże bryły), a KLIENT z tego samego seeda liczy
+	-- kawałki dziury i animuje je lokalnie. Kawałki z dziury nie są już partami serwera
+	-- (to one — do 110 na wybuch — replikowały pozycję do każdego gracza i dławiły łącze).
+	-- Ile kawałków gracz WIDZI, decyduje jego tryb grafiki (`Config.Graphics`).
 	Fracture = {
 		TargetChunkSize = 3.2,       -- docelowy wymiar kawałka gruzu (stud)
 		MinChunkSize = 1.4,          -- poniżej tego NIE tniemy — drobnica to particle, nie party
@@ -988,7 +1071,8 @@ Config.Destruction = {
 		-- w tę samą ścianę dawały bliźniaczy wzór.
 		ChunkSizeJitter = 0.22,
 		HoleRadiusJitter = 0.15,
-		MaxServerChunksPerBlast = 110, -- sufit kawałków serwerowych z JEDNEGO wybuchu
+		-- (MaxServerChunksPerBlast 110 USUNIĘTE 2026-09-23 — serwer nie tworzy już kawałków
+		-- dziury; sufit tego, co gracz widzi, to `Graphics.Profiles.*.CutChunksPerBlast`.)
 		ChunkRotJitter = 7,          -- ± stopnie obrotu kawałka przy spawnie (łamie siatkę)
 		ChunkShrink = 0.96,          -- lekki shrink kawałków — szczeliny czytają się jako gruz
 		WedgeChance = 0.22,          -- szansa na WedgePart zamiast boxa (poszarpane krawędzie)
@@ -1051,10 +1135,16 @@ Config.Destruction = {
 		-- Od tej objętości (studs³) kawałek jest PLATFORMĄ (zostaje), poniżej DROBNICĄ
 		-- (gaśnie). 45 ≈ 3.6³ — typowy kawałek z cięcia (TargetChunkSize 3.2 → ~29 studs³)
 		-- jest drobnicą, a płyty z remnantów i kolapsu sekcji zostają.
+		-- v3: ten sam próg decyduje, czy duży part wyrzucony w CAŁOŚCI (kula, walec, klin,
+		-- union) zostaje gruzem serwera (rani, można na nim stanąć), czy leci tylko u graczy.
 		PlatformMinVolume = 45,
-		-- Gwarancja dla świeżego wybuchu: bomba za 50$, która "nic nie zrobiła", wkurza
-		-- bardziej niż chwilowy skok fizyki. reserve() kasuje stary gruz, żeby tyle dać.
-		MinChunksPerBlast = 40,
+		-- v3 (2026-09-23): sufit NOWEGO gruzu serwera z jednego wybuchu — płyty, które
+		-- straciły podparcie, i duże party wyrzucone w całości (największe pierwsze).
+		-- Reszta leci już tylko u graczy (Remotes.DebrisFall). Decyzja Kacpra: ranić
+		-- i służyć za platformy mają tylko DUŻE płyty; drobny gruz jest efektem.
+		-- (Zastąpiło `MinChunksPerBlast` 40 — gwarancja kawałków dziury na serwerze
+		-- straciła sens, bo kawałków dziury na serwerze już nie ma.)
+		MaxServerPiecesPerBlast = 30,
 
 		-- ===== WYGASANIE DROBNICY =====
 		TempLifetimeAfterSleep = 6, -- s leżenia, zanim drobnica zacznie gasnąć
@@ -1079,27 +1169,21 @@ Config.Destruction = {
 		LavaSteamPerSecond = 3, -- sufit obłoczków pary/s (przy zalaniu tonie naraz kilkadziesiąt)
 	},
 
-	-- KOLAPS SEKCJI (etap 4 — StructureService). Filary (tag `Pillar`) grupowane w PASMA
-	-- po wysokości: pasmo = filary jednego piętra. Gdy padnie odpowiednio dużo filarów
-	-- pasma, wszystko POWYŻEJ tego piętra leci w dół. To jest moment "na TikToka", więc
-	-- ma być czytelny: najpierw ostrzeżenie (trzeszczenie + pył), potem kolaps.
-	Collapse = {
-		Enabled = true,
-		-- Filary, których środki Y mieszczą się w tym zakresie, to JEDNO pasmo (piętro).
-		-- Za mało = każdy filar osobnym piętrem; za dużo = cały budynek jednym pasmem.
-		BandTolerance = 10,
-		-- Ułamek martwych filarów pasma → ostrzeżenie (creak: pył ze stropów, dźwięk, shake).
-		CreakThreshold = 0.5,
-		-- Ułamek martwych filarów pasma → SEKCJA LECI. 0.75 = 3 z 4 filarów; celowo nie 1.0,
-		-- bo "ostatni filar w rogu trzyma wieżowiec" wygląda jak bug, nie jak fizyka.
-		CollapseThreshold = 0.75,
-		-- Sufit partów odkotwiczonych jednym kolapsem (największy budynek = najgorszy przypadek).
-		MaxPartsPerCollapse = 220,
-		-- Lekki impuls przy starcie kolapsu — sekcja "odrywa się", zamiast zjeżdżać jak winda.
-		ImpulseSpread = 7,
-		-- Minimalny odstęp między ostrzeżeniami z tego samego pasma (s).
-		CreakCooldown = 4,
+	-- REKWIZYTY (2026-09-24, zgłoszenie po teście v4: „pudła, szafki — pobugowane”).
+	-- Wszystko w folderze dekoracji budynku to rekwizyt: NIGDY nie jest cięte jak ściana. Mebel
+	-- (najwyższy Model pod folderem dekoracji, do MaxSize) pada albo odlatuje W CAŁOŚCI — jak
+	-- wieszaki (decyzja Kacpra 23.09: „cały mebel pada”). Zmierzone: 1474 duże party dekoracji
+	-- (szafki, szafy, regały, łóżka, sofy, automaty, pudła) szły ścieżką ścian — dostawały
+	-- poszarpane dziury, a drobne części tego samego mebla odpadały osobno.
+	-- Większe od MaxSize (dywany 63×63, płoty 53, drabiny 45) zostają przy cięciu jak dotąd.
+	Props = {
+		Folders = { Decorations = true },
+		MaxSize = 24,   -- studów (największy wymiar modelu albo parta)
+		MaxParts = 200,
 	},
+
+	-- (KOLAPS SEKCJI v2 — `Collapse` z filarami `Pillar` — USUNIĘTY 2026-09-24 razem ze
+	-- StructureService: na mapie było 0 filarów. Kolaps robi teraz v4: `Config.Structure`.)
 
 	-- UDERZENIA GRUZU (etap 3 — DebrisService).
 	Impact = {
@@ -1141,19 +1225,50 @@ Config.Destruction = {
 	-- STRONA KLIENCKA (ExplosionFXController + DebrisFXController). Wszystko lokalne,
 	-- zero replikacji — dlatego liczby mogą być wysokie.
 	FX = {
-		-- Kosmetyczne odłamki per wybuch (skalowane jakością grafiki).
-		-- 150 → 45 (2026-08-12): przy takiej chmurze NIE BYŁO WIDAĆ realnej destrukcji —
-		-- dziura i lecący gruz ginęły w kurzawie. Efekty mają podkreślać zniszczenie,
-		-- nie je zasłaniać.
-		ClientFrags = 45,
+		-- ⚠️ ILE i JAK DŁUGO (liczby odłamków, kawałków, czasy leżenia, sufity) jest od
+		-- 2026-09-23 w `Config.Graphics.Profiles` — zależy od trybu grafiki gracza. Tu
+		-- zostaje tylko KSZTAŁT i ZACHOWANIE, wspólne dla obu trybów.
+		-- (Historia: 150 → 45 odłamków ogólnych 2026-08-12 — przy takiej chmurze NIE BYŁO
+		-- WIDAĆ realnej destrukcji. Efekty mają podkreślać zniszczenie, nie je zasłaniać.)
 		FragMinSize = 0.4,
 		FragMaxSize = 1.5,
 		FragMinSpeed = 18,
 		FragMaxSpeed = 60,
-		FragLifetime = 5,     -- s życia odłamka zanim shrink+fade
-		FragFadeTime = 0.45,
-		MaxLocalFrags = 500,  -- twardy sufit ŁĄCZNIE (FIFO — najstarsze wypadają)
-		FragDensity = 0.35,   -- niska masa: odłamek muska character zamiast go spychać
+		FragFadeTime = 0.45,  -- s gaśnięcia KAŻDEGO lokalnego kawałka (odłamek, gruz, mebel)
+		-- 🔴 LOKALNY GRUZ NIE MA KOLIZJI (2026-09-23, pytanie Kacpra o dwóch graczy z różnymi
+		-- trybami „chodzących po innym gruzie”). Leci fizyką silnika bez zderzeń, a odbicie,
+		-- lądowanie i stertę liczy DebrisFXController promieniem omijającym postacie — więc
+		-- gruz nie istnieje dla niczego, co wpływa na grę. Liczby niżej stroją tylko wygląd.
+		-- (Usunięte razem z kolizjami: `FragDensity`, `GhostTime` i grupy kolizji gruzu.)
+		MaxFlightTime = 6,     -- s — kawałek, który nie znalazł podłoża (próżnia, lawa bez dna), zamiera
+		-- LEŻĄCY gruz sprawdza co chwilę, czy ma pod sobą podłoże (zgłoszenie 24.09: „party, przez
+		-- które się przenika, lewitują” — kawałek leżący na stropie, który potem spadł, zostawał
+		-- w powietrzu). Tyle leżących kawałków sprawdzamy na klatkę (po kolei) i tak głęboko
+		-- szukamy podłoża pod spodem (sterta leży na podłodze najwyżej tyle nad nią).
+		RestChecksPerFrame = 20,
+		RestSupportProbe = 4,
+		FloorNormalY = 0.55,   -- normalna bardziej pionowa niż to = podłoże (ląduje); mniej = ściana (odbija)
+		MaxBounces = 1,        -- ile razy szybki kawałek odbije się od podłoża, zanim się położy
+		BounceMinSpeed = 16,   -- stud/s wbijania w podłoże — wolniejszy kawałek od razu się kładzie
+		Restitution = 0.3,     -- ile prędkości „w podłoże” zostaje po odbiciu
+		BounceFriction = 0.6,  -- ile prędkości wzdłuż powierzchni zostaje po odbiciu (podłoże i ściana)
+		WallRestitution = 0.35, -- odbicie od ściany/sufitu
+		-- STERTA: gruz kładzie się NA leżącym gruzie (mapa wysokości w siatce XZ), zamiast
+		-- przenikać na podłogę — inaczej pobojowisko byłoby płaskim dywanem.
+		LandCellSize = 1.5,    -- stud — oczko siatki sterty
+		PileSnap = 2,          -- stud — kawałek łapie się sterty tylko tuż nad nią (nie „teleportuje” piętro wyżej)
+		-- MEBEL SIĘ PRZEWRACA (animacja zakotwiczona — zero fizyki): obrót wokół dolnej krawędzi
+		-- od wybuchu, z przyspieszeniem. W trybie Pełnym po przewróceniu rozsypuje się na części.
+		ToppleTime = 0.55,     -- s obrotu (odrzucony od wybuchu: × 0.6 — gwałtowniej)
+		ToppleAngle = 88,      -- stopnie — mebel ląduje na boku
+		ToppleJitter = 12,     -- ± stopnie (kąt i kierunek) — każdy mebel pada trochę inaczej
+		-- Mebel/dekoracja, która PADA (nie odrzucona): lekki, losowy ruch, żeby rozsypywała
+		-- się chaotycznie, a nie zjeżdżała w dół jak winda (prośba Kacpra: „trochę
+		-- chaotycznie”). Prędkość w stud/s, obrót w rad/s.
+		DropSpeed = 3,
+		DropSpin = 2.5,
+		-- Odrzucona drobnica koziołkuje szybciej niż padająca.
+		LaunchSpin = 8,
 		-- Szkło (etap 2): odłamki szyb renderowane lokalnie z payloadu BlastFX.
 		GlassMaxPanes = 40,    -- sufit szyb w payload (server tłucze WSZYSTKIE, FX najbliższe N)
 		-- ⚠️ ILE ODŁAMKÓW I JAK DUŻYCH — SKALOWANE POWIERZCHNIĄ TAFLI (poprawka 2026-09-21,
@@ -1170,8 +1285,7 @@ Config.Destruction = {
 		ShardAreaPerShard = 5,   -- studów² tafli na jeden odłamek
 		ShardsPerPaneMin = 4,
 		ShardsPerPaneMax = 26,   -- sufit na JEDNĄ taflę (było 6 — to był cały problem)
-		ShardsPerBlastMax = 150, -- sufit na CAŁY wybuch; tafle idą od najbliższej, więc
-		                         -- przy budżecie wyczerpanym gubią się te najdalsze
+		-- (Sufit na CAŁY wybuch jest w profilu grafiki: `GlassShardsPerBlastMax`.)
 		-- Skalowanie rozmiaru: „komórka" = sqrt(powierzchnia / liczba odłamków), czyli ile
 		-- tafli przypada na jeden kawałek. Odnosimy ją do typowej szyby (`ShardCellRef`)
 		-- i tym mnożymy bazowe wymiary. Duże tafle -> kawałki do `ShardScaleMax` razy większe.
@@ -1227,6 +1341,237 @@ Config.Destruction = {
 	Debug = true,
 }
 
+-- ===== DESTRUKCJA v4 — GRAF KONSTRUKCJI (2026-09-24) =====
+-- DESTRUCTION_PLAN.md → „v4”. Na razie czyta to tylko StructureBake (narzędzie Studio,
+-- Command Bar); runtime (StructuralService) dojdzie w fazie B i użyje tych samych liczb.
+-- ⚠️ Wszystko tu to WARTOŚCI STARTOWE do strojenia na OrangeBuilding, nie wynik pomiaru.
+Config.Structure = {
+	-- Podbić przy każdej zmianie reguł bake'u, która zmienia dane — stare dane w placu
+	-- przestają wtedy pasować i budynek wraca na v3, zamiast grać na nieaktualnym grafie.
+	BakeVersion = 2, -- 2 (24.09): szkło wchodzi do danych jako pasażer (było pomijane → lewitowało)
+
+	-- Nazwy są kontraktem ze Studio (atrybuty ustawiane ręcznie w Properties → Attributes).
+	Attributes = {
+		SID = "SID",                         -- stabilne ID parta (pisze bake, przeżywa klonowanie mapy)
+		Permanent = "StructPermanent",       -- bool: ten part nigdy nie spada (żółty w podglądzie)
+		NonStructural = "StructNonStructural", -- bool: to nie konstrukcja, tylko listwa/ozdoba
+		Kind = "StructKind",                 -- string: wymuszenie rodzaju (Slab/Beam/Wall/Column/Block/Trim/Other)
+		MapRevision = "StructMapRevision",   -- number na folderze budynku: podbijany ręcznie po przeróbce
+	},
+
+	-- Foldery budynku, które NIE są konstrukcją (po nazwie, w całym drzewie budynku).
+	ExcludeFolders = { "Decorations", "Lights" },
+
+	-- KLASYFIKACJA po wymiarach w osiach ŚWIATA (part obrócony o 90° ma Size w innej kolejności).
+	Classify = {
+		MinStructuralSize = 6,  -- najdłuższy bok krótszy → nie konstrukcja (kostki, skrzynki)
+		SlabMaxThickness = 2.5, -- strop: grubość ≤ tego i oba wymiary poziome ≥ SlabMinWidth
+		SlabMinWidth = 6,
+		TrimMaxThickness = 0.6, -- cieńsze (panele elewacji) → listwa
+		TrimMaxWidth = 2,       -- drugi najmniejszy wymiar ≤ tego (pręty, listwy 1×1×N) → listwa
+		VerticalMinHeight = 8,  -- pion: wysokość ≥ tego i grubość ≤ WallMaxThickness
+		WallMaxThickness = 5,
+		ColumnMaxWidth = 6,     -- pion o szerokości ≤ tego = słup (także filarek 3×5×12), szerszy = ściana
+		BeamMinLength = 8,      -- poziomy i wydłużony → belka
+	},
+
+	-- PODZIAŁ NA CHUNKI (chunk ≠ part: słup 67 studów to jeden part i kilka pasm)
+	ChunkMaxSize = 20,  -- ≈ rozmiar dziury po bombie (18×18) — rozdzielczość konstrukcji
+	SnapDistance = 5,   -- linia podziału stropu przyciągana do belki/ściany/słupa bliżej niż tyle
+	LevelTolerance = 3, -- stropy o środkach bliższych niż tyle w pionie = ten sam poziom
+	MinBandHeight = 4,  -- pasmo pionu niższe niż tyle nie powstaje
+	MinSegment = 3,     -- odcinek stropu/belki krótszy niż tyle nie powstaje
+
+	-- STYKI
+	ContactPadding = 0.15,     -- party „stykają się”, gdy dzieli je ≤ tyle
+	GroundTolerance = 1.5,     -- spód chunka ≤ tyle nad najniższym partem budynku = stoi na gruncie
+	OverlapReportDepth = 0.05, -- przenikanie głębsze niż tyle → lista par do odfiltrowania przy kolapsie
+
+	-- SOLVER: „zasięg” = odległość od ostatniej PRAWDZIWEJ podpory (Bearing/Lateral zeruje,
+	-- Continuity dolicza przęsło). Chunk dalej niż MaxSpan swojego rodzaju spada.
+	MinInterfaceWidth = 1,
+	MaxSpan = {
+		Slab = 24,  -- jeden chunk wspornika (~20) + zapas; dwa już nie
+		Beam = 24,
+		Wall = 20,  -- nadproże nad wyrwą
+		Column = 0, -- słup nie „wisi” na sąsiednim słupie
+		Block = 0,
+	},
+	-- Które POZIOME elementy mogą trzymać PION z boku. Belka tak (węzeł ramy: słup podcięty
+	-- przy ziemi wisi na belkach), strop NIE — inaczej po podcięciu wszystkich słupów cała
+	-- wieża „wisiałaby” na cienkim stropie parteru. Pion zawieszony na belce dziedziczy jej
+	-- zasięg — belka na wsporniku nie utrzyma słupa (MaxSpan.Column = 0).
+	LateralHoldsVertical = { Beam = true },
+
+	-- Szacunek „ile bomb kładzie budynek” (cel Kacpra: ~8). Bomba = wszystkie chunki podanych
+	-- rodzajów w promieniu cięcia (dziura ~18×18 przecina słup, pasmo ściany, belkę; stropu
+	-- nie przecina — tylko zwęża). Zachłannie: każda kolejna bomba tam, gdzie zrzuci najwięcej.
+	BombEstimateRadius = 9,
+	BombEstimateKinds = { Column = true, Wall = true, Block = true, Beam = true },
+	BombEstimateFallShare = 0.6, -- liczymy, aż spadnie tyle chunków budynku
+	BombEstimateMax = 30,
+
+	-- OBRAŻENIA (faza B). Dwie niezależne gałki (pomysł z debaty 24.09): DZIURY (geometria)
+	-- i MOC STRUKTURALNA (przecinanie nośnych) — można osłabić jedno bez drugiego.
+	-- ⚠️ HoleThreshold i MinHoleRadius to te same liczby co v3 (Categories.Wall.HP,
+	-- Fracture.MinHoleRadius) — dwie kopie tylko do końca migracji, v3 zniknie.
+	Damage = {
+		HoleThreshold = 100,       -- obrażenia na powierzchni parta, od których powstaje dziura
+		MinHoleRadius = 3.5,
+		MinStrip = 1.4,            -- pas „okna” węższy niż tyle nie zostaje (dziura do krawędzi)
+		SeverTolerance = 0.3,      -- dziura musi pokryć przekrój nośny chunka z taką dokładnością
+		StructuralPowerFactor = 1, -- mnożnik obrażeń bomby dla konstrukcji
+		-- Decyzja Kacpra 24.09: bomba OBOK nośnego elementu go osłabia — obrażenia się sumują,
+		-- przy sumie ≥ HP element się kruszy. Bomba 160 w promieniu 24 kruszy element w ~9
+		-- studach jednym strzałem, a w ~15 studach dopiero drugim.
+		HP = { Column = 100, Wall = 100, Block = 140, Beam = 100 },
+		DamagedFrom = 0.25,        -- od tej części HP element jest „Damaged” (widoczne rysy)
+	},
+
+	-- GRUPY KOLAPSU (faza C): logiczne chunki ≠ fizyczne bryły. Spadające chunki łączą się
+	-- w grupy (każda = jedna bryła fizyki), żeby wieża nie spadała jako 100 osobnych kawałków.
+	Planner = {
+		BondMinWidth = 2,      -- węższy styk między spadającymi chunkami nie trzyma ich razem
+		GroupMaxFootprint = 40, -- większa grupa jest dzielona (bryła 60×60 wygląda jak tektura)
+		GroupMaxChunks = 24,
+		GroupMinVolume = 300,  -- mniejsza grupa dołącza do sąsiedniej spadającej
+	},
+
+	-- ===== FAZA D — GRA (2026-09-24) =====
+	-- Które budynki gra prowadzi na v4. Reszta mapy zostaje na v3, dopóki nie przejdzie
+	-- przez bake i test (migracja budynek po budynku).
+	Buildings = { OrangeBuilding = true },
+	-- Brak zapisanych danych (TRYB 3 bake'u) → dane liczone przy starcie rundy (~15 ms na
+	-- budynek, ten sam kod co bake). Wygodne w prototypie; przed launchem dane mają być
+	-- zapisane i sprawdzane odciskiem geometrii (kontrakt v4).
+	AnalyzeIfMissing = true,
+
+	-- WYKONAWCA KOLAPSU (CollapseService). Wszystko to WARTOŚCI STARTOWE do benchmarku.
+	Collapse = {
+		-- Budżet fizyki: grupa kosztuje 1 + liczba kawałków z kolizją. Rezerwa tylko dla
+		-- grup, na których ktoś stoi (P0) — jeździec nigdy nie traci podłogi przez budżet.
+		-- 60 → 100 po teście 24.09: przy zawaleniu wieży (25 grup) 16 grup nie zmieściło się,
+		-- serwer oddawał je klientom i górne piętra po prostu znikały („na 3. piętrze już nie ma ścian”).
+		MaxCost = 100,
+		ReserveP0 = 15,
+		-- Grupa bez miejsca w budżecie CZEKA na zwolnienie (grupy osiadają w ~1 s), zamiast od
+		-- razu przejść na animację u klientów. Kolejka idzie od dołu, więc piętro wyżej wisi
+		-- chwilę dłużej i spada na to, co już leży — naturalna kaskada. Dopiero po tylu
+		-- sekundach czekania upadek przejmują klienci.
+		MaxQueueWait = 1.5,
+		-- Ile grup odkotwiczamy w jednej klatce — kaskada rozkłada się na kilka klatek
+		-- (opóźnienie techniczne, nie ostrzeżenie: Kacper chce „natychmiast”).
+		MaxReleasesPerFrame = 4,
+		NearPlayerDistance = 60, -- P1: gracz tak blisko grupy
+		RiderHeight = 5,         -- P0: stopy gracza do tylu nad górą grupy (w jej rzucie)
+		-- Start lotu: lekkie pchnięcie w dół i odrobina obrotu — piętro się odrywa, nie
+		-- wystrzeliwuje (duże prędkości = latające płyty, sztuczne).
+		FallSpeed = 4,
+		Spin = 0.25,
+		-- Osiadanie: grupa wolniejsza niż SettleSpeed przez SettleTime = zakotwiczona na miejscu.
+		SettleSpeed = 1.5,
+		SettleTime = 0.6,
+		MaxFallTime = 8,       -- po tylu sekundach lotu kotwiczymy na siłę
+		MonitorHz = 10,
+		-- Gruz po zatrzymaniu (decyzja Kacpra 24.09): duże elementy zostają do końca rundy
+		-- jako platformy, małe znikają po kilku sekundach.
+		SmallRubbleVolume = 300,
+		SmallRubbleLifetime = 4,
+		LavaCullMargin = 1,
+		-- Filtr kolizji na starcie: pary kawałek grupy ↔ stojąca konstrukcja, które na siebie
+		-- NACHODZĄ (158 par w OrangeBuilding), nie zderzają się — inaczej silnik wypycha
+		-- odkotwiczony kawałek „wybuchowo”.
+		OverlapMinDepth = 0.05,
+		OverlapFilterMax = 80,
+		-- Kawałek ze skruszonego elementu: duży = fragment fizyki serwera (ściany mogą
+		-- naprawdę odlecieć — decyzja Kacpra), mały = animacja u klientów.
+		FragmentMinVolume = 45,
+		FragmentSpeed = 18,
+		-- Przekazanie klientom (Remotes.DebrisFall): zasięg i siła, z jaką klient wyrzuca
+		-- skruszone kawałki (upadek grup ponad budżetem leci bez wyrzutu).
+		HandoffRadius = 24,
+		HandoffImpulse = 50,
+		-- Przygniecenie spadającą grupą (ta sama ścieżka co gruz v3: DebrisService.applyCrush).
+		CrushSpeed = 18,
+		CrushContact = 2.5,
+		CrushVolumeForMax = 400,
+		CrushSpeedForMax = 50,
+		CrushMinDamage = 20,
+		CrushMaxDamage = 100,
+		MinPieceSize = 0.05, -- kawałek cieńszy niż tyle przy podziale = błąd zaokrąglenia, pomijamy
+		Debug = true,        -- log [Collapse] — wyłączyć przed launchem
+	},
+}
+
+-- ===== TRYB GRAFIKI (2026-09-23) =====
+-- Pomysł Kacpra: „ziemniak” — minimum na telefon — i tryb pełny dla tych, co na mocnym
+-- PC chcą zobaczyć rozpierdalanie. Ustawienie WYŁĄCZNIE KOSMETYCZNE: serwer robi dla
+-- wszystkich dokładnie to samo (te same dziury, te same płyty), tryb decyduje tylko, ile
+-- gruzu, kurzu i odłamków KLIENT dorysowuje u siebie. Dzięki temu telefon nie płaci za
+-- efekty, które chce widzieć PC, a serwer nie płaci za żadne z nich.
+-- Wybór gracza (decyzja Kacpra: „w ustawieniach”) — zapis w DataStore
+-- (`data.settings.graphics`, SettingsService), stan przekazywany klientowi atrybutem gracza.
+-- Dopóki gracz nic nie wybrał, tryb dobiera się sam (niżej).
+Config.Graphics = {
+	AttributeName = "GraphicsMode", -- atrybut na Player: "Potato" | "Full" | brak = automat
+	DefaultTouch = "Potato",   -- telefon/tablet (dotyk bez klawiatury)
+	DefaultConsole = "Potato", -- konsola (10-foot UI) — starsze konsole są słabsze od telefonów
+	DefaultDesktop = "Full",
+	-- Gracz, który w menu Robloxa sam zjechał suwakiem grafiki do tego poziomu lub niżej,
+	-- startuje w Ziemniaku — dał znać, że ma słaby sprzęt.
+	LowQualityLevel = 3,
+
+	-- (Grupy kolizji lokalnego gruzu USUNIĘTE 2026-09-23 — lokalny gruz nie ma kolizji
+	-- w ogóle, patrz `Destruction.FX`. Dzięki temu tryb zmienia wyłącznie obraz.)
+
+	-- KONTRAKT UI (StarterGui — buduje Kacper, kod tylko podpina). Wszystko OPCJONALNE:
+	-- bez tego UI tryb po prostu dobiera się automatycznie. Nazwy szukane rekurencyjnie.
+	UI = {
+		ScreenGui = "Settings",           -- panel ustawień (ResetOnSpawn = false — hard rule 10)
+		OpenButton = "SettingsButton",    -- przycisk w HUD, który otwiera/zamyka panel
+		CloseButton = "Close",            -- przycisk zamykania w panelu
+		PotatoButton = "GraphicsPotato",  -- wybór trybu Ziemniak
+		FullButton = "GraphicsFull",      -- wybór trybu Pełny
+		SelectedMarker = "Selected",      -- dziecko przycisku trybu, widoczne tylko gdy aktywny
+	},
+
+	Profiles = {
+		-- ZIEMNIAK — telefon. Obcięte wszystko, co kosztuje; destrukcja dalej CZYTELNA
+		-- (widać dziurę i to, że meble padają), tylko bez kurzawy i pobojowiska.
+		Potato = {
+			ClientFrags = 10,           -- ogólne odłamki z otoczenia na wybuch
+			CutChunksPerBlast = 16,     -- kawałki z dziur w ścianach/podłogach (największe pierwsze)
+			FallPartsPerBlast = 150,    -- party mebli/dekoracji przejęte od serwera na wybuch
+			ShatterFurniture = false,   -- mebel się przewraca i tak zostaje (jedna animacja, zero fizyki)
+			RubbleLifetime = 3,         -- s leżenia gruzu i mebli (decyzja Kacpra: 3 s)
+			FragLifetime = 2,           -- s życia drobnych odłamków
+			GlassShardScale = 0.35,     -- mnożnik liczby odłamków szkła na taflę
+			GlassShardsPerBlastMax = 40,
+			ParticleScale = 0.5,        -- mnożnik cząsteczek wybuchu (ogień, dym, iskry, pył)
+			MaxLocalParts = 300,        -- sufit WSZYSTKICH lokalnych partów (najstarsze gasną)
+			CastShadows = false,
+			FXDistance = 160,           -- dalej od kamery gruzu nie rysujemy wcale
+			RaysPerFrame = 80,          -- sufit promieni lądowania na klatkę (reszta gruzu czeka klatkę)
+		},
+		-- PEŁNY — mocny PC. Poziom sprzed 2026-09-23 plus pobojowisko, które zostaje.
+		Full = {
+			ClientFrags = 45,
+			CutChunksPerBlast = 110,
+			FallPartsPerBlast = 900,
+			ShatterFurniture = true,    -- przewrócony mebel rozsypuje się na części; blisko bomby — od razu
+			RubbleLifetime = 20,        -- decyzja Kacpra: 20 s
+			FragLifetime = 5,
+			GlassShardScale = 1,
+			GlassShardsPerBlastMax = 150,
+			ParticleScale = 1,
+			MaxLocalParts = 2000,
+			CastShadows = true,
+			FXDistance = 300,
+			RaysPerFrame = 400,
+		},
+	},
+}
+
 table.freeze(Config.Dev.Usernames)
 table.freeze(Config.Dev)
 table.freeze(Config.Game)
@@ -1261,17 +1606,24 @@ table.freeze(Config.Destruction.Categories.Wall)
 table.freeze(Config.Destruction.Categories.Glass)
 table.freeze(Config.Destruction.Categories.Pillar)
 table.freeze(Config.Destruction.Categories.Bridge)
+table.freeze(Config.Destruction.Categories.Small)
 table.freeze(Config.Destruction.Categories)
+table.freeze(Config.Destruction.Small)
+table.freeze(Config.Destruction.Props)
 table.freeze(Config.Destruction.DamageFeedback)
 table.freeze(Config.Destruction.Occlusion)
 table.freeze(Config.Destruction.Support)
-table.freeze(Config.Destruction.Collapse)
 table.freeze(Config.Destruction.Impact)
 table.freeze(Config.Destruction.Fracture)
 table.freeze(Config.Destruction.Shockwave)
 table.freeze(Config.Destruction.Debris)
 table.freeze(Config.Destruction.FX)
 table.freeze(Config.Destruction)
+table.freeze(Config.Graphics.UI)
+table.freeze(Config.Graphics.Profiles.Potato)
+table.freeze(Config.Graphics.Profiles.Full)
+table.freeze(Config.Graphics.Profiles)
+table.freeze(Config.Graphics)
 table.freeze(Config)
 
 return Config

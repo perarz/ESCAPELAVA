@@ -82,5 +82,31 @@
   - `StarterGui.ShopUI` (ScreenGui, **ResetOnSpawn=false**, `Enabled=false`) — dolny panel sklepu-NPC. **Obecnie PLACEHOLDER postawiony przez Claude'a — Kacper go przestyluje.** Kod szuka rekurencyjnie tych nazw i tylko je napędza:
     - `ItemName`, `Price`, `Description`, `StatusLabel` (TextLabele)
     - `BuyButton` ("KUP"), `CloseButton` ("X"), `PrevButton` ("◀"), `NextButton` ("▶")
+  - **USTAWIENIA — PANEL TRYBU GRAFIKI (NOWY 2026-09-23, do zbudowania przez Kacpra)**. Decyzja Kacpra: tryb Ziemniak / Pełny wybiera się „w ustawieniach”. Kod (`QualityController`) szuka tych nazw **rekurencyjnie** w PlayerGui i tylko je napędza — wygląd, układ i napisy są Kacpra. Nazwy w `Config.Graphics.UI`. **Wszystko OPCJONALNE**: dopóki panelu nie ma, tryb dobiera się sam (telefon/konsola → Ziemniak, PC → Pełny), a dev przełącza go klawiszem **G**.
+    - `StarterGui.Settings` (ScreenGui, **ResetOnSpawn=false** — hard rule 10, **`Enabled=false`** na starcie) — panel ustawień.
+      - `GraphicsPotato` (dowolny GuiButton: TextButton/ImageButton) — klik = tryb Ziemniak.
+      - `GraphicsFull` (GuiButton) — klik = tryb Pełny.
+      - `Selected` (dowolny GuiObject, **dziecko** każdego z dwóch przycisków, opcjonalny) — kod pokazuje go tylko przy AKTYWNYM trybie (`Visible`). Podświetlenie, ramka, ptaszek — co chcesz.
+      - `Close` (GuiButton, opcjonalny) — zamyka panel. Liczy się tylko `Close` WEWNĄTRZ `Settings` (inne okna mogą mieć swój).
+    - `SettingsButton` (GuiButton, np. w `StarterGui.HUD`) — otwiera/zamyka panel `Settings`.
+    - Wybór zapisuje się w DataStore i wraca przy następnym wejściu (`SettingsService`). Zmiana działa od następnego wybuchu, bez restartu.
+
+## Budynki na destrukcji v4 (2026-09-24)
+
+- Budynek przechodzi na v4, gdy jego NAZWA FOLDERU w `Workspace.Map…Buildings` jest w `Config.Structure.Buildings` (dziś: `OrangeBuilding`). Zmiana nazwy folderu = budynek po cichu wraca na v3.
+- Konstrukcja = wszystko w folderze budynku POZA podfolderami `Decorations` i `Lights` (`Config.Structure.ExcludeFolders`). Szkło (`Material = Glass`) ma własny system.
+- Przebudowa budynku w Studio → uruchom `STRUCTURE_BAKE.luau` i sprawdź „✅ NIETKNIĘTY BUDYNEK STOI”. Czerwone chunki = konstrukcja, której system nie rozumie: popraw styk albo ustaw atrybut na parcie — `StructKind` (`Slab`/`Beam`/`Wall`/`Column`/`Block`/`Trim`/`Other`), `StructPermanent = true` (nigdy nie spada), `StructNonStructural = true` (listwa/ozdoba).
+- Po zapisie danych (TRYB 3) KAŻDA zmiana geometrii budynku wymaga ponownego zapisu — inaczej odcisk geometrii się nie zgodzi i budynek przejdzie na dane liczone przy starcie (ostrzeżenie w F9).
+
+- **REKWIZYTY (24.09)**: wszystko w folderze `Decorations` budynku przy wybuchu pada/odlatuje W CAŁOŚCI — cały mebel = najwyższy `Model` pod `Decorations`, do 24 studów (`Config.Destruction.Props.MaxSize`), nigdy nie jest cięty jak ściana. Chcesz, żeby coś padało jako jedna rzecz: zgrupuj to w `Model`. Większe od 24 (dywany, płoty, długie szyny) zostają przy cięciu.
+
+## Mapa pod destrukcję v3 (2026-09-23)
+
+Pełny opis systemu: `DESTRUCTION_PLAN.md` → „v3”. Tu tylko to, co zależy od tego, jak mapa jest zbudowana:
+- **DROBNICA** = part o objętości < 4 studs³ albo z najdłuższym bokiem < 2.8 (78% partów tej mapy). Nie ma HP i nie pęka na kawałki: bomba ją **łamie do ~12 studów** (ściany do ~9), a upadek animują gracze u siebie. Serwer kasuje ją po 0.25 s.
+- **MEBEL** = `Model` złożony z SAMEJ drobnicy, najwyżej **18 studów** (największy wymiar) i 200 partów, bez partów `Locked`. Gdy wybuch sięgnie choć jednej jego części — **pada cały** (decyzja Kacpra: „cały mebel pada”). Zmierzone na mapie: krzesła, wieszaki, siedzenia, palety, półki, kosze, skrzynie, sprzęt z biurek to meble; **schody i drabiny (`Stairs`, `Leader`) NIE** — mają duże bryły, więc pękają jak ściany. ➜ Chcesz, żeby coś padało w całości: zgrupuj to w `Model` z małych partów. Chcesz, żeby było „konstrukcją”: niech ma choć jedną dużą bryłę albo leży luzem w folderze.
+- **`Locked` na dekoracjach wiszących z designu przestaje być konieczny**: podparcie liczy się teraz „przed i po”, więc spada tylko to, co wybuch realnie pozbawił podparcia. Dalej działa i dalej chroni całkowicie (`Locked` = wybuch w ogóle nie tyka).
+- **Podłogi i ściany mogą zostać wielkimi panelami** — wybuch przycina oryginalny part zamiast go kasować, więc stojący na nim gracz nie traci gruntu pod nogami (fix przenikania).
+- ⚠️ **Tag `Pillar`: na mapie jest 0 filarów** (zmierzone 23.09) — kolaps sekcji budynku nie działa. **Nie tagować, zanim nie zostanie naprawiony `StructureService`**: „budynek” to dla niego bezpośrednie dziecko `Workspace.Map`, a u Kacpra to model `Map` z CAŁYM miastem (`Map/Map/Map/Buildings/<nazwa>`) — kolaps zrzucałby party z całej mapy.
 
 ---

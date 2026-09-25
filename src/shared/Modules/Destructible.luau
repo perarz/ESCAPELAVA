@@ -13,8 +13,15 @@
 -- KONTRAKT MAPY (DESTRUCTION_PLAN.md):
 --   nietykalne = `Locked = true` | pod `Workspace.Map.Locked` | pod `Workspace.ActiveCash`
 --   niszczalne = pod `Workspace.Map` | pod `Workspace.ActiveBridges` (sabotaż PvP)
+--   drobnica   = mała objętość albo za krótki na cięcie (`Config.Destruction.Small`, v3)
+--   mebel      = Model z samej drobnicy, do ~18 studów — pada w CAŁOŚCI (`assemblyOf`)
 
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
+
+local SMALL = Config.Destruction.Small
 
 local Destructible = {}
 
@@ -66,6 +73,163 @@ function Destructible.canSpawnFXFrom(part: BasePart, ctx: Context): boolean
 	if model and model:FindFirstChildOfClass("Humanoid") then return false end
 	if Destructible.isProtected(part, ctx) then return false end
 	return true
+end
+
+-- ============================================================================
+-- DROBNICA i MEBLE (v3, 2026-09-23)
+-- ============================================================================
+
+-- Drobnica: mała objętość ALBO za krótka, żeby ją przeciąć na dwa kawałki. Nie ma HP,
+-- nie pęka na kawałki, nie jest gruzem serwera i nie bierze udziału w grafie podparcia —
+-- serwer przekazuje ją klientom do animacji. Zmierzone: 78% partów mapy to drobnica.
+function Destructible.isSmall(part: BasePart): boolean
+	local s = part.Size
+	return s.X * s.Y * s.Z < SMALL.MaxVolume or math.max(s.X, s.Y, s.Z) < SMALL.MinCutSize
+end
+
+-- Werdykt per Model trzymany do końca życia modelu. Słabe klucze: MapService po rundzie
+-- podmienia mapę na świeże klony, stare modele znikają i same wypadają z cache.
+local assemblyVerdict: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+-- Czy model może paść jako JEDEN mebel. Warunki (każdy z powodem):
+--   * sama drobnica — model z dużą bryłą (automat, lada, schody) bywa elementem
+--     rozgrywki, na którym się stoi; ten pęka jak ściany, nie znika w całości
+--   * wszystko zakotwiczone — model z luźnymi częściami to fizyka, nie statyczny mebel
+--   * nic chronionego — Locked to kontrakt „nigdy nie ruszać” (np. szyby samochodów)
+--   * bez Humanoida i w limitach rozmiaru/liczby — „Map” opakowujący całe miasto to też Model
+local function qualifies(model: Model, ctx: Context): boolean
+	local cached = assemblyVerdict[model]
+	if cached ~= nil then return cached end
+
+	local ok = true
+	local count = 0
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("Humanoid") then
+			ok = false
+			break
+		end
+		if d:IsA("BasePart") then
+			count += 1
+			if count > SMALL.AssemblyMaxParts
+				or not d.Anchored
+				or not Destructible.isSmall(d)
+				or Destructible.isProtected(d, ctx)
+			then
+				ok = false
+				break
+			end
+		end
+	end
+	if ok and count == 0 then
+		ok = false
+	end
+	if ok then
+		local _, size = model:GetBoundingBox()
+		if math.max(size.X, size.Y, size.Z) > SMALL.AssemblyMaxSize then
+			ok = false
+		end
+	end
+
+	assemblyVerdict[model] = ok
+	return ok
+end
+
+-- ============================================================================
+-- REKWIZYTY (2026-09-24) — wszystko w folderze dekoracji budynku
+-- ============================================================================
+-- Rekwizyt NIGDY nie jest cięty jak ściana: pada albo odlatuje w całości (cały mebel).
+-- Powód (test 24.09): szafki, szafy, regały, łóżka, sofy, automaty i pudła mają duże party,
+-- więc szły ścieżką ścian — dostawały poszarpane dziury, a ich drobne części (uchwyty,
+-- półki) odpadały osobno. Wynik: „pobugowane” pół-meble.
+
+local PROPS = Config.Destruction.Props
+local propVerdict: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+local function propQualifies(model: Model, ctx: Context): boolean
+	local cached = propVerdict[model]
+	if cached ~= nil then return cached end
+	local ok = true
+	local count = 0
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("Humanoid") then
+			ok = false
+			break
+		end
+		if d:IsA("BasePart") then
+			count += 1
+			if count > PROPS.MaxParts or not d.Anchored or Destructible.isProtected(d, ctx) then
+				ok = false
+				break
+			end
+		end
+	end
+	if ok and count == 0 then
+		ok = false
+	end
+	if ok then
+		local _, size = model:GetBoundingBox()
+		ok = math.max(size.X, size.Y, size.Z) <= PROPS.MaxSize
+	end
+	propVerdict[model] = ok
+	return ok
+end
+
+-- Jednostka-rekwizyt dla parta: najwyższy kwalifikujący się Model pod folderem dekoracji,
+-- albo sam part (gdy mieści się w MaxSize). nil = to nie rekwizyt (poza dekoracjami albo za
+-- duży — dywan 63×63, płot 53 — taki zostaje przy zwykłych regułach).
+function Destructible.propOf(part: BasePart, ctx: Context): Instance?
+	local node = part.Parent
+	local inProps = false
+	while node and node ~= Workspace and node ~= ctx.map do
+		if PROPS.Folders[node.Name] then
+			inProps = true
+			break
+		end
+		node = node.Parent
+	end
+	if not inProps then
+		return nil
+	end
+	local best: Instance? = nil
+	node = part.Parent
+	while node and not PROPS.Folders[node.Name] do
+		if node:IsA("Model") then
+			if propQualifies(node, ctx) then
+				best = node
+			else
+				break
+			end
+		end
+		node = node.Parent
+	end
+	if best then
+		return best
+	end
+	local s = part.Size
+	if math.max(s.X, s.Y, s.Z) <= PROPS.MaxSize then
+		return part
+	end
+	return nil
+end
+
+-- Jednostka, która pada razem z tym partem: NAJWIĘKSZY kwalifikujący się Model nad nim
+-- (ubranie → wieszak z całym stojakiem), albo sam part, gdy żaden model się nie nadaje.
+-- Idziemy w górę przez foldery; pierwszy model, który się NIE nadaje, kończy szukanie —
+-- przodek ma bbox i liczbę partów co najmniej takie same, więc też by się nie nadał.
+function Destructible.assemblyOf(part: BasePart, ctx: Context): Instance
+	local best: Instance = part
+	local node = part.Parent
+	while node and node ~= Workspace and node ~= ctx.map do
+		if node:IsA("Model") then
+			if qualifies(node, ctx) then
+				best = node
+			else
+				break
+			end
+		end
+		node = node.Parent
+	end
+	return best
 end
 
 return Destructible
