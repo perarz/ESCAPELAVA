@@ -1196,7 +1196,9 @@ Config.Destruction = {
 		-- pyłu — bez kopii i bez kawałków (wieszaków w GreenBuildingu: 37 sztuk, 1958 partów,
 		-- każdy trafiony był kopiowany i animowany u każdego gracza). Klucz = nazwa folderu
 		-- kategorii w Decorations. Wszystko inne w Decorations to MEBLE.
-		Vaporize = { ClothingHangers = true, Plants = true, Packages = true, TrashBins = true, Chair = true, TV = true },
+		-- 27.09: + Chairs (tak nazywa się folder krzeseł w OrangeKebab i CyanOffice — decyzja Kacpra:
+		-- wszystkie krzesła znikają). Biurka CyanOffice (OfficeDesks, 48 × ~109 partów) zostają MEBLAMI.
+		Vaporize = { ClothingHangers = true, Plants = true, Packages = true, TrashBins = true, Chair = true, Chairs = true, TV = true },
 		-- MEBLE: w zasięgu dziury rozpad od razu; dalej, od tych obrażeń, odepchnięcie w całości
 		-- (fizyka serwera, PropService); drugie trafienie → rozpad. 80 = dawny próg drobnicy
 		-- (~12 studów od bomby 160/24).
@@ -1493,6 +1495,14 @@ Config.Structure = {
 	Buildings = {
 		OrangeBuilding = { Guests = { "Railway" } },
 		GreenBuilding = { TrimMaxWidth = 1.9, DemoteUnsupported = true, Guests = { "Railway" } },
+		-- 27.09 (decyzja Kacpra: najpierw budynki bez poprawek). Pomiar w Edit, nietknięty budynek:
+		-- OrangeKebab i CyanOffice stoją na regułach ogólnych (0 czerwonych), OldBuilding2 ma
+		-- 4 czerwone przy progu 2 i 0 przy 1,9. Czekają: PurpleSchool (183/325 — belki 1×2 jak
+		-- w GreenBuildingu; 1,9 + degradacja 6), OldBuilding1 (1,9 + 2), Construction (degr. 1),
+		-- SandBuilding (degr. 9), PupleHotel (degr. 10).
+		OrangeKebab = true,
+		CyanOffice = true,
+		OldBuilding2 = { TrimMaxWidth = 1.9 },
 	},
 	-- Brak zapisanych danych (TRYB 3 bake'u) → dane liczone przy starcie rundy (~15 ms na
 	-- budynek, ten sam kod co bake). Wygodne w prototypie; przed launchem dane mają być
