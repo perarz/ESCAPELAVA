@@ -1466,7 +1466,20 @@ Config.Structure = {
 	-- ===== FAZA D — GRA (2026-09-24) =====
 	-- Które budynki gra prowadzi na v4. Reszta mapy zostaje na v3, dopóki nie przejdzie
 	-- przez bake i test (migracja budynek po budynku).
-	Buildings = { OrangeBuilding = true },
+	-- Budynki na v4 (klucz = nazwa folderu w Map.Buildings). `true` = reguły ogólne; tabela =
+	-- ustawienia tylko dla tego budynku (26.09, migracja GreenBuildingu — decyzje Kacpra):
+	--   TrimMaxWidth      — własny próg listwy (Classify.TrimMaxWidth). GreenBuilding stoi na
+	--                       belkach krawędziowych 1×2, które przy ogólnym 2 są listwami (250 z 284
+	--                       chunków bez podparcia); ogólne 1,9 psuje za to OrangeBuilding.
+	--   DemoteUnsupported — element konstrukcji bez podparcia w NIETKNIĘTYM budynku staje się
+	--                       listwą (tunel torów w GreenBuildingu: „spada z budynkiem”).
+	--   Guests            — foldery spoza budynku, których kawałek w jego obrysie jest listwą
+	--                       budynku: stoi, póki dotyka czegoś stojącego, spada z budynkiem
+	--                       („tylko ten kawałek torów, nie całe”).
+	Buildings = {
+		OrangeBuilding = { Guests = { "Railway" } },
+		GreenBuilding = { TrimMaxWidth = 1.9, DemoteUnsupported = true, Guests = { "Railway" } },
+	},
 	-- Brak zapisanych danych (TRYB 3 bake'u) → dane liczone przy starcie rundy (~15 ms na
 	-- budynek, ten sam kod co bake). Wygodne w prototypie; przed launchem dane mają być
 	-- zapisane i sprawdzane odciskiem geometrii (kontrakt v4).

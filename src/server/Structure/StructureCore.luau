@@ -122,6 +122,20 @@ end
 -- Klasyfikacja i zbieranie partów budynku
 -- ============================================================================
 
+-- Ustawienia konstrukcji dla JEDNEGO budynku: wpis w `Buildings` może nadpisać próg listwy
+-- (26.09, GreenBuilding). Bake i gra biorą to stąd, więc klasyfikacja nie może się rozjechać.
+function StructureCore.buildingConfig(cfg: any, id: string): any
+	local own = cfg.Buildings and cfg.Buildings[id]
+	if typeof(own) ~= "table" or own.TrimMaxWidth == nil then
+		return cfg
+	end
+	local classify = table.clone(cfg.Classify)
+	classify.TrimMaxWidth = own.TrimMaxWidth
+	local out = table.clone(cfg)
+	out.Classify = classify
+	return out
+end
+
 function StructureCore.classify(p: BasePart, size: Vector3, aligned: boolean, cfg: any, small: any): string
 	local attrs = cfg.Attributes
 	local forced = p:GetAttribute(attrs.Kind)

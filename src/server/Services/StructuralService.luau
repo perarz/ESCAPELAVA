@@ -74,10 +74,11 @@ local rng = Random.new()
 
 local STRIP_PAD = CFG.ContactPadding
 
+-- Ta sama definicja styku co w bake'u (`Core.intersect`: szczelina do 2 × luz). Własna, ciaśniejsza
+-- wersja (≤ 1 × luz) gubiła styki, które bake zapisał w TrimLinks — test 26.09: podkłady torów
+-- leżą 0,2 studa nad belkami i wszystkie wyszły jako „wiszące w projekcie”.
 local function touches(a: Pieces.Box, b: Pieces.Box): boolean
-	return a.min.X <= b.max.X + STRIP_PAD and b.min.X <= a.max.X + STRIP_PAD
-		and a.min.Y <= b.max.Y + STRIP_PAD and b.min.Y <= a.max.Y + STRIP_PAD
-		and a.min.Z <= b.max.Z + STRIP_PAD and b.min.Z <= a.max.Z + STRIP_PAD
+	return Core.intersect(a.min, a.max, b.min, b.max, STRIP_PAD) ~= nil
 end
 
 -- Kawałki listew bez drogi do stojącej konstrukcji. BFS po DZISIEJSZYCH kawałkach: start =
@@ -153,6 +154,119 @@ local function unsupportedStrips(rec: Rec): { StripPiece }
 end
 
 -- ============================================================================
+-- Goście budynku (26.09, decyzja Kacpra: „tylko ten kawałek torów, nie całe”)
+-- ============================================================================
+-- Party spoza budynku (tory z `OutsideDecorations.Railway`), których kawałek leży w obrysie
+-- budynku, są jego LISTWAMI: stoją, póki dotykają czegoś stojącego, i spadają z budynkiem.
+-- Szyna idzie przez pół mapy jednym partem, więc dzielimy ją na granicy obrysu: środek jest
+-- gościem, końce zostają poza v4. Dzielenie jest idempotentne — StructuralService.init rusza
+-- przed MapService.init, więc migawka mapy (i każde przywrócenie po rundzie) ma już
+-- podzielone szyny, a kawałek na samej granicy obrysu tylko go muska i jest pomijany.
+
+-- Przedział wzdłuż NAJDŁUŻSZEJ osi parta, na którym jego oś środkowa leży w obrysie.
+local function spanInside(part: BasePart, bmin: Vector3, bmax: Vector3): (number?, number, number, number)
+	local size = part.Size
+	local dims = { size.X, size.Y, size.Z }
+	local long = 1
+	for i = 2, 3 do
+		if dims[i] > dims[long] then
+			long = i
+		end
+	end
+	local cf = part.CFrame
+	-- ⚠️ Oś +Z parta to −LookVector (LookVector patrzy w −Z). Z LookVector szyna była cięta
+	-- w lustrzanym miejscu: środek lądował poza budynkiem (test 26.09).
+	local axis = if long == 1 then cf.RightVector elseif long == 2 then cf.UpVector else -cf.LookVector
+	local h = dims[long] * 0.5
+	local t0, t1 = -h, h
+	for _, k in ipairs({ "X", "Y", "Z" }) do
+		local a = Core.component(axis, k)
+		local c = Core.component(cf.Position, k)
+		local lo, hi = Core.component(bmin, k), Core.component(bmax, k)
+		if math.abs(a) < 1e-6 then
+			if c < lo or c > hi then
+				return nil, 0, long, h
+			end
+		else
+			local u0, u1 = (lo - c) / a, (hi - c) / a
+			t0, t1 = math.max(t0, math.min(u0, u1)), math.min(t1, math.max(u0, u1))
+		end
+	end
+	if t1 - t0 < D.MinStrip then
+		return nil, 0, long, h
+	end
+	return t0, t1, long, h
+end
+
+local function addGuests(rec: Rec, map: Instance, names: { string }): number
+	local added: { number } = {}
+	local isGuest: { [number]: boolean } = {}
+	for _, name in ipairs(names) do
+		local folder = map:FindFirstChild(name, true)
+		if not folder then
+			warn(("[Structure] %s: folder gości %q nie istnieje w mapie"):format(rec.id, name))
+			continue
+		end
+		for _, d in ipairs(folder:GetDescendants()) do
+			-- `owners`: kawałek toru należy już do drugiego budynku (tory idą przez oba).
+			if not d:IsA("BasePart") or owners[d] then continue end
+			local t0, t1, long, h = spanInside(d, rec.min, rec.max)
+			if not t0 then continue end
+			-- Końcówka krótsza niż MinStrip idzie z gościem (jak pasy dziury).
+			if t0 + h < D.MinStrip then t0 = -h end
+			if h - t1 < D.MinStrip then t1 = h end
+			if t0 > -h or t1 < h then
+				local cf, size = d.CFrame, d.Size
+				local dims = { size.X, size.Y, size.Z }
+				local function box(lo: number, hi: number): (CFrame, Vector3)
+					local off = { 0, 0, 0 }
+					local sz = table.clone(dims)
+					off[long], sz[long] = (lo + hi) * 0.5, hi - lo
+					return cf * CFrame.new(off[1], off[2], off[3]), Vector3.new(sz[1], sz[2], sz[3])
+				end
+				if t0 > -h then
+					Pieces.spawn(d, box(-h, t0))
+				end
+				if t1 < h then
+					Pieces.spawn(d, box(t1, h))
+				end
+				local midCf, midSize = box(t0, t1)
+				d.Size = midSize
+				d.CFrame = midCf
+			end
+			local index = #rec.parts + 1
+			local mn, mx = Core.worldBox(d)
+			rec.parts[index] = { inst = d, index = index, min = mn, max = mx, kind = "Trim", permanent = false, chunks = {} }
+			rec.pieces[index] = { d }
+			owners[d] = { rec = rec, index = index }
+			table.insert(added, index)
+			isGuest[index] = true
+		end
+	end
+	-- Styki gościa z każdym partem budynku (i innym gościem), którego dotyka. Listwa budynku
+	-- dostaje link zwrotny — oparcie płynie po łańcuchu w obie strony.
+	local pad = CFG.ContactPadding
+	for _, g in ipairs(added) do
+		local G = rec.parts[g]
+		local links: { number } = rec.stripLinks[g] or {}
+		rec.stripLinks[g] = links
+		for _, q in ipairs(rec.parts) do
+			if q.index == g or not Core.intersect(G.min, G.max, q.min, q.max, pad) then continue end
+			table.insert(links, q.index)
+			if not Core.STRUCTURAL[q.kind] and not isGuest[q.index] then
+				local back = rec.stripLinks[q.index]
+				if not back then
+					back = {}
+					rec.stripLinks[q.index] = back
+				end
+				table.insert(back, g)
+			end
+		end
+	end
+	return #added
+end
+
+-- ============================================================================
 -- Budowa budynków (start serwera + każdy COUNTDOWN)
 -- ============================================================================
 
@@ -184,16 +298,21 @@ function StructuralService.rebuild()
 		warn("[Structure] nie ma folderu Buildings w Workspace.Map — destrukcja v4 wyłączona")
 		return
 	end
-	for id in pairs(CFG.Buildings) do
+	for id, own in pairs(CFG.Buildings) do
 		local folder = root:FindFirstChild(id)
 		if not folder then
 			warn(("[Structure] budynek %s z Config.Structure.Buildings nie istnieje w mapie"):format(id))
 			continue
 		end
-		local parts = Core.collectParts(folder, CFG, Config.Destruction.Small)
+		local parts = Core.collectParts(folder, Core.buildingConfig(CFG, id), Config.Destruction.Small)
 		local data, dataParts, source = loadData(id, folder, parts)
 		if not data then
 			continue -- brak danych → budynek zostaje na v3
+		end
+		-- Degradacja z bake'u (DemoteUnsupported): w danych liczonych na żywo już jest,
+		-- w zapisanych — tylko lista, bo `collectParts` jej nie zna.
+		for _, idx in ipairs(data.Demoted or {}) do
+			dataParts[idx].kind = "Trim"
 		end
 		local state = BuildingState.new(data, Config)
 		if not state.enabled then
@@ -229,14 +348,21 @@ function StructuralService.rebuild()
 				table.insert(list, to)
 			end
 		end
-		-- Stan „przed” dla passu podparcia listew: to, co wisi już w projekcie, zostaje.
+		local guests = if typeof(own) == "table" and own.Guests and map then addGuests(rec, map, own.Guests) else 0
+		-- Stan „przed” dla passu podparcia listew: to, co wisi już w projekcie, zostaje (także
+		-- gość, który budynku nie dotyka — np. filar toru stojący w obrysie na gruncie).
+		local floating = 0
 		for _, u in ipairs(unsupportedStrips(rec)) do
+			if not rec.designFloating[u.index] then
+				floating += 1
+			end
 			rec.designFloating[u.index] = true
 		end
 		buildings[id] = rec
 		if CFG.Collapse.Debug then
-			print(("[Structure] %s: %d partów, %d chunków, dane: %s, kolaps %s"):format(
-				id, #dataParts, #state.chunks, source, if state.enabled then "włączony" else "WYŁĄCZONY"))
+			print(("[Structure] %s: %d partów (+%d gości, %d zdegradowanych), %d chunków, wiszących w projekcie %d, dane: %s, kolaps %s"):format(
+				id, #dataParts - guests, guests, #(data.Demoted or {}), #state.chunks, floating, source,
+				if state.enabled then "włączony" else "WYŁĄCZONY"))
 		end
 	end
 end

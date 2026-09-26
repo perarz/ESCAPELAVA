@@ -60,6 +60,7 @@ export type Result = {
 	attachments: { { part: number, owner: number } },
 	unattached: { number },
 	trimLinks: { { number } },
+	demoted: { number }, -- konstrukcja bez podparcia w nietkniętym budynku → listwa (DemoteUnsupported)
 	overlaps: { { number } },
 	deepOverlaps: number,
 	invalid: { number },
@@ -511,22 +512,51 @@ end
 -- ============================================================================
 
 function StructureBake.analyze(building: Instance, config: any): Result
-	local cfg = config.Structure
+	-- Ustawienia TEGO budynku (26.09: własny próg listwy, degradacja) — to samo bierze gra.
+	local cfg = Core.buildingConfig(config.Structure, building.Name)
+	local own = config.Structure.Buildings and config.Structure.Buildings[building.Name]
+	local demote = typeof(own) == "table" and own.DemoteUnsupported == true
 	local small = config.Destruction.Small
 	local pad = cfg.ContactPadding
 
 	local parts = Core.collectParts(building, cfg, small)
+	-- Odcisk PRZED degradacją (niżej): to odcisk mapy, nie wyniku analizy — gra liczy go
+	-- z samego `collectParts` i porównuje z zapisanymi danymi.
+	local hash = Core.geometryHash(parts)
+	local contacts = findContacts(parts, pad)
+
+	-- Degradacja (26.09, `DemoteUnsupported`): element konstrukcji bez podparcia w NIETKNIĘTYM
+	-- budynku staje się listwą, a analiza idzie od nowa (poziomy, chunki, interfejsy), aż nic nie
+	-- jest czerwone. Kolejny przebieg bywa potrzebny: zdegradowany element mógł nieść następny.
+	local demoted: { number } = {}
 	local groundY = math.huge
-	for _, p in ipairs(parts) do
-		if STRUCTURAL[p.kind] then
-			groundY = math.min(groundY, p.min.Y)
+	local levels: { number } = {}
+	local chunks: { Chunk } = {}
+	local ifaces: { Iface } = {}
+	local invalid: { number } = {}
+	for _ = 1, 5 do
+		groundY = math.huge
+		for _, p in ipairs(parts) do
+			table.clear(p.chunks)
+			if STRUCTURAL[p.kind] then
+				groundY = math.min(groundY, p.min.Y)
+			end
+		end
+		levels = findLevels(parts, cfg.LevelTolerance)
+		chunks = buildChunks(parts, contacts, levels, cfg)
+		ifaces = buildIfaces(parts, chunks, contacts, groundY, cfg)
+		local _, red = Core.solve(chunks, Core.outgoing(ifaces), cfg, nil, nil)
+		invalid = red
+		if not demote or #invalid == 0 then break end
+		for _, id in ipairs(invalid) do
+			local p = parts[chunks[id].part]
+			if STRUCTURAL[p.kind] then
+				p.kind = "Trim"
+				table.insert(demoted, p.index)
+			end
 		end
 	end
-
-	local contacts = findContacts(parts, pad)
-	local levels = findLevels(parts, cfg.LevelTolerance)
-	local chunks = buildChunks(parts, contacts, levels, cfg)
-	local ifaces = buildIfaces(parts, chunks, contacts, groundY, cfg)
+	table.sort(demoted)
 	local attachments, unattached = attach(parts, chunks, contacts, pad)
 
 	-- Styki z udziałem listwy/ozdoby (26.09): gra liczy z nich, czy listwa ma jeszcze czego
@@ -550,8 +580,6 @@ function StructureBake.analyze(building: Instance, config: any): Result
 		end
 	end
 
-	local _, invalid = Core.solve(chunks, Core.outgoing(ifaces), cfg, nil, nil)
-
 	local mapRevision = building:GetAttribute(cfg.Attributes.MapRevision)
 	return {
 		building = building,
@@ -566,10 +594,11 @@ function StructureBake.analyze(building: Instance, config: any): Result
 		attachments = attachments,
 		unattached = unattached,
 		trimLinks = trimLinks,
+		demoted = demoted,
 		overlaps = overlaps,
 		deepOverlaps = deep,
 		invalid = invalid,
-		hash = Core.geometryHash(parts),
+		hash = hash,
 		stats = {},
 	}
 end
@@ -674,6 +703,7 @@ function StructureBake.toData(result: Result, config: any): { [string]: any }
 		Interfaces = result.ifaces,
 		Attachments = result.attachments,
 		TrimLinks = result.trimLinks,
+		Demoted = result.demoted,
 		Overlaps = result.overlaps,
 	}
 end
@@ -727,6 +757,9 @@ function StructureBake.report(result: Result): string
 	line("  interfejsy: " .. fmtCounts(count(result.ifaces, "kind"), { "Bearing", "Lateral", "Continuity" }) .. string.format("  (razem %d)", #result.ifaces))
 	line(string.format("  doczepione listwy/ozdoby: %d | bez właściciela: %d | styki listew: %d | nachodzące pary: %d (głęboko > 0.5: %d)",
 		#result.attachments, #result.unattached, #result.trimLinks, #result.overlaps, result.deepOverlaps))
+	if #result.demoted > 0 then
+		line(string.format("  zdegradowane do listew (DemoteUnsupported — bez podparcia w nietkniętym budynku): %d", #result.demoted))
+	end
 
 	if #result.invalid == 0 then
 		line("  ✅ NIETKNIĘTY BUDYNEK STOI: 0 spadających chunków")
@@ -903,6 +936,11 @@ function StructureBake.write(result: Result, config: any, force: boolean?)
 		table.insert(tl, "{" .. l[1] .. "," .. l[2] .. "}")
 	end
 	w("\tTrimLinks = {" .. table.concat(tl, ",") .. "},")
+	local dm = {}
+	for _, idx in ipairs(data.Demoted) do
+		table.insert(dm, tostring(idx))
+	end
+	w("\tDemoted = {" .. table.concat(dm, ",") .. "},")
 	local ov = {}
 	for _, o in ipairs(data.Overlaps) do
 		table.insert(ov, "{" .. o[1] .. "," .. o[2] .. "}")
