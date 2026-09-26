@@ -10,7 +10,8 @@
 -- Filozofia: CharacterAutoLoads = false. Każdy spawn jest jawny:
 --   - LOBBY/POST_ROUND  → wszyscy w Workspace.Map.Spawn
 --   - ROUND start       → load + teleport na losowy Map.Locked.SpawnPoints/*
---   - Death w ROUND     → respawn z powrotem do Workspace.Map.Spawn (aliveSet -= player)
+--   - Death (ZAWSZE)    → po DeathRagdollTime do lobby; w ROUND dodatkowo aliveSet -= player
+--                         (także poza rundą — decyzja Kacpra 26.09)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -28,9 +29,17 @@ local PlayerService = {}
 
 local aliveSet: { [Player]: boolean } = {}
 local diedConns: { [Player]: RBXScriptConnection } = {}
--- Martwi, na których czeka już timer powrotu do lobby (DeathRagdollTime). Koniec rundy
--- zostawia ich temu timerowi; martwego BEZ timera odradza sam.
-local respawnPending: { [Player]: boolean } = {}
+-- Martwi, na których czeka timer powrotu do lobby (DeathRagdollTime). Wartość to ŻETON
+-- tego jednego timera: każdy spawn gracza (lobby albo start rundy) go kasuje, a timer,
+-- który zastanie inny żeton, nic nie robi — gracza przejął już inny spawn. Koniec rundy
+-- zostawia martwych z timerem jemu; martwego BEZ timera odradza sam.
+local respawnPending: { [Player]: {} } = {}
+-- Spawn w toku (LoadCharacter + teleport). Dwa spawny jednego gracza naraz kończą się
+-- w nieznanej kolejności: zostaje postać, która załadowała się OSTATNIA, a teleport
+-- drugiego trafia nie w tę postać. Realne od 26.09 (odradzanie także poza rundą): ktoś
+-- ginie w lobby tuż przed startem rundy → timer ładuje go do lobby, a start rundy w tej
+-- samej chwili na mapę; gdyby wygrało lobby, stałby w lobby jako „żywy w rundzie”.
+local spawnBusy: { [Player]: boolean } = {}
 local initialized = false
 local warnedNoLobby = false
 local warnedNoSpawns = false
@@ -196,49 +205,82 @@ local function teleportCharacter(character: Model, position: Vector3)
 	end
 end
 
-local function sendToLobby(player: Player)
-	AppearanceService.loadCharacter(player)
-	local char = player.Character
-	if char then
-		teleportCharacter(char, getLobbyTargetPosition())
+-- Czeka, aż skończy się rozpoczęty wcześniej spawn tego gracza (patrz `spawnBusy`). Z limitem:
+-- zawieszony spawn jednego gracza nie może wstrzymać startu rundy wszystkim.
+local function waitSpawnIdle(player: Player)
+	local deadline = os.clock() + Config.Game.SpawnWaitMax
+	while spawnBusy[player] and player.Parent and os.clock() < deadline do
+		task.wait()
 	end
 end
 
-local function onDeath(player: Player, hum: Humanoid?)
-	if not aliveSet[player] then return end
-	aliveSet[player] = nil
-	disconnectDied(player)
+local function sendToLobby(player: Player)
+	-- Ten spawn przejmuje gracza — czekający timer śmierci już nic nie zrobi.
+	respawnPending[player] = nil
+	waitSpawnIdle(player)
+	if not player.Parent then return end
+	spawnBusy[player] = true
+	-- pcall, bo flaga MUSI zejść. Przy okazji błąd jednego gracza nie przerywa już pętli
+	-- `sendSurvivorsToLobby` (reszta zostałaby na mapie).
+	local ok, err = pcall(function()
+		AppearanceService.loadCharacter(player)
+		local char = player.Character
+		if char then
+			teleportCharacter(char, getLobbyTargetPosition())
+		end
+	end)
+	spawnBusy[player] = nil
+	if not ok then
+		warn(("[PlayerService] spawn w lobby %s nie powiódł się: %s"):format(player.Name, tostring(err)))
+	end
+end
 
-	-- Kill credit — jeśli attacker był tagged w oknie czasu, dostaje $. Fires PlayerKilled.
-	if hum then
-		KillService.processDeath(player, hum)
+-- Czy gracz ma już INNĄ, żywą postać niż ta, która zginęła (np. załadował go start rundy).
+-- ⚠️ Nie „czy Character to dalej ta martwa postać” (wersja 25.09): postać, która spadła pod
+-- mapę, silnik rozbiera (party poniżej FallenPartsDestroyHeight) i `Character` może już na nią
+-- nie wskazywać — wtedy nikt jej nie odradzał, a koniec rundy martwych pomijał. Najbardziej
+-- prawdopodobna przyczyna zgłoszenia Kacpra 26.09 „jak zginął, to gdzieś ciągle pod mapą był”
+-- (wywnioskowana z kodu, niezmierzona).
+local function hasLivingCharacter(player: Player, deadCharacter: Instance?): boolean
+	local current = player.Character
+	if not current or current == deadCharacter then return false end
+	local hum = current:FindFirstChildOfClass("Humanoid")
+	return hum ~= nil and hum.Health > 0
+end
+
+local function onDeath(player: Player, hum: Humanoid?)
+	disconnectDied(player)
+	-- Postać, która NAPRAWDĘ zginęła (Humanoid siedzi w niej do końca) — `player.Character`
+	-- w chwili, gdy dotarł Died, mógł już wskazywać nową.
+	local deadCharacter: Instance? = if hum then hum.Parent else player.Character
+
+	if aliveSet[player] then
+		aliveSet[player] = nil
+
+		-- Kill credit — jeśli attacker był tagged w oknie czasu, dostaje $. Fires PlayerKilled.
+		if hum then
+			KillService.processDeath(player, hum)
+		end
+
+		-- Sygnał zmiany stanu alive → false (single source: aliveSet). Obecnie bez konsumenta
+		-- po stronie klienta (HudVisibilityController usunięty razem ze sklepem).
+		Remotes.AliveChanged:FireClient(player, false)
+		Remotes.PlayerDied:FireAllClients(player, "round")
 	end
 
-	-- Sygnał zmiany stanu alive → false (single source: aliveSet). Obecnie bez konsumenta
-	-- po stronie klienta (HudVisibilityController usunięty razem ze sklepem).
-	Remotes.AliveChanged:FireClient(player, false)
-	Remotes.PlayerDied:FireAllClients(player, "round")
-
+	-- Odradzamy ZAWSZE, także poza rundą (decyzja Kacpra 26.09: „zawsze odradzaj”). Wcześniej
+	-- śmierć poza rundą (reset w lobby, upadek spectatora) zostawiała trupa do najbliższego
+	-- startu albo końca rundy — nawet przez całą przerwę i odliczanie.
 	-- Martwy leży chwilę jako ragdoll (przewraca go toolbox na humanoid.Died), dopiero potem
 	-- lobby — decyzja Kacpra 25.09. Kamera zostaje na ciele, więc widać, że i gdzie się zginęło.
 	-- Stan rundy już o nim nie wie (aliveSet wyżej), więc czekanie niczego w grze nie blokuje.
-	local deadCharacter = player.Character
-	respawnPending[player] = true
+	local token = {}
+	respawnPending[player] = token
 	task.delay(Config.Game.DeathRagdollTime, function()
+		if respawnPending[player] ~= token then return end -- gracza przejął inny spawn
 		respawnPending[player] = nil
 		if not player.Parent then return end -- wyszedł z gry
-		-- Nie ruszamy tylko gracza, który ma już INNĄ, ŻYWĄ postać (np. start rundy załadował
-		-- mu nową w tym czasie). ⚠️ Pierwsza wersja (25.09) wymagała, żeby to była dalej ta
-		-- sama martwa postać. Postać, która spadła pod mapę, silnik rozbiera (party poniżej
-		-- FallenPartsDestroyHeight) i `Character` może już na nią nie wskazywać — wtedy nikt
-		-- jej nie odradzał, a koniec rundy martwych pomijał. Najbardziej prawdopodobna przyczyna
-		-- zgłoszenia Kacpra 26.09 „jak zginął, to gdzieś ciągle pod mapą był” (wywnioskowana
-		-- z kodu, niezmierzona).
-		local current = player.Character
-		if current and current ~= deadCharacter then
-			local hum = current:FindFirstChildOfClass("Humanoid")
-			if hum and hum.Health > 0 then return end
-		end
+		if hasLivingCharacter(player, deadCharacter) then return end
 		sendToLobby(player)
 	end)
 end
@@ -280,9 +322,10 @@ local function sendSurvivorsToLobby()
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		if hum and hum.Health <= 0 then
-			-- Martwy bez czekającego timera (np. zginął poza zasięgiem onDeath) — odradzamy
-			-- teraz, zamiast zostawiać trupa do następnej rundy.
-			if not respawnPending[p] then
+			-- Martwy bez czekającego timera — od 26.09 każda śmierć go dostaje, więc to siatka
+			-- na wypadek, gdyby Died nie dotarł. Odradzamy teraz, zamiast zostawiać trupa.
+			-- Spawn w toku (timer właśnie odpalił) i tak da mu nową postać — drugi = mignięcie.
+			if not respawnPending[p] and not spawnBusy[p] then
 				sendToLobby(p)
 			end
 			continue
@@ -303,6 +346,9 @@ local function sendEveryoneToRound()
 	-- Pre-populate aliveSet SYNCHRONICZNIE przed jakimkolwiek yield, żeby
 	-- GameLoop.shouldEndRound widział alive>0 zanim my zdążymy zrobić LoadCharacter.
 	aliveSet = {}
+	-- Start rundy ładuje postać KAŻDEMU, więc czekające timery śmierci są nieaktualne —
+	-- bez tego ktoś, kto zginął w lobby chwilę przed startem, wróciłby z mapy do lobby.
+	respawnPending = {}
 	local players = Players:GetPlayers()
 	for _, player in ipairs(players) do
 		aliveSet[player] = true
@@ -317,6 +363,11 @@ local function sendEveryoneToRound()
 	local spawned: { { char: Model, pos: Vector3 } } = {}
 	for i, player in ipairs(players) do
 		local pos = pool[((i - 1) % #pool) + 1]
+		-- Spawn do lobby rozpoczęty tuż przed startem rundy (timer śmierci, dołączenie) musi
+		-- skończyć się PRZED naszym — inaczej jego postać mogłaby załadować się ostatnia.
+		-- Flaga trzyma aż do teleportu na mapę (niżej), nie tylko do końca ładowania.
+		waitSpawnIdle(player)
+		spawnBusy[player] = true
 		local ok, err = pcall(function()
 			AppearanceService.loadCharacter(player)
 		end)
@@ -340,6 +391,9 @@ local function sendEveryoneToRound()
 			entry.char:PivotTo(CFrame.new(entry.pos))
 		end
 	end
+	for _, player in ipairs(players) do
+		spawnBusy[player] = nil
+	end
 end
 
 local function onPlayerAdded(player: Player)
@@ -354,6 +408,7 @@ end
 local function onPlayerRemoving(player: Player)
 	aliveSet[player] = nil
 	respawnPending[player] = nil
+	spawnBusy[player] = nil
 	disconnectDied(player)
 end
 

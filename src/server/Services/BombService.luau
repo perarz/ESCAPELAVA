@@ -272,8 +272,8 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 		if distance > def.blastRadius then continue end
 		-- Od tego miejsca gracz JEST w zasięgu — każde pominięcie logujemy z powodem
 		-- (26.09: „czasem bomba nic mu nie robi” — bez tego nie wiadomo, który warunek).
-		-- Tylko żywi w rundzie. Bez tego bomba rzucona blisko lobby zabijała spectatorów,
-		-- a onDeath ich ignoruje (nie są w aliveSet) → trup bez respawnu do następnej rundy.
+		-- Tylko żywi w rundzie. Bez tego bomba rzucona blisko lobby zabijała spectatorów
+		-- (do 26.09 zostawał po nich trup bez respawnu do następnej rundy).
 		if not PlayerService.isAlive(p) then
 			log(thrower, "miss", ("%s dist=%.1f — nie jest żywy w rundzie (aliveSet)"):format(p.Name, distance))
 			continue

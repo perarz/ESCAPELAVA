@@ -71,7 +71,13 @@ Config.Game = {
 	-- 25.09: „po śmierci od razu włącza się ragdoll i tak z 2 sekundy leżysz martwy” —
 	-- wcześniej lobby ładowało się w następnej klatce i nie było widać, że i od czego się
 	-- zginęło). Ragdoll przy śmierci robi toolbox (humanoid.Died), tu tylko czekamy.
+	-- Od 26.09 dotyczy KAŻDEJ śmierci, także poza rundą (decyzja Kacpra: „zawsze odradzaj”).
 	DeathRagdollTime = 2,
+
+	-- Ile najdłużej spawn gracza czeka, aż skończy się poprzedni spawn TEGO SAMEGO gracza
+	-- (PlayerService, `spawnBusy`). Normalnie to ułamek sekundy; limit jest po to, żeby
+	-- zawieszony spawn jednego gracza nie wstrzymał startu rundy wszystkim.
+	SpawnWaitMax = 5,
 }
 
 Config.Lava = {
