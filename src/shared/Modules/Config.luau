@@ -1373,7 +1373,8 @@ Config.Destruction = {
 Config.Structure = {
 	-- Podbić przy każdej zmianie reguł bake'u, która zmienia dane — stare dane w placu
 	-- przestają wtedy pasować i budynek wraca na v3, zamiast grać na nieaktualnym grafie.
-	BakeVersion = 2, -- 2 (24.09): szkło wchodzi do danych jako pasażer (było pomijane → lewitowało)
+	BakeVersion = 3, -- 2 (24.09): szkło wchodzi do danych jako pasażer (było pomijane → lewitowało)
+	                 -- 3 (26.09): TrimLinks — styki listew dla passu podparcia listew
 
 	-- Nazwy są kontraktem ze Studio (atrybuty ustawiane ręcznie w Properties → Attributes).
 	Attributes = {

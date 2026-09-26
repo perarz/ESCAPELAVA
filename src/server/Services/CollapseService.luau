@@ -246,16 +246,12 @@ local function crumble(rec: Rec, chunkId: number, cause: Cause?)
 		filterContacts(fragment)
 		launchFragment(fragment, center, attackerId)
 	end
-	-- Listwy i szyby wiszące na skruszonym elemencie spadają razem z nim (test 24.09: bez tego
-	-- zostawały w powietrzu).
+	-- Listwy i szyby, które przez to kruszenie straciły OSTATNIE oparcie, spadają (test 24.09:
+	-- bez tego zostawały w powietrzu). Od 26.09 tylko te — wcześniej spadały wszystkie listwy
+	-- chunka, także trzymające się czegoś jeszcze, a te wiszące na innych listwach zostawały.
 	local loose: { Instance } = {}
-	for _, partIndex in ipairs(StructuralService.attachmentsOf(rec, chunkId)) do
-		for _, p in ipairs(table.clone(StructuralService.piecesOf(rec, partIndex))) do
-			if p.Anchored then
-				StructuralService.releasePiece(rec, partIndex, p)
-				table.insert(loose, p)
-			end
-		end
+	for _, u in ipairs(StructuralService.takeUnsupportedStrips(rec)) do
+		table.insert(loose, u.piece)
 	end
 	if deps then
 		-- Meble i drobnica stojące na tym, co się skruszyło.
@@ -496,17 +492,22 @@ local function takePieces(a: Active): { BasePart }
 	return out
 end
 
-local function takeFollowers(a: Active): { BasePart }
-	local out: { BasePart } = {}
+-- Listwy, które po zabraniu kawałków grupy (`takePieces` — woła się PRZED tym) straciły
+-- OSTATNIE oparcie: doczepione w bake'u do chunków grupy lecą z nią jako pasażerowie, reszta
+-- idzie do klientów. Listwa, która dotyka jeszcze czegoś stojącego, ZOSTAJE (decyzja Kacpra
+-- 26.09) — wcześniej leciała z grupą każda doczepiona, np. szyna drabiny przez trzy piętra
+-- razem z górnym stropem, a szczebel wiszący tylko na innej listwie zostawał w powietrzu.
+local function takeFollowers(a: Active): ({ BasePart }, { BasePart })
+	local mine: { [number]: boolean } = {}
 	for _, partIndex in ipairs(a.def.followers) do
-		for _, p in ipairs(table.clone(StructuralService.piecesOf(a.rec, partIndex))) do
-			if p.Anchored then
-				StructuralService.releasePiece(a.rec, partIndex, p)
-				table.insert(out, p)
-			end
-		end
+		mine[partIndex] = true
 	end
-	return out
+	local ride: { BasePart } = {}
+	local drop: { BasePart } = {}
+	for _, u in ipairs(StructuralService.takeUnsupportedStrips(a.rec)) do
+		table.insert(if mine[u.index] then ride else drop, u.piece)
+	end
+	return ride, drop
 end
 
 -- ============================================================================
@@ -520,7 +521,8 @@ local function release(a: Active): boolean
 		a.phase = "Gone"
 		return false
 	end
-	local followers = takeFollowers(a)
+	local followers, loose = takeFollowers(a)
+	handOffNow(loose, a.center, false)
 	a.pieces = pieces
 	a.followers = followers
 
@@ -596,8 +598,11 @@ end
 -- animują klienci zamiast fizyki serwera.
 local function degrade(a: Active)
 	local pieces = takePieces(a)
-	for _, f in ipairs(takeFollowers(a)) do
-		table.insert(pieces, f)
+	local ride, loose = takeFollowers(a)
+	for _, list in ipairs({ ride, loose }) do
+		for _, f in ipairs(list) do
+			table.insert(pieces, f)
+		end
 	end
 	handOffNow(pieces, a.center, false)
 	a.rec.state:retire(a.def.chunkIds)

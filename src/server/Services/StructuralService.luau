@@ -6,7 +6,9 @@
 -- Trzyma, dla każdego budynku z `Config.Structure.Buildings`:
 --   * BuildingState (który chunk stoi, jest osłabiony, zniszczony, spada)
 --   * KAWAŁKI: fizyczne party, które dziś tworzą każdy part konstrukcji z bake'u (dziura
---     dzieli part na pasy, kolaps odcina go po granicy chunków)
+--     dzieli part na pasy, kolaps odcina go po granicy chunków, bomba wycina odcinek listwy)
+--   * OPARCIE LISTEW (26.09): listwa zostaje, póki dotyka czegoś stojącego — pass
+--     `takeUnsupportedStrips` po każdej zmianie budynku oddaje te, które straciły ostatnie
 -- Reszta mapy zostaje na v3 — DestructionService pyta `ownerOf`, zanim zdecyduje, którą
 -- ścieżką idzie part.
 --
@@ -47,19 +49,108 @@ export type Rec = {
 	state: BuildingState,
 	parts: { Core.PartRec }, -- indeks = SID z bake'u
 	pieces: { [number]: { BasePart } }, -- part → jego dzisiejsze kawałki
-	attachedTo: { [number]: { number } }, -- chunk → listwy/szyby (indeksy partów), które na nim wiszą
+	-- Listwa/ozdoba → party, których dotyka (bake: TrimLinks). Mówi tylko, KOGO sprawdzać;
+	-- czy dalej dotyka, liczy pass podparcia na dzisiejszych kawałkach.
+	stripLinks: { [number]: { number } },
+	-- Listwy bez oparcia już w NIETKNIĘTYM budynku (tak je postawiono) — pass ich nie zrzuca.
+	designFloating: { [number]: boolean },
 	min: Vector3, -- prostopadłościan budynku (szybki filtr wybuchu)
 	max: Vector3,
 	source: string, -- "baked" | "live"
 }
 
 type Owner = { rec: Rec, index: number }
+export type StripPiece = { index: number, piece: BasePart }
 
 local buildings: { [string]: Rec } = {}
 -- Kawałek → (budynek, part). Słabe klucze: skasowany kawałek sam wypada.
 local owners: { [BasePart]: Owner } = setmetatable({}, { __mode = "k" }) :: any
 local causeSeq = 0
 local rng = Random.new()
+
+-- ============================================================================
+-- Oparcie listew (26.09, decyzja Kacpra: „zostaje, póki dotyka czegoś stojącego”)
+-- ============================================================================
+
+local STRIP_PAD = CFG.ContactPadding
+
+local function touches(a: Pieces.Box, b: Pieces.Box): boolean
+	return a.min.X <= b.max.X + STRIP_PAD and b.min.X <= a.max.X + STRIP_PAD
+		and a.min.Y <= b.max.Y + STRIP_PAD and b.min.Y <= a.max.Y + STRIP_PAD
+		and a.min.Z <= b.max.Z + STRIP_PAD and b.min.Z <= a.max.Z + STRIP_PAD
+end
+
+-- Kawałki listew bez drogi do stojącej konstrukcji. BFS po DZISIEJSZYCH kawałkach: start =
+-- kawałek listwy dotykający kawałka konstrukcji, dalej przez styki listwa↔listwa (szczebel
+-- trzyma się szyny, szyna stropu). Styk sprawdzamy na pudełkach kawałków, nie partów: dziura
+-- albo wycięty odcinek mógł zabrać akurat miejsce styku. Pełny pass na OrangeBuilding
+-- (193 listwy, 583 styki) = 0,15 ms (pomiar 26.09), więc liczymy zawsze cały budynek.
+local function unsupportedStrips(rec: Rec): { StripPiece }
+	local STRUCTURAL = Core.STRUCTURAL
+	local live: { [number]: { BasePart } } = {}
+	local function piecesOf(index: number): { BasePart }
+		local list = live[index]
+		if not list then
+			list = StructuralService.piecesOf(rec, index)
+			live[index] = list
+		end
+		return list
+	end
+	local boxes: { [BasePart]: Pieces.Box } = {}
+	local function boxOf(p: BasePart): Pieces.Box
+		local b = boxes[p]
+		if not b then
+			b = Pieces.boxOf(p)
+			boxes[p] = b
+		end
+		return b
+	end
+
+	local supported: { [BasePart]: boolean } = {}
+	local queue: { StripPiece } = {}
+	for index, links in pairs(rec.stripLinks) do
+		for _, piece in ipairs(piecesOf(index)) do
+			if not piece.Anchored then continue end
+			for _, other in ipairs(links) do
+				if not STRUCTURAL[rec.parts[other].kind] then continue end
+				for _, q in ipairs(piecesOf(other)) do
+					if q.Anchored and touches(boxOf(piece), boxOf(q)) then
+						supported[piece] = true
+						break
+					end
+				end
+				if supported[piece] then break end
+			end
+			if supported[piece] then
+				table.insert(queue, { index = index, piece = piece })
+			end
+		end
+	end
+	local qi = 1
+	while qi <= #queue do
+		local cur = queue[qi]
+		qi += 1
+		for _, other in ipairs(rec.stripLinks[cur.index]) do
+			if STRUCTURAL[rec.parts[other].kind] then continue end
+			for _, q in ipairs(piecesOf(other)) do
+				if not supported[q] and q.Anchored and touches(boxOf(cur.piece), boxOf(q)) then
+					supported[q] = true
+					table.insert(queue, { index = other, piece = q })
+				end
+			end
+		end
+	end
+
+	local out: { StripPiece } = {}
+	for index in pairs(rec.stripLinks) do
+		for _, piece in ipairs(piecesOf(index)) do
+			if not supported[piece] then
+				table.insert(out, { index = index, piece = piece })
+			end
+		end
+	end
+	return out
+end
 
 -- ============================================================================
 -- Budowa budynków (start serwera + każdy COUNTDOWN)
@@ -114,24 +205,33 @@ function StructuralService.rebuild()
 			state = state,
 			parts = dataParts,
 			pieces = {},
-			attachedTo = {},
+			stripLinks = {},
+			designFloating = {},
 			min = Vector3.one * math.huge,
 			max = -Vector3.one * math.huge,
 			source = source,
 		}
-		for _, a in ipairs(data.Attachments) do
-			local list = rec.attachedTo[a.owner]
-			if not list then
-				list = {}
-				rec.attachedTo[a.owner] = list
-			end
-			table.insert(list, a.part)
-		end
 		for _, p in ipairs(dataParts) do
 			rec.pieces[p.index] = { p.inst }
 			owners[p.inst] = { rec = rec, index = p.index }
 			rec.min = rec.min:Min(p.min)
 			rec.max = rec.max:Max(p.max)
+		end
+		for _, l in ipairs(data.TrimLinks or {}) do
+			for k = 1, 2 do
+				local from, to = l[k], l[3 - k]
+				if Core.STRUCTURAL[dataParts[from].kind] then continue end
+				local list = rec.stripLinks[from]
+				if not list then
+					list = {}
+					rec.stripLinks[from] = list
+				end
+				table.insert(list, to)
+			end
+		end
+		-- Stan „przed” dla passu podparcia listew: to, co wisi już w projekcie, zostaje.
+		for _, u in ipairs(unsupportedStrips(rec)) do
+			rec.designFloating[u.index] = true
 		end
 		buildings[id] = rec
 		if CFG.Collapse.Debug then
@@ -157,11 +257,6 @@ end
 
 function StructuralService.buildings(): { [string]: Rec }
 	return buildings
-end
-
--- Listwy i szyby wiszące na chunku (indeksy partów).
-function StructuralService.attachmentsOf(rec: Rec, chunkId: number): { number }
-	return rec.attachedTo[chunkId] or {}
 end
 
 -- Dzisiejsze kawałki parta (skasowane odfiltrowane).
@@ -203,9 +298,133 @@ function StructuralService.releasePiece(rec: Rec, index: number, part: BasePart)
 	owners[part] = nil
 end
 
+-- Instancja oddawana klientom W CAŁOŚCI (ozdoba, szyba, mebel z drobnicy): jej kawałki
+-- przestają być częścią budynku OD RAZU. Skasuje ją dopiero `HandoffDelay`, a do tego czasu
+-- pass podparcia liczyłby ją jako oparcie — listwa, która trzymała się tylko jej, zostałaby
+-- w powietrzu.
+function StructuralService.releaseInstance(inst: Instance)
+	local function release(p: Instance)
+		if p:IsA("BasePart") then
+			local o = owners[p]
+			if o then
+				StructuralService.releasePiece(o.rec, o.index, p)
+			end
+		end
+	end
+	release(inst)
+	for _, d in ipairs(inst:GetDescendants()) do
+		release(d)
+	end
+end
+
+-- Zwalnia z budynku i zwraca kawałki listew, które straciły OSTATNIE oparcie (wołający
+-- oddaje je klientom albo zabiera z grupą kolapsu). Wołają: DestructionService po wybuchu,
+-- CollapseService po kruszeniu i przy starcie grupy.
+function StructuralService.takeUnsupportedStrips(rec: Rec): { StripPiece }
+	local out: { StripPiece } = {}
+	for _, u in ipairs(unsupportedStrips(rec)) do
+		if rec.designFloating[u.index] then continue end
+		StructuralService.releasePiece(rec, u.index, u.piece)
+		table.insert(out, u)
+	end
+	return out
+end
+
+-- To samo dla każdego budynku w zasięgu wybuchu.
+function StructuralService.takeUnsupportedStripsNear(center: Vector3, radius: number): { BasePart }
+	local out: { BasePart } = {}
+	for _, rec in pairs(buildings) do
+		if Core.boxDistance(rec.min, rec.max, center) < radius then
+			for _, u in ipairs(StructuralService.takeUnsupportedStrips(rec)) do
+				table.insert(out, u.piece)
+			end
+		end
+	end
+	return out
+end
+
 -- ============================================================================
 -- Wybuch (woła DestructionService)
 -- ============================================================================
+
+-- Listwa, z której bomba wycina odcinek (decyzja Kacpra 26.09): zwykły prostopadłościan
+-- budynku v4, który nie jest konstrukcją ani szkłem. Szkło tłucze pass szyb; MeshPart, klin
+-- czy walec nie dają się przyciąć pudełkiem — te padają w całości, jak drobnica.
+function StructuralService.isCuttableStrip(part: BasePart): boolean
+	local o = owners[part]
+	if not o or Core.STRUCTURAL[o.rec.parts[o.index].kind] then
+		return false
+	end
+	return part:IsA("Part") and (part :: Part).Shape == Enum.PartType.Block and part.Material ~= Enum.Material.Glass
+end
+
+-- Wycina z listwy odcinek, na którym wybuch przekracza jej próg (`breakRadius` = zasięg
+-- progu): na wylot przez przekrój, wzdłuż najdłuższej osi. Półdługość odcinka √(R² − d⊥²),
+-- gdzie d⊥ to odległość epicentrum od listwy w przekroju. Resztki zostają w budynku (oryginał
+-- tam, gdzie stoją gracze), wycięty odcinek wraca do wołającego — idzie do klientów. Krótka
+-- listwa (szczebel) wraca cała. nil = wybuch jej nie sięga.
+function StructuralService.cutStrip(part: BasePart, center: Vector3, breakRadius: number, feetWorld: { Vector3 }): BasePart?
+	local o = owners[part]
+	if not o then
+		return nil
+	end
+	local rec, index = o.rec, o.index
+	local cf, size = part.CFrame, part.Size
+	local lc = cf:PointToObjectSpace(center)
+	local dims = { size.X, size.Y, size.Z }
+	local cs = { lc.X, lc.Y, lc.Z }
+	local long = 1
+	for i = 2, 3 do
+		if dims[i] > dims[long] then
+			long = i
+		end
+	end
+	local perp2 = 0
+	for i = 1, 3 do
+		if i ~= long then
+			local e = math.max(math.abs(cs[i]) - dims[i] * 0.5, 0)
+			perp2 += e * e
+		end
+	end
+	local reach2 = breakRadius * breakRadius - perp2
+	-- Trafiona listwa traci zawsze choć tyle, żeby było widać, że pękła.
+	local half = math.max(if reach2 > 0 then math.sqrt(reach2) else 0, D.MinStrip * 0.5)
+	local h = dims[long] * 0.5
+	local v0 = math.max(cs[long] - half, -h)
+	local v1 = math.min(cs[long] + half, h)
+	if v0 >= v1 then
+		return nil
+	end
+	-- Końcówka krótsza niż MinStrip nie zostaje (jak pasy dziury w ścianie).
+	if v0 + h < D.MinStrip then v0 = -h end
+	if h - v1 < D.MinStrip then v1 = h end
+
+	local function box(lo: number, hi: number): { offset: Vector3, size: Vector3 }
+		local off = { 0, 0, 0 }
+		local sz = { dims[1], dims[2], dims[3] }
+		off[long], sz[long] = (lo + hi) * 0.5, hi - lo
+		return { offset = Vector3.new(off[1], off[2], off[3]), size = Vector3.new(sz[1], sz[2], sz[3]) }
+	end
+	local rem: { { offset: Vector3, size: Vector3 } } = {}
+	if v0 > -h then table.insert(rem, box(-h, v0)) end
+	if v1 < h then table.insert(rem, box(v1, h)) end
+	if #rem == 0 then
+		StructuralService.releasePiece(rec, index, part)
+		return part
+	end
+	local cut = box(v0, v1)
+	local segment = Pieces.spawn(part, cf * CFrame.new(cut.offset), cut.size)
+	local reuse = Pieces.pickReuse(rem, cf, feetWorld)
+	-- Nowe resztki PRZED przycięciem oryginału — gracz na oryginale nie traci gruntu.
+	for i, b in ipairs(rem) do
+		if i ~= reuse then
+			StructuralService.addPiece(rec, index, Pieces.spawn(part, cf * CFrame.new(b.offset), b.size))
+		end
+	end
+	part.Size = rem[reuse].size
+	part.CFrame = cf * CFrame.new(rem[reuse].offset)
+	return segment
+end
 
 function StructuralService.newCause(attacker: Player?, center: Vector3): Cause
 	causeSeq += 1

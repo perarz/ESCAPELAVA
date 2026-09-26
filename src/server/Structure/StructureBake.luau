@@ -59,6 +59,7 @@ export type Result = {
 	ifaces: { Iface },
 	attachments: { { part: number, owner: number } },
 	unattached: { number },
+	trimLinks: { { number } },
 	overlaps: { { number } },
 	deepOverlaps: number,
 	invalid: { number },
@@ -528,6 +529,16 @@ function StructureBake.analyze(building: Instance, config: any): Result
 	local ifaces = buildIfaces(parts, chunks, contacts, groundY, cfg)
 	local attachments, unattached = attach(parts, chunks, contacts, pad)
 
+	-- Styki z udziałem listwy/ozdoby (26.09): gra liczy z nich, czy listwa ma jeszcze czego
+	-- się trzymać (StructuralService.takeUnsupportedStrips). Właściciel z `attach` mówi tylko,
+	-- z kim listwa leci, gdy spada — o tym, CZY spada, decyduje oparcie.
+	local trimLinks: { { number } } = {}
+	for _, c in ipairs(contacts) do
+		if not (STRUCTURAL[parts[c.a].kind] and STRUCTURAL[parts[c.b].kind]) then
+			table.insert(trimLinks, { c.a, c.b })
+		end
+	end
+
 	local overlaps: { { number } } = {}
 	local deep = 0
 	for _, c in ipairs(contacts) do
@@ -554,6 +565,7 @@ function StructureBake.analyze(building: Instance, config: any): Result
 		ifaces = ifaces,
 		attachments = attachments,
 		unattached = unattached,
+		trimLinks = trimLinks,
 		overlaps = overlaps,
 		deepOverlaps = deep,
 		invalid = invalid,
@@ -661,6 +673,7 @@ function StructureBake.toData(result: Result, config: any): { [string]: any }
 		Chunks = result.chunks,
 		Interfaces = result.ifaces,
 		Attachments = result.attachments,
+		TrimLinks = result.trimLinks,
 		Overlaps = result.overlaps,
 	}
 end
@@ -712,8 +725,8 @@ function StructureBake.report(result: Result): string
 	line(string.format("  grunt Y %.1f | poziomy stropów: %s", result.groundY, table.concat(levelStr, " / ")))
 	line("  chunki: " .. fmtCounts(count(result.chunks, "kind"), kinds) .. string.format("  (razem %d, stałych %d)", #result.chunks, permanent))
 	line("  interfejsy: " .. fmtCounts(count(result.ifaces, "kind"), { "Bearing", "Lateral", "Continuity" }) .. string.format("  (razem %d)", #result.ifaces))
-	line(string.format("  doczepione listwy/ozdoby: %d | bez właściciela: %d | nachodzące pary: %d (głęboko > 0.5: %d)",
-		#result.attachments, #result.unattached, #result.overlaps, result.deepOverlaps))
+	line(string.format("  doczepione listwy/ozdoby: %d | bez właściciela: %d | styki listew: %d | nachodzące pary: %d (głęboko > 0.5: %d)",
+		#result.attachments, #result.unattached, #result.trimLinks, #result.overlaps, result.deepOverlaps))
 
 	if #result.invalid == 0 then
 		line("  ✅ NIETKNIĘTY BUDYNEK STOI: 0 spadających chunków")
@@ -885,6 +898,11 @@ function StructureBake.write(result: Result, config: any, force: boolean?)
 		table.insert(att, "{ part = " .. a.part .. ", owner = " .. a.owner .. " }")
 	end
 	w("\tAttachments = {" .. table.concat(att, ", ") .. "},")
+	local tl = {}
+	for _, l in ipairs(data.TrimLinks) do
+		table.insert(tl, "{" .. l[1] .. "," .. l[2] .. "}")
+	end
+	w("\tTrimLinks = {" .. table.concat(tl, ",") .. "},")
 	local ov = {}
 	for _, o in ipairs(data.Overlaps) do
 		table.insert(ov, "{" .. o[1] .. "," .. o[2] .. "}")

@@ -94,6 +94,8 @@ export type BlastStats = {
 	felledServer: number,   -- z tego zostało gruzem serwera (duże płyty)
 	pushed: number,         -- już-nieanchorowanych obiektów pchniętych falą
 	rubbleCut: number,      -- leżących kawałków rumowiska v4 z dziurą (25.09)
+	stripCut: number,       -- listew v4, z których bomba wycięła odcinek (26.09)
+	stripFell: number,      -- kawałków listew v4, które straciły ostatnie oparcie (26.09)
 	cpuMs: number,          -- czysty czas CPU (BEZ czekania na klatki — stary `ms` je wliczał)
 	frames: number,         -- ile klatek wybuch czekał (budżet CPU + broadphase)
 }
@@ -289,9 +291,12 @@ local function looseUnit(n: BasePart, ctx: Ctx): Instance?
 	if DebrisService.isRegistered(n) or isCharacterPart(n) or CollapseService.isRubble(n) then return nil end
 	local prop = Destructible.propOf(n, ctx)
 	if prop then return prop end
-	local _, _, v4Kind = StructuralService.ownerOf(n)
-	if v4Kind == "structure" then return nil end
-	if isSmall(n) or v4Kind == "attached" then
+	-- Budynek v4: konstrukcja nie odpada jako „przyczepiona”, a listwy i ozdoby zrzuca pass
+	-- podparcia (StructuralService.takeUnsupportedStrips) — tylko te, które straciły OSTATNIE
+	-- oparcie (decyzja Kacpra 26.09). Wcześniej każda listwa dotykająca spadającego kawałka
+	-- szła tu w całości, także szyna drabiny trzymająca się jeszcze niższego stropu.
+	if StructuralService.ownerOf(n) then return nil end
+	if isSmall(n) then
 		return Destructible.assemblyOf(n, ctx)
 	end
 	return nil
@@ -804,6 +809,7 @@ type Damaged = { part: BasePart, hpLeft: number, maxHp: number }
 local function newStats(): BlastStats
 	return {
 		structural = 0, cut = 0, remnants = 0, launchedServer = 0, damaged = 0, glass = 0, rubbleCut = 0,
+		stripCut = 0, stripFell = 0,
 		smallParts = 0, handoff = 0, felled = 0, felledServer = 0, pushed = 0,
 		cpuMs = 0, frames = 0,
 	}
@@ -811,11 +817,11 @@ end
 
 local function logBlast(radius: number, damage: number, stats: BlastStats)
 	if not CFG.Debug then return end
-	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
+	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d listwy cięte=%d bez oparcia=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
 		radius, damage,
 		stats.structural, stats.cut, stats.remnants, stats.launchedServer, stats.damaged, stats.glass,
 		stats.smallParts, stats.handoff,
-		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut,
+		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut, stats.stripCut, stats.stripFell,
 		DebrisService.getTotalCount(), DBR.MaxTotalDebris,
 		stats.cpuMs, stats.frames))
 end
@@ -918,6 +924,7 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	local structList: { Hit } = {}
 	local smallHits: { Hit } = {}
 	local v4Hits: { Hit } = {}
+	local stripHits: { Hit } = {}
 	local rubbleHits: { Hit } = {}
 	local unanchoredInMap: { BasePart } = {}
 	local outsideMap: { BasePart } = {}
@@ -981,7 +988,14 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 			end
 			continue
 		end
-		-- Listwy i ozdoby budynku v4 (Trim/Other) łamią się jak drobnica.
+		-- Długa listwa budynku v4: bomba wycina trafiony odcinek, nie całą (decyzja Kacpra 26.09).
+		if v4Kind == "attached" and not isSmall(part) and StructuralService.isCuttableStrip(part) then
+			if dmg >= smallBreakHP(part, ctx) then
+				table.insert(stripHits, { part = part, distance = distance, dmg = dmg })
+			end
+			continue
+		end
+		-- Drobnica i reszta ozdób budynku v4 (szczebel, MeshPart, klin) — w całości.
 		if isSmall(part) or v4Kind == "attached" then
 			if dmg >= smallBreakHP(part, ctx) then
 				table.insert(smallHits, { part = part, distance = distance, dmg = dmg })
@@ -1113,6 +1127,21 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 			end
 		end
 	end
+	-- Listwy v4: wycięty odcinek, na którym wybuch przekracza próg drobnicy (26.09). Zasięg
+	-- progu liczony jak `holeRadius`, tylko z progiem drobnicy zamiast progu dziury.
+	table.sort(stripHits, function(a, b)
+		return a.distance < b.distance
+	end)
+	local stripSegments: { Hit } = {}
+	for _, hit in ipairs(stripHits) do
+		if not hit.part.Parent then continue end
+		local breakRadius = radius * (1 - smallBreakHP(hit.part, ctx) / math.max(damage, 0.001))
+		local segment = StructuralService.cutStrip(hit.part, center, breakRadius, feetWorld)
+		if segment then
+			table.insert(stripSegments, { part = segment, distance = hit.distance, dmg = hit.dmg })
+			stats.stripCut += 1
+		end
+	end
 
 	-- ---- Wyrzut w całości: duże → gruz serwera (budżet), reszta → u klientów -----
 	local handoff = newHandoff()
@@ -1149,6 +1178,12 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 		if not handOff(handoff, unit, hit.dmg >= SMALL.LaunchDamage) then
 			break -- sufit payloadu: reszta drobnicy zostaje na miejscu
 		end
+		-- Ozdoba budynku v4 znika z budynku od razu (pass podparcia niżej nie może się jej trzymać).
+		StructuralService.releaseInstance(unit)
+	end
+	-- Wycięte odcinki listew v4: już poza budynkiem — `force`, nie mogą zostać w powietrzu.
+	for _, s in ipairs(stripSegments) do
+		handOff(handoff, s.part, s.dmg >= SMALL.LaunchDamage, true)
 	end
 
 	-- ---- Drobnica leżąca na tym, co znika --------------------------------------
@@ -1190,6 +1225,22 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 			if pointInChunks(onPart, holeArea, SMALL.AttachPadding) then
 				handOff(handoff, unit, false)
 			end
+		end
+	end
+
+	-- ---- Listwy v4 bez oparcia (26.09) -------------------------------------------
+	-- Po wszystkim, co ten wybuch zabrał z budynku: dziurach, odcinkach listew, drobnicy
+	-- i szybach (te kasuje dopiero etap 4, więc zwalniamy je tu). Listwa, która straciła
+	-- OSTATNIE oparcie, spada (decyzja Kacpra: „zostaje, póki dotyka czegoś stojącego”);
+	-- to, co odpadnie w kolapsie, sprawdza CollapseService.
+	local stripReach = math.max(radius, glassRadius)
+	if StructuralService.anyNear(center, stripReach) then
+		for _, entry in ipairs(glassEntries) do
+			StructuralService.releaseInstance(entry.part)
+		end
+		for _, piece in ipairs(StructuralService.takeUnsupportedStripsNear(center, stripReach)) do
+			handOff(handoff, piece, false, true)
+			stats.stripFell += 1
 		end
 	end
 
