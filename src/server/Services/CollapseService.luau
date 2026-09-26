@@ -848,6 +848,24 @@ local function checkJams(now: number)
 	end
 end
 
+-- Bryła POD graczem to podłoga, po której jedzie, a nie coś, co na niego spada — jazdę na
+-- walącym się budynku liczy zwykły fall damage (decyzja Kacpra 26.09; zastępuje decyzję
+-- z 25.09 o połowie obrażeń za jazdę). Bez tego strop uderzający o ziemię był
+-- „przygnieceniem” jadącego: względem niego leciał w górę z pełną prędkością upadku — do
+-- 100 dmg, czyli śmierć po upadku, który sam nic by nie zrobił. Porównujemy ze ŚRODKIEM
+-- postaci, nie ze stopami: jadący często leży w ragdollu (zwalił go ten sam wybuch), a wtedy
+-- stopy są na wysokości tułowia.
+local function isUnder(p: BasePart, hrp: BasePart): boolean
+	local lp = p.CFrame:PointToObjectSpace(hrp.Position)
+	local h = p.Size * 0.5
+	local closest = p.CFrame:PointToWorldSpace(Vector3.new(
+		math.clamp(lp.X, -h.X, h.X),
+		math.clamp(lp.Y, -h.Y, h.Y),
+		math.clamp(lp.Z, -h.Z, h.Z)
+	))
+	return closest.Y < hrp.Position.Y
+end
+
 local function crushCheck(dt: number)
 	if #flying == 0 then return end
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -871,6 +889,7 @@ local function crushCheck(dt: number)
 				if d > CFG.CrushContact + speed * dt then continue end
 				-- Musi lecieć W gracza (względnie) — nie przygniata to, co się oddala.
 				if v:Dot(hrp.Position - p.Position) <= 0 then continue end
+				if isUnder(p, hrp) then continue end
 				local volumeT = math.clamp(a.volume / CFG.CrushVolumeForMax, 0, 1)
 				local speedT = math.clamp(speed / CFG.CrushSpeedForMax, 0, 1)
 				local dmg = math.max(CFG.CrushMinDamage, CFG.CrushMaxDamage * volumeT * speedT)

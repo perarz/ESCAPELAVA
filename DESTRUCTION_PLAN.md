@@ -435,12 +435,26 @@ Nowe remote'y: `DebrisFall` (przekazanie drobnicy: klient kopiuje i animuje, ser
 >
 > **Zrobione 25.09 (wieczór): cięcie rumowiska** — `CollapseService.cutRubble` (ta sama dziura-prostokąt i próg co konstrukcja, payload `cuts` z `win`, oryginał zostaje resztką pod graczami — `Pieces.pickReuse`, wspólne ze `StructuralService`; potem spawy grupy od nowa — `reweld`, i zwykłe `wakeRubble`). Log `[Destr] … rumowisko cięte=N`.
 > **Obserwacja z testu dymnego (nie zgłoszona przez Kacpra, do decyzji)**: obudzona leżąca bryła (4:23) przeleciała ~45 studów z prędkością 72 stud/s i zabiła gracza przygnieceniem — impuls fali dla obudzonego rumowiska jest za duży jak na ciężkie płyty („latające płyty”).
-> **26.09 (test Kacpra z kolegą, dotyczy destrukcji)**: „czasem bomba kolegi nic mi nie robi, 0 ragdolla, 0 dmg” — przyczyna NIEUSTALONA. Jedna z możliwych: wyjątek w `DestructionService.detonate` zjadał obrażenia graczy (były liczone PO destrukcji, bez zabezpieczenia) → `BombService` woła destrukcję w `xpcall` i drukuje `[Bomb] BŁĄD destrukcji …` ze śladem; druga: osłona — leżące rumowisko v4 (od 25.09 jest go więcej i jest cięte) liczy się w `computeOcclusion` jak ściana (×0,45 za bryłę, poniżej `MinEffect` 0,05 = brak trafienia) → log `[Bomb] … miss — <gracz> … osłonięty (occ=…)`. Rozstrzygnie log z następnego testu. NIEPRZETESTOWANE, nawet składnia (MCP odcięty).
+> **26.09 (test Kacpra z kolegą, dotyczy destrukcji)**: „czasem bomba kolegi nic mi nie robi, 0 ragdolla, 0 dmg” — przyczyna NIEUSTALONA. Jedna z możliwych: wyjątek w `DestructionService.detonate` zjadał obrażenia graczy (były liczone PO destrukcji, bez zabezpieczenia) → `BombService` woła destrukcję w `xpcall` i drukuje `[Bomb] BŁĄD destrukcji …` ze śladem; druga: osłona — leżące rumowisko v4 (od 25.09 jest go więcej i jest cięte) liczy się w `computeOcclusion` jak ściana (×0,45 za bryłę, poniżej `MinEffect` 0,05 = brak trafienia) → log `[Bomb] … miss — <gracz> … osłonięty (occ=…)`. Rozstrzygnie log z następnego testu. W teście 26.09 wieczorem objaw się NIE powtórzył (Kacper: wszystkie testy pomyślnie) — przyczyna dalej nieustalona, log `[Bomb] … miss` zostaje na wypadek powrotu. Faza F (26.09): 5 wybuchów wytrzymuje, także na serwerze.
 >
 > **Plan na następną sesję (przed kodem: szczegóły + ewentualne pytania):**
 > 1. Fragmenty kruszenia v4 są dziś gruzem `DebrisService` (tylko pchane, osobny budżet) — przenieść do `CollapseService`, żeby też się cięły.
 > 2. **Drabina / długie listwy** — (a) bake: listwa w łańcuchu dostaje właściciela z NAJBLIŻSZEGO chunka, nie z pierwszego ogniwa (drabina rozłożona na piętra); (b) listwa dłuższa niż chunk trafiona bombą → wycinany odcinek, nie cała; (c) po zabraniu listwy — listwy, które straciły ostatni styk, spadają (łańcuch, „nic nie wisi”).
-> 3. Potem faza E (RiderTracker).
+> 3. Potem faza E (RiderTracker) — od 26.09 BEZ własnych obrażeń jeźdźca (decyzja Kacpra: zwykły fall damage; przygniecenie od bryły pod graczem wyłączone w `CollapseService.crushCheck` → `isUnder`). Zostaje grace anty-cheata, jeśli test pokaże, że jazda go wyzwala.
+>
+> **Listwy i drabina (26.09) — decyzje Kacpra, pomiar, plan (spisany PRZED kodem; realizuje punkt 2 wyżej):**
+> - **Decyzje**: (1) bomba w długą listwę wycina **tylko trafiony odcinek**; (2) listwa **zostaje, póki dotyka czegoś stojącego** — konstrukcji albo listwy, która sama się trzyma; traci ostatnie oparcie → spada. To zastępuje punkt 2a (właściciel z najbliższego chunka) — o spadaniu listwy decyduje oparcie, nie właściciel.
+> - **Pomiar (Edit, OrangeBuilding)**: 296 partów, 193 listwy/ozdoby, 583 styki z udziałem listwy; PEŁNY pass podparcia listew = **0,15 ms** — można go puszczać po każdym wybuchu i każdym kolapsie bez optymalizacji. Szyny drabiny (#12, #17, 1×66×1, Y 9–75) dotykają TYLKO dwóch stropów (Y 30 i Y 52) + 33 szczebli 6×1×1 (każdy dotyka obu szyn); bake doczepia całą drabinę do ch181 (strop Y 52).
+> - **Dlaczego dziś wisi / spada za dużo**: listwa spada trzema drogami i żadna nie pyta o pozostałe oparcia — trafienie (cała listwa do klientów), kruszenie/kolaps właściciela (wszystkie listwy chunka), `dropResting` (każda listwa dotykająca spadającego kawałka, w całości). Szczebli nie zrzuca nic, bo ich właścicielem jest strop, a nie szyna.
+> - **Model**:
+>   - bake: `TrimLinks` — pary stykających się partów, z których co najmniej jeden nie jest konstrukcją (te same styki co `attach`); `BakeVersion` 3.
+>   - `StructuralService.takeUnsupportedStrips(rec)` — BFS po DZISIEJSZYCH kawałkach (pudełka z luzem `ContactPadding`): start = kawałki listew dotykające kawałka konstrukcji, dalej przez styki listwa↔listwa. Niepodparte → zwolnione z budynku i zwrócone. Listwa niepodparta już w NIETKNIĘTYM budynku (projekt) nigdy nie spada z tego passu — ⛔ „zrzucanie niepodpartych bez porównania przed/po”.
+>   - `StructuralService.cutStrip` — listwa, która nie jest drobnicą (`Part`, kształt Block, nie szkło): odcinek wzdłuż najdłuższej osi, na którym obrażenia ≥ próg drobnicy — półdługość √(R² − d⊥²), R = promień × (1 − próg / obrażenia), d⊥ = odległość epicentrum od listwy w przekroju; końcówka krótsza niż `Damage.MinStrip` idzie z odcinkiem. Resztki zostają (oryginał tam, gdzie stoją gracze — `Pieces.pickReuse`), odcinek → klienci. Drobnica i reszta ozdób (szkło poza passem szyb, MeshPart, klin) — w całości, jak dziś. Mebel z drobnych części dalej pada cały: `assemblyOf` zwraca model tylko, gdy WSZYSTKIE jego party są drobnicą.
+>   - Kolejność w wybuchu: dziury v4 → cięcia listew → drobnica (zwalnia swoje kawałki z budynku OD RAZU, żeby do skasowania nie liczyła się jako oparcie) → pass podparcia → klienci (`force`, bez odrzutu). `looseUnit` pomija listwy v4 — decyduje o nich pass (dotyczy też `dropResting`).
+>   - `CollapseService`: kruszenie → pass zamiast `attachmentsOf`; start grupy → pass: niepodparte listwy z `followers` grupy lecą z nią (spawane), pozostałe niepodparte → klienci.
+> - **Ograniczenie (świadome)**: listwa dotykająca wyłącznie geometrii spoza budynku v4 jest „niepodparta w projekcie” — pass jej nie zrzuci.
+> - **✅ Zrobione 26.09 (wieczór) i POTWIERDZONE przez Kacpra w Play tego samego wieczoru („wszystkie testy pomyślnie poszły”).** Kod: `StructureBake` (`TrimLinks`, `BakeVersion` 3), `StructuralService` (`cutStrip`, `isCuttableStrip`, `takeUnsupportedStrips(Near)`, `releaseInstance`; `attachmentsOf` usunięty), `DestructionService` (`stripHits` → cięcie po dziurach v4, pass po drobnicy, `looseUnit` pomija party v4; log `[Destr] … listwy cięte=N bez oparcia=N`), `CollapseService` (`crumble`, `takeFollowers` → `ride`/`drop`). **Sprawdzenie offline** (kopia budynku BEZ rodzica, prawdziwy kod ze Studio, mapa nietknięta, bez Play): start — 0 niepodpartych, 0 „wiszących w projekcie”, pass 0,34 ms; bomba Y 41 (R 7) → z szyn wycięte 35,7-46,3 i 34,2-47,8, 7 szczebli w całości, pass nic nie zrzuca (dół na stropie Y 30, góra na Y 52); bomba Y 64 → spadają czubki szyn 69-75 i jedyny wiszący na nich szczebel; bez stropu Y 52 → nic nie spada; bez obu stropów → obie szyny + 32 szczeble. Uwaga: szczebel 6×1×1 NIE jest drobnicą (`isSmall` = false), więc też jest cięty — przy bombie z boku może zostać krótki kikut szczebla przy jednej szynie (to „tylko trafiony odcinek”).
+> - **Test dla Kacpra**: (1) bomba w dół drabiny → odpada trafiony odcinek szyn i szczeble w nim, reszta drabiny stoi; (2) bomba w środek (między Y 31 a Y 52) → dół zostaje na stropie Y 30, góra na Y 52, spadają szczeble z przerwy; (3) bomba nad stropem Y 52 → odcięta góra szyn spada razem ze swoimi szczeblami; (4) zburzony strop Y 52 → drabina stoi na stropie Y 30; zburzone oba → spada cała, żaden szczebel nie wisi; (5) długa listwa trafiona przy końcu → odpada tylko koniec; (6) regresja: ramy okien i szyby spadają ze swoją ścianą, meble ze spadającego stropu dalej spadają.
 >
 > ⚠️ Świadome braki fazy D: obrażenia jeźdźca to zwykły upadek (0,5 i grace = faza E — RiderTracker),
 > krawędź dziury prosta (bez poszarpanej wargi), meble ze spadającego stropu padają animacją u klientów
@@ -479,12 +493,13 @@ Nowe remote'y: `DebrisFall` (przekazanie drobnicy: klient kopiuje i animuje, ser
 | Low-end | **średnie telefony** |
 | Priorytet | balans / wydajność z zachowanym „wow” |
 | Ile bomb kładzie budynek | **~8 dobrze rozmieszczonych** (cel strojenia, nie twarda liczba) |
-| Jeździec przy lądowaniu | **0,5 × przejechana wysokość** (`RideImpactFactor`) |
+| Jeździec przy lądowaniu | ~~**0,5 × przejechana wysokość** (`RideImpactFactor`)~~ — od 26.09 zwykły fall damage (wiersz „(26.09)” niżej) |
 | Prototyp | **OrangeBuilding** |
 | Reset mapy (`MapService`) | bez zmian — najpierw pomiar w MicroProfilerze |
 | Charakter | **„sandbox i naturalnie, nie sztucznie”** |
-| (25.09) Jeździec: co znaczy 0,5 | **połowa obrażeń** za pełną wysokość (nie połowa wysokości) |
-| (25.09) Wysokość jazdy | **z prędkości przy uderzeniu** (ΔV²/2g hamowania bryły), nie z różnicy Y |
+| (25.09) Jeździec: co znaczy 0,5 | ~~**połowa obrażeń** za pełną wysokość (nie połowa wysokości)~~ — zastąpione 26.09 |
+| (25.09) Wysokość jazdy | ~~**z prędkości przy uderzeniu** (ΔV²/2g hamowania bryły), nie z różnicy Y~~ — zastąpione 26.09 |
+| (26.09) Jazda na walącym się budynku | **zwykły fall damage** — osobnych obrażeń jeźdźca nie liczymy („czasem mało spadniesz, a liczy jako śmierć”); bryła POD graczem nigdy nie przygniata (`CollapseService.isUnder`), bryła spadająca NA gracza dalej rani |
 | (25.09) Zaklinowana grupa | **do klientów** (kolizja od razu), log co trzymało |
 | (25.09) Pion na stojącej belce, za daleko od słupa | **belka pęka pod nim** (przeciążenie) |
 | (25.09) Kikuty przeciętego słupa/belki | **spadają z tym, co trzymają**; pień, którego nic nie rusza, zostaje |
@@ -507,7 +522,7 @@ KLIENT: VFX, pył, gruz bez kolizji, kopie mebli, poszarpana warga dziur — ilo
 | `StructuralService` (nowy) | JEDYNY właściciel stanu chunków; indeks SID→Part po każdym resecie mapy |
 | `CollapseService` / PhysicsDirector (nowy) | grupy → spawanie, NoCollision dla nachodzących par, odkotwiczenie, budżet |
 | `DebrisService` (zostaje) | cykl życia fizyki serwera |
-| `RiderTracker` (nowy) | kto jedzie na spadającej grupie; obrażenia od upadku i grace anty-cheata |
+| `RiderTracker` (nowy) | kto jedzie na spadającej grupie; ~~obrażenia od upadku~~ (26.09: liczy je zwykły `FallDamageService`) i grace anty-cheata |
 | usuwane | `StructureService`, pass podparcia w `DestructionService`, HP per part, resztki `planHole` na serwerze, `Categories.Pillar`, `Config.Destruction.Collapse/Support`, fall-fracture dla brył kolapsu |
 
 ### Model (skrót — pełna wersja w debacie 24.09)
