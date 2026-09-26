@@ -52,7 +52,13 @@ local REMOTE_NAMES = {
 	                      --   może go nie mieć, a serwer i tak zaraz go przytnie.
 	"DebrisFall",         -- FireAllClients: (fall: { center: Vector3, radius: number,
 	                      --     impulse: number, nLaunch: number, launch: {Instance},
-	                      --     nDrop: number, drop: {Instance} })
+	                      --     nDrop: number, drop: {Instance},
+	                      --     nShatter: number, shatter: {Instance},
+	                      --     vapor: { {cf: CFrame, size: Vector3} } })
+	                      --   `shatter` (26.09): meble rozpadające się od razu, kawałki żyją
+	                      --   `Props.ShatterLife`; `vapor` (26.09): rekwizyty, które zniknęły
+	                      --   (wieszaki i drobne) — SAMO pudełko na obłok pyłu, serwer skasował
+	                      --   instancję od razu, klient niczego nie kopiuje
 	                      --   PRZEKAZANIE drobnicy (v3): meble i drobne party, które serwer
 	                      --   skasuje za `Config.Destruction.Small.HandoffDelay`. Klient w tym
 	                      --   czasie je KOPIUJE, chowa oryginał i animuje kopię (`launch` —

@@ -1192,6 +1192,20 @@ Config.Destruction = {
 		Folders = { Decorations = true },
 		MaxSize = 24,   -- studów (największy wymiar modelu albo parta)
 		MaxParts = 200,
+		-- (26.09, decyzje Kacpra) Rekwizyty, które w zasięgu DZIURY znikają od razu z obłokiem
+		-- pyłu — bez kopii i bez kawałków (wieszaków w GreenBuildingu: 37 sztuk, 1958 partów,
+		-- każdy trafiony był kopiowany i animowany u każdego gracza). Klucz = nazwa folderu
+		-- kategorii w Decorations. Wszystko inne w Decorations to MEBLE.
+		Vaporize = { ClothingHangers = true, Plants = true, Packages = true, TrashBins = true, Chair = true, TV = true },
+		-- MEBLE: w zasięgu dziury rozpad od razu; dalej, od tych obrażeń, odepchnięcie w całości
+		-- (fizyka serwera, PropService); drugie trafienie → rozpad. 80 = dawny próg drobnicy
+		-- (~12 studów od bomby 160/24).
+		PushHP = 80,
+		MaxPushPerBlast = 6, -- odepchnięć na wybuch (fizyka serwera); ponad limit mebel zostaje
+		PushSettleTime = 1,  -- s bezruchu → mebel kotwiczony tam, gdzie leży
+		PushMaxTime = 8,     -- s — po tylu kotwiczony i tak (toczy się bez końca)
+		ShatterLife = 1.5,   -- s życia kawałków rozpadniętego mebla (w obu trybach grafiki)
+		VaporDust = 18,      -- cząstek obłoku na rekwizyt (× ParticleScale trybu)
 	},
 
 	-- (KOLAPS SEKCJI v2 — `Collapse` z filarami `Pillar` — USUNIĘTY 2026-09-24 razem ze

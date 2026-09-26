@@ -45,6 +45,7 @@ local DebrisFXController = {}
 local FX = Config.Destruction.FX
 local FRAC = Config.Destruction.Fracture
 local SMALL = Config.Destruction.Small
+local PROPS = Config.Destruction.Props
 
 type Profile = QualityController.Profile
 
@@ -1025,6 +1026,86 @@ local function spawnFall(
 	return 1
 end
 
+-- Rekwizyt, który zniknął (wieszak, roślina — decyzja Kacpra 26.09): sam obłok pyłu w jego
+-- pudełku, zero kopii i kawałków. Serwer skasował oryginał od razu, więc nie ma czego chować.
+local VAPOR_TEXTURE = "rbxasset://textures/particles/smoke_main.dds"
+local function spawnVapor(cf: CFrame, size: Vector3, profile: Profile)
+	local anchor = Instance.new("Part")
+	anchor.Name = "PropVapor"
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanQuery = false
+	anchor.CanTouch = false
+	anchor.Transparency = 1
+	anchor.Size = size:Max(Vector3.one * 0.5)
+	anchor.CFrame = cf
+	local dust = Instance.new("ParticleEmitter")
+	dust.Texture = VAPOR_TEXTURE
+	dust.Color = ColorSequence.new(Color3.fromRGB(190, 182, 170), Color3.fromRGB(130, 124, 116))
+	local scale = math.clamp(math.max(size.X, size.Y, size.Z) * 0.45, 1.5, 6)
+	dust.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, scale * 0.4),
+		NumberSequenceKeypoint.new(1, scale),
+	})
+	dust.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.35),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	dust.Lifetime = NumberRange.new(0.8, 1.6)
+	dust.Rate = 0
+	dust.SpreadAngle = Vector2.new(180, 180)
+	dust.Speed = NumberRange.new(2, 7)
+	dust.Acceleration = Vector3.new(0, -3, 0)
+	dust.Rotation = NumberRange.new(0, 360)
+	dust.RotSpeed = NumberRange.new(-60, 60)
+	dust.Parent = anchor
+	anchor.Parent = getFolder()
+	dust:Emit(math.max(1, math.round(PROPS.VaporDust * profile.ParticleScale)))
+	task.delay(2, function()
+		anchor:Destroy()
+	end)
+end
+
+-- Mebel rozpadający się od razu (26.09): części lecą od wybuchu i znikają po `ShatterLife`
+-- w obu trybach grafiki (decyzja Kacpra: „party, co szybko znikają”).
+local function spawnShatter(inst: Instance, center: Vector3, radius: number, impulse: number, rng: Random, profile: Profile): number
+	local ok, copy = pcall(function()
+		return inst:Clone()
+	end)
+	if not ok or copy == nil then return 0 end
+	local root = copy :: Instance
+	local parts: { BasePart } = {}
+	local function prep(d: Instance)
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			table.insert(parts, d)
+		elseif d:IsA("BaseScript") or d:IsA("ModuleScript") then
+			d:Destroy()
+		elseif d:IsA("JointInstance") or d:IsA("WeldConstraint") or d:IsA("Constraint") then
+			d:Destroy()
+		end
+	end
+	prep(root)
+	for _, d in ipairs(root:GetDescendants()) do
+		prep(d)
+	end
+	if #parts == 0 then
+		root:Destroy()
+		return 0
+	end
+	root.Parent = getFolder()
+	local speed = impulse * SMALL.LaunchSpeedFactor
+	for _, p in ipairs(parts) do
+		local d = Fracture.boxSurfaceDistance(Vector3.zero, p.Size, p.CFrame:PointToObjectSpace(center))
+		local linear = Shockwave.velocity(p.Position, p.Size, center, d, radius, speed, 0.15, rng)
+		launchPiece(p, linear, randomUnit(rng) * FX.LaunchSpin, PROPS.ShatterLife, profile)
+	end
+	if not root:IsA("BasePart") then
+		root:Destroy() -- pusta skorupa modelu (części przeniósł launchPiece)
+	end
+	return #parts
+end
+
 local function onDebrisFall(fall: any)
 	if typeof(fall) ~= "table" then return end
 	local center = fall.center
@@ -1055,6 +1136,33 @@ local function onDebrisFall(fall: any)
 			-- Oryginał chowamy ZAWSZE — także ponad budżetem i daleko: serwer i tak go
 			-- zaraz skasuje, a widoczny oryginał obok spadającej kopii to podwójny mebel.
 			hideLocally(inst)
+		end
+	end
+
+	-- Rozpadające się meble pierwsze (26.09): są w zasięgu dziury, najbliżej wybuchu.
+	local shatter, nShatter = fall.shatter, fall.nShatter
+	if typeof(shatter) == "table" and typeof(nShatter) == "number" then
+		for i = 1, math.min(nShatter, 500) do
+			local inst = shatter[i]
+			if typeof(inst) ~= "Instance" or handled[inst] then continue end
+			handled[inst] = true
+			local pos = instancePosition(inst)
+			local near = pos ~= nil and (camPos == nil or (pos - camPos).Magnitude <= profile.FXDistance)
+			if near and budget > 0 and countParts(inst) <= budget then
+				budget -= spawnShatter(inst, center, radius, impulse, rng, profile)
+			end
+			hideLocally(inst)
+		end
+	end
+	-- Rekwizyty, które zniknęły (wieszaki i drobne): obłok pyłu, bez kopii.
+	local vapor = fall.vapor
+	if typeof(vapor) == "table" then
+		for i = 1, math.min(#vapor, 500) do
+			local v = vapor[i]
+			if typeof(v) ~= "table" or typeof(v.cf) ~= "CFrame" or typeof(v.size) ~= "Vector3" then continue end
+			if camPos == nil or (v.cf.Position - camPos).Magnitude <= profile.FXDistance then
+				spawnVapor(v.cf, v.size, profile)
+			end
 		end
 	end
 

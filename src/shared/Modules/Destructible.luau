@@ -212,6 +212,25 @@ function Destructible.propOf(part: BasePart, ctx: Context): Instance?
 	return nil
 end
 
+-- Kategoria rekwizytu (26.09, decyzje Kacpra): "vaporize" — znika z obłokiem (wieszaki
+-- i drobne), "furniture" — mebel (odpychany, rozpada się od drugiego trafienia), nil — to nie
+-- rekwizyt. Po nazwie folderu między jednostką a folderem dekoracji, więc Kacper przenosi
+-- kategorię między grupami samą listą `Props.Vaporize`.
+function Destructible.propCategory(unit: Instance): string?
+	local node: Instance? = unit
+	local vaporize = false
+	while node and node ~= Workspace do
+		if PROPS.Folders[node.Name] then
+			return if vaporize then "vaporize" else "furniture"
+		end
+		if PROPS.Vaporize[node.Name] then
+			vaporize = true
+		end
+		node = node.Parent
+	end
+	return nil
+end
+
 -- Jednostka, która pada razem z tym partem: NAJWIĘKSZY kwalifikujący się Model nad nim
 -- (ubranie → wieszak z całym stojakiem), albo sam part, gdy żaden model się nie nadaje.
 -- Idziemy w górę przez foldery; pierwszy model, który się NIE nadaje, kończy szukanie —

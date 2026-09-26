@@ -59,6 +59,7 @@ local DebrisService = require(script.Parent.DebrisService)
 -- nie liczy im HP ani podparcia.
 local StructuralService = require(script.Parent.StructuralService)
 local CollapseService = require(script.Parent.CollapseService)
+local PropService = require(script.Parent.PropService)
 
 local DestructionService = {}
 
@@ -70,6 +71,7 @@ local OCC = CFG.Occlusion
 local SUP = CFG.Support
 local SMALL = CFG.Small
 local DBR = CFG.Debris
+local PROPS = CFG.Props
 
 local rng = Random.new()
 
@@ -96,6 +98,9 @@ export type BlastStats = {
 	rubbleCut: number,      -- leżących kawałków rumowiska v4 z dziurą (25.09)
 	stripCut: number,       -- listew v4, z których bomba wycięła odcinek (26.09)
 	stripFell: number,      -- kawałków listew v4, które straciły ostatnie oparcie (26.09)
+	vaporized: number,      -- rekwizytów, które zniknęły z obłokiem (wieszaki i drobne, 26.09)
+	shattered: number,      -- mebli rozpadniętych na kawałki (26.09)
+	propPushed: number,     -- mebli odepchniętych w całości (fizyka serwera, 26.09)
 	cpuMs: number,          -- czysty czas CPU (BEZ czekania na klatki — stary `ms` je wliczał)
 	frames: number,         -- ile klatek wybuch czekał (budżet CPU + broadphase)
 }
@@ -219,12 +224,28 @@ local pendingParts: { [BasePart]: boolean } = setmetatable({}, { __mode = "k" })
 type Handoff = {
 	launch: { Instance },  -- odrzucane od wybuchu
 	drop: { Instance },    -- padające
+	shatter: { Instance }, -- meble rozpadające się od razu, kawałki żyją `Props.ShatterLife` (26.09)
+	-- Rekwizyty znikające z obłokiem (26.09): klient dostaje SAMO pudełko — nie kopiuje partów
+	-- (wieszak to do 66 partów), a serwer kasuje instancję od razu.
+	vapor: { { cf: CFrame, size: Vector3 } },
+	vaporInst: { Instance },
 	seen: { [Instance]: boolean },
 	parts: number,         -- ile BasePartów łącznie (statystyka)
 }
 
 local function newHandoff(): Handoff
-	return { launch = {}, drop = {}, seen = {}, parts = 0 }
+	return { launch = {}, drop = {}, shatter = {}, vapor = {}, vaporInst = {}, seen = {}, parts = 0 }
+end
+
+local function markPending(inst: Instance)
+	if inst:IsA("BasePart") then
+		pendingParts[inst] = true
+	end
+	for _, d in ipairs(inst:GetDescendants()) do
+		if d:IsA("BasePart") then
+			pendingParts[d] = true
+		end
+	end
 end
 
 -- Dopisuje mebel/part do przekazania. `force` = konstrukcja, która i tak znika ze świata
@@ -233,6 +254,23 @@ end
 -- ZOSTAJE na miejscu (lepsze niż zniknąć bez animacji).
 local function handOff(h: Handoff, inst: Instance, launch: boolean, force: boolean?): boolean
 	if h.seen[inst] then return true end
+	-- Wieszaki i drobne rekwizyty ZAWSZE znikają z obłokiem — także te spadające z dziurą albo
+	-- z walącym się stropem (decyzja Kacpra 26.09). Jedno miejsce dla wszystkich ścieżek.
+	if Destructible.propCategory(inst) == "vaporize" then
+		h.seen[inst] = true
+		local cf: CFrame, size: Vector3
+		if inst:IsA("Model") then
+			cf, size = inst:GetBoundingBox()
+		elseif inst:IsA("BasePart") then
+			cf, size = inst.CFrame, inst.Size
+		else
+			return true
+		end
+		markPending(inst)
+		table.insert(h.vapor, { cf = cf, size = size })
+		table.insert(h.vaporInst, inst)
+		return true
+	end
 	if not force and #h.launch + #h.drop >= SMALL.MaxHandoffPerBlast then
 		return false
 	end
@@ -252,13 +290,21 @@ local function handOff(h: Handoff, inst: Instance, launch: boolean, force: boole
 	return true
 end
 
+-- Mebel rozpadający się od razu (26.09): w zasięgu dziury albo przy drugim trafieniu.
+local function shatterOff(h: Handoff, inst: Instance)
+	if h.seen[inst] then return end
+	h.seen[inst] = true
+	markPending(inst)
+	table.insert(h.shatter, inst)
+end
+
 -- Ogłoszenie + skasowanie po HandoffDelay. Kolejność jest kontraktem: klient MUSI dostać
 -- listę, zanim do niego dojedzie usunięcie — inaczej nie ma już czego skopiować, a mebel
 -- zwyczajnie znika (dokładnie zgłoszony objaw). Remote idzie przed kasowaniem w tym samym
 -- strumieniu, a opóźnienie pokrywa odroczone wywołanie handlera po stronie klienta.
 local function sendHandoff(h: Handoff, center: Vector3, radius: number, impulse: number)
-	local nLaunch, nDrop = #h.launch, #h.drop
-	if nLaunch + nDrop == 0 then return end
+	local nLaunch, nDrop, nShatter = #h.launch, #h.drop, #h.shatter
+	if nLaunch + nDrop + nShatter + #h.vapor == 0 then return end
 
 	Remotes.DebrisFall:FireAllClients({
 		center = center,
@@ -268,10 +314,20 @@ local function sendHandoff(h: Handoff, center: Vector3, radius: number, impulse:
 		launch = h.launch,
 		nDrop = nDrop,
 		drop = h.drop,
+		nShatter = nShatter,
+		shatter = h.shatter,
+		vapor = h.vapor,
 	})
+	-- Znikające rekwizyty: klient niczego z nich nie kopiuje (dostał pudełko), więc od razu.
+	for _, inst in ipairs(h.vaporInst) do
+		if inst.Parent then
+			inst:Destroy()
+		end
+	end
 
 	local all = table.clone(h.launch)
 	table.move(h.drop, 1, nDrop, nLaunch + 1, all)
+	table.move(h.shatter, 1, nShatter, #all + 1, all)
 	task.delay(SMALL.HandoffDelay, function()
 		for _, inst in ipairs(all) do
 			if inst.Parent then
@@ -809,7 +865,7 @@ type Damaged = { part: BasePart, hpLeft: number, maxHp: number }
 local function newStats(): BlastStats
 	return {
 		structural = 0, cut = 0, remnants = 0, launchedServer = 0, damaged = 0, glass = 0, rubbleCut = 0,
-		stripCut = 0, stripFell = 0,
+		stripCut = 0, stripFell = 0, vaporized = 0, shattered = 0, propPushed = 0,
 		smallParts = 0, handoff = 0, felled = 0, felledServer = 0, pushed = 0,
 		cpuMs = 0, frames = 0,
 	}
@@ -817,11 +873,11 @@ end
 
 local function logBlast(radius: number, damage: number, stats: BlastStats)
 	if not CFG.Debug then return end
-	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d listwy cięte=%d bez oparcia=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
+	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d listwy cięte=%d bez oparcia=%d | rekwizyty: znikło=%d rozpad=%d odepchnięte=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
 		radius, damage,
 		stats.structural, stats.cut, stats.remnants, stats.launchedServer, stats.damaged, stats.glass,
 		stats.smallParts, stats.handoff,
-		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut, stats.stripCut, stats.stripFell,
+		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut, stats.stripCut, stats.stripFell, stats.vaporized, stats.shattered, stats.propPushed,
 		DebrisService.getTotalCount(), DBR.MaxTotalDebris,
 		stats.cpuMs, stats.frames))
 end
@@ -926,6 +982,16 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	local v4Hits: { Hit } = {}
 	local stripHits: { Hit } = {}
 	local rubbleHits: { Hit } = {}
+	-- Rekwizyty (26.09): jedna pozycja na JEDNOSTKĘ (mebel, wieszak) — decyduje najbliższa część.
+	local propHits: { [Instance]: { distance: number, dmg: number } } = {}
+	local function notePropHit(unit: Instance, distance: number, dmg: number)
+		local cur = propHits[unit]
+		if not cur then
+			propHits[unit] = { distance = distance, dmg = dmg }
+		elseif distance < cur.distance then
+			cur.distance, cur.dmg = distance, dmg
+		end
+	end
 	local unanchoredInMap: { BasePart } = {}
 	local outsideMap: { BasePart } = {}
 
@@ -937,6 +1003,14 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 		-- Chronione są pomijane ŚWIADOMIE (kontrakt) — nie raportujemy ich jako problem.
 		if isProtected(part, ctx) then continue end
 		if glassSet[part] or pendingParts[part] then continue end
+		-- Mebel odepchnięty wcześniejszym wybuchem (leci albo już leży zakotwiczony) — to jego
+		-- DRUGIE trafienie, nie luźny gruz (decyzja Kacpra 26.09: rozpad dopiero od 2 bomb).
+		local pushedUnit = PropService.pushedOf(part)
+		if pushedUnit then
+			local d = surfaceDistance(part, center)
+			notePropHit(pushedUnit, d, damage * (1 - math.clamp(d / radius, 0, 1)))
+			continue
+		end
 
 		if DebrisService.isRegistered(part) then
 			-- Nasz gruz (nawet uśpiony-zakotwiczony) — budzimy i pchamy, NIE tniemy dalej.
@@ -979,13 +1053,11 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 			table.insert(v4Hits, { part = part, distance = distance, dmg = dmg })
 			continue
 		end
-		-- Rekwizyt (dekoracje): nigdy nie cięty jak ściana — pada cały, z tym samym progiem co
-		-- drobnica. Sprawdzany PRZED drobnicą: drobna część szafki też ma nieść całą szafkę.
+		-- Rekwizyt (dekoracje): nigdy nie cięty jak ściana — o całej jednostce decyduje niżej
+		-- najbliższa część (26.09). Sprawdzany PRZED drobnicą: uchwyt szafki niesie całą szafkę.
 		local prop = Destructible.propOf(part, ctx)
 		if prop then
-			if dmg >= smallBreakHP(part, ctx) then
-				table.insert(smallHits, { part = part, distance = distance, dmg = dmg, unit = prop })
-			end
+			notePropHit(prop, distance, dmg)
 			continue
 		end
 		-- Długa listwa budynku v4: bomba wycina trafiony odcinek, nie całą (decyzja Kacpra 26.09).
@@ -1143,6 +1215,34 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 		end
 	end
 
+	-- ---- Rekwizyty (26.09, decyzje Kacpra) ------------------------------------------
+	-- Wieszaki i drobne: w zasięgu DZIURY znikają z obłokiem, dalej stoją. Meble: w zasięgu
+	-- dziury albo przy drugim trafieniu — rozpad; dalej (≥ PushHP) — odepchnięcie w całości,
+	-- najbliższe pierwsze, do limitu na wybuch (ponad limit mebel zostaje).
+	local vaporUnits: { Instance } = {}
+	local shatterUnits: { Instance } = {}
+	local pushCandidates: { { unit: Instance, distance: number } } = {}
+	for unit, hit in pairs(propHits) do
+		if not unit.Parent then continue end
+		local inHole = hit.distance <= holeRadius
+		if Destructible.propCategory(unit) == "vaporize" then
+			if inHole then
+				table.insert(vaporUnits, unit)
+			end
+		elseif inHole or (PropService.hitsOf(unit) > 0 and hit.dmg >= PROPS.PushHP) then
+			table.insert(shatterUnits, unit)
+		elseif hit.dmg >= PROPS.PushHP then
+			table.insert(pushCandidates, { unit = unit, distance = hit.distance })
+		end
+	end
+	table.sort(pushCandidates, function(a, b)
+		return a.distance < b.distance
+	end)
+	local pushUnits: { Instance } = {}
+	for i = 1, math.min(#pushCandidates, PROPS.MaxPushPerBlast) do
+		table.insert(pushUnits, pushCandidates[i].unit)
+	end
+
 	-- ---- Wyrzut w całości: duże → gruz serwera (budżet), reszta → u klientów -----
 	local handoff = newHandoff()
 	local serverLeft = DBR.MaxServerPiecesPerBlast
@@ -1166,6 +1266,13 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 				handOff(handoff, part, true, true)
 			end
 		end
+	end
+
+	for _, unit in ipairs(vaporUnits) do
+		handOff(handoff, unit, false, true) -- handOff kieruje je do `vapor`
+	end
+	for _, unit in ipairs(shatterUnits) do
+		shatterOff(handoff, unit)
 	end
 
 	-- ---- Drobnica: pada CAŁY mebel; najbliższa część decyduje odrzut vs upadek ----
@@ -1323,6 +1430,14 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 		pushPart(part, center, radius, impulse, minT)
 		stats.pushed += 1
 	end
+	-- Meble odepchnięte w całości (26.09). Po wszystkich przekazaniach: mebel, który ten sam
+	-- wybuch zabrał inną drogą (stał na przeciętej ścianie), już tu nie wraca.
+	for _, unit in ipairs(pushUnits) do
+		if unit.Parent and not handoff.seen[unit] then
+			PropService.push(unit, center, radius, impulse, minT)
+			stats.propPushed += 1
+		end
+	end
 	-- Leżące bryły kolapsu v4 — budzi je CollapseService (budżet; jedna bryła = jeden impuls,
 	-- kolejne jej kawałki z tej listy są już w locie i zwracają false).
 	for _, hit in ipairs(rubbleHits) do
@@ -1338,6 +1453,8 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	stats.glass = #glassEntries
 	stats.smallParts = handoff.parts
 	stats.handoff = #handoff.launch + #handoff.drop
+	stats.vaporized = #handoff.vapor
+	stats.shattered = #handoff.shatter
 	local ms = (os.clock() - t0) * 1000
 	charge(ms)
 	stats.cpuMs += ms

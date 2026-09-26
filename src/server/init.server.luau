@@ -20,6 +20,7 @@ local ItemService = require(script.Services.ItemService)
 local ShopService = require(script.Services.ShopService)
 local SettingsService = require(script.Services.SettingsService)
 local DebrisService = require(script.Services.DebrisService)
+local PropService = require(script.Services.PropService)
 local StructuralService = require(script.Services.StructuralService)
 local CollapseService = require(script.Services.CollapseService)
 local DestructionService = require(script.Services.DestructionService)
@@ -58,6 +59,7 @@ SettingsService.init()
 -- dostaje od Destruction przekazanie klientom wstrzyknięte, bo Destruction woła Collapse
 -- (bezpośredni require w obie strony = cykl). Wszystko przed BombService.
 DebrisService.init()
+PropService.init()
 StructuralService.init()
 DestructionService.init()
 CollapseService.init({
