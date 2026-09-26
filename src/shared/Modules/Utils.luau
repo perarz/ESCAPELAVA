@@ -87,6 +87,17 @@ end
 -- czystym marnotrawstwem. Cache trzyma też "pudło" (false), żeby nie szukać w kółko.
 local assetSizeCache: { [string]: Vector3 | boolean } = {}
 
+-- Kotwiczy part, który się ruszał, ZERUJĄC mu prędkość. Zakotwiczony part ZACHOWUJE
+-- AssemblyLinearVelocity i AssemblyAngularVelocity (zmierzone 2026-09-25: po 0,5 s dalej
+-- 1,2 stud/s i 0,6 rad/s), a dla postaci stojącej na nim to TAŚMOCIĄG — zgłoszenie Kacpra
+-- „na niektórych partach jak stoję, to mnie przesuwają jak na taśmie” (osiadłe rumowisko
+-- kotwiczone przy prędkości do 1,5 stud/s). Każde miejsce kotwiczące gruz idzie tędy.
+function Utils.anchorAtRest(part: BasePart)
+	part.Anchored = true
+	part.AssemblyLinearVelocity = Vector3.zero
+	part.AssemblyAngularVelocity = Vector3.zero
+end
+
 function Utils.getAsset(name: string): Instance?
 	local inst = ReplicatedStorage:FindFirstChild(name)
 	return inst

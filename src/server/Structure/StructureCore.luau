@@ -254,7 +254,8 @@ end
 -- Dijkstra po chunkach. Continuity dolicza przęsło; Bearing i Lateral od PIONU zerują zasięg
 -- (to jest podpora), od POZIOMU go dziedziczą (stoisz na wsporniku = jesteś na wsporniku).
 -- Chunk spada, gdy nie ma drogi z zasięgiem ≤ MaxSpan swojego rodzaju. Z tego wynika
--- naturalny wspornik i nadproże — bez reguł „N z M podpór”.
+-- naturalny wspornik i nadproże — bez reguł „N z M podpór”. Do tego przeciążenie: poziom,
+-- na którym stoi spadający pion, pęka razem z nim (opis przy pętli w `solve`).
 -- `dead` = chunki, które nie przenoszą i nie są przenoszone (zniszczone, już spadające).
 -- `widths` = bieżące szerokości interfejsów (runtime: zwężone dziurami); brak = z danych.
 -- Solver NIE yielduje — stan musi być spójny od początku do końca obliczenia.
@@ -333,6 +334,8 @@ function StructureCore.solve(
 	local maxSpan = cfg.MaxSpan
 	local reach: { [number]: number } = {}
 	local heap: Heap = { keys = {}, vals = {} }
+	-- Poziomy pęknięte pod spadającym pionem (przeciążenie, niżej): nie niosą i same spadają.
+	local overloaded: { [number]: boolean } = {}
 
 	local function widthOf(f: Iface): number
 		if widths then
@@ -345,7 +348,7 @@ function StructureCore.solve(
 	end
 
 	local function relax(x: number, d: number)
-		if deadSet[x] then return end
+		if deadSet[x] or overloaded[x] then return end
 		if d > (maxSpan[chunks[x].kind] or 0) + EPS then return end
 		local cur = reach[x]
 		if cur == nil or d < cur - EPS then
@@ -354,29 +357,60 @@ function StructureCore.solve(
 		end
 	end
 
-	for _, c in ipairs(chunks) do
-		if c.permanent then
-			relax(c.id, 0)
+	local function propagate()
+		table.clear(reach)
+		for _, c in ipairs(chunks) do
+			if c.permanent then
+				relax(c.id, 0)
+			end
+		end
+		for _, f in ipairs(out[GROUND] or {}) do
+			if widthOf(f) >= minW then
+				relax(f.to, 0)
+			end
+		end
+		while #heap.keys > 0 do
+			local d, c = heapPop(heap)
+			if d > (reach[c] or math.huge) + EPS then continue end -- nieaktualny wpis kopca
+			-- Zasięg ZERUJE tylko prawdziwa podpora: pion (słup, ściana) albo poziom, który sam
+			-- leży bezpośrednio na podporze. Coś, co stoi na wsporniku albo z niego zwisa, dziedziczy
+			-- jego zasięg — inaczej podparcie „prało się” przez oparcie: wieża stała na filarkach,
+			-- filarki na belce, belka na wsporniku stropu sąsiedniej bryły (zmierzone na
+			-- OrangeBuilding: cały parter pod wieżą zniszczony, a wieża nie spadała).
+			local inherit = if HORIZONTAL[chunks[c].kind] then d else 0
+			for _, f in ipairs(out[c] or {}) do
+				if widthOf(f) < minW then continue end
+				relax(f.to, if f.kind == "Continuity" then d + f.span else inherit)
+			end
 		end
 	end
-	for _, f in ipairs(out[GROUND] or {}) do
-		if widthOf(f) >= minW then
-			relax(f.to, 0)
+
+	-- PRZECIĄŻENIE (decyzja Kacpra 25.09): pion, który spada, choć stoi (Bearing) na żywym
+	-- poziomie, spada tylko dlatego, że odziedziczył za duży zasięg — sam poziom stoi, bo jego
+	-- MaxSpan jest większy. Fizycznie taki poziom dalej pod pionem LEŻY, więc bez tej reguły
+	-- pion po odkotwiczeniu nie ma dokąd spaść: zmierzone w grze 25.09 — grupa „osiadała”
+	-- w miejscu po 0,7 s, a wszystko, co na niej stało, razem z nią (kontrakt 11: stan nie
+	-- może przeczyć widocznej geometrii). Kawałek poziomu pod takim pionem pęka i spada.
+	-- Iteracja do punktu stałego: pęknięty poziom może zrzucić kolejny pion. Skończona —
+	-- każdy obrót dokłada co najmniej jeden poziom do `overloaded`.
+	propagate()
+	while true do
+		local added = false
+		for from, list in pairs(out) do
+			if from == GROUND or deadSet[from] or overloaded[from] or reach[from] == nil then continue end
+			if not HORIZONTAL[chunks[from].kind] then continue end
+			for _, f in ipairs(list) do
+				if f.kind ~= "Bearing" or widthOf(f) < minW then continue end
+				local v = f.to
+				if not HORIZONTAL[chunks[v].kind] and not deadSet[v] and reach[v] == nil then
+					overloaded[from] = true
+					added = true
+					break
+				end
+			end
 		end
-	end
-	while #heap.keys > 0 do
-		local d, c = heapPop(heap)
-		if d > (reach[c] or math.huge) + EPS then continue end -- nieaktualny wpis kopca
-		-- Zasięg ZERUJE tylko prawdziwa podpora: pion (słup, ściana) albo poziom, który sam
-		-- leży bezpośrednio na podporze. Coś, co stoi na wsporniku albo z niego zwisa, dziedziczy
-		-- jego zasięg — inaczej podparcie „prało się” przez oparcie: wieża stała na filarkach,
-		-- filarki na belce, belka na wsporniku stropu sąsiedniej bryły (zmierzone na
-		-- OrangeBuilding: cały parter pod wieżą zniszczony, a wieża nie spadała).
-		local inherit = if HORIZONTAL[chunks[c].kind] then d else 0
-		for _, f in ipairs(out[c] or {}) do
-			if widthOf(f) < minW then continue end
-			relax(f.to, if f.kind == "Continuity" then d + f.span else inherit)
-		end
+		if not added then break end
+		propagate()
 	end
 
 	local falling: { number } = {}

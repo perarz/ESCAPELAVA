@@ -2,7 +2,7 @@
 
 > Dokument dla asystenta pomagającego w organizacji pracy (TODO, planowanie, decyzje).
 > Celowo bez szczegółów kodu — od logiki gry jest Claude Code w repo.
-> Stan na: 2026-09-23.
+> Stan na: 2026-09-26.
 
 ---
 
@@ -63,8 +63,14 @@ Zasady współpracy:
   osłabiają ją, aż się skruszy, a gdy część budynku straci podparcie — spada naprawdę, grupami,
   piętro po piętrze, i da się na niej jechać. Duże bryły zostają jako nowe platformy do końca
   rundy, drobne znikają po kilku sekundach. Meble i pudła padają w całości. Pierwszy test 24.09:
-  „takto wszystko działa raczej” + cztery usterki, poprawione, do ponownego sprawdzenia.
-  Reszta miasta jeszcze na starym systemie.
+  „takto wszystko działa raczej” + cztery usterki, poprawione. **25.09 test „dymny” (Claude sam
+  rzucał bomby w Studio) pokazał, że większość pięter tylko udawała, że spada** — fizycznie
+  zaczepiały o resztki przeciętych słupów i skruszonych belek, więc budynek stał nad zburzonym
+  parterem. Po poprawkach 14 z 24 brył spada naprawdę, a te, które mimo wszystko utkną, spadają
+  „u gracza” (nic nie wisi w powietrzu). Jazda na spadającym dachu i stropie działa. Twoje decyzje
+  z 25.09: jazda na spadającym piętrze boli **połowę** tego, co skok z tej samej wysokości (liczone
+  z prędkości uderzenia), belka pod przeciążonym filarkiem pęka, kikuty słupów spadają razem ze
+  stropem. Po Twoim teście 25.09: leżące po zawaleniu bryły da się znowu rozwalać bombą (wybija w nich dziurę), a osiadłe bryły przestały działać jak taśma pod nogami. Gruz, przez który się przechodzi (bez kolizji), jest teraz ciemnoszary i posiekany na kawałki zamiast wielkich klocków; ekran nie trzęsie się już przy każdym walącym się kawałku; po śmierci leżysz ~2 s jako ragdoll, zanim wrócisz do lobby. Drabina (szyny odpadają, szczeble wiszą) i bryły, które „wiszą chwilę, potem znikają”, są następne. Zmiany z 25.09 potwierdziłeś w Play 26.09 („wszystko git działa”). **26.09 gra z kolegą** wyłapała trzy błędy — poprawki są w kodzie, ale NIESPRAWDZONE (Studio było odcięte od Claude): hak dało się odpalić w trakcie ragdolla i wystrzeliwało postać w kosmos (teraz w ragdollu hak nie działa i przerywa lot); martwy kolega wisiał pod mapą aż do następnej rundy (błąd z dnia wcześniej — po 2 s ragdollu nie zawsze wracało się do lobby); czasem bomba kolegi nie robiła Ci nic (przyczyna jeszcze nieznana — gra od teraz pisze w Output, czemu bomba kogoś pominęła). Do tego 26.09 rano cała gra leżała przez literówkę w ustawieniach lawy (`MaxY = 250ś`) — poprawione na 250. Reszta miasta jeszcze na starym systemie.
 - **Most** (100$): budowanie przeprawy z podglądem "ducha", obracanie. Mosty są
   niszczalne, więc sabotaż PvP działa. Od 21.09 celowanie w lawę działa jak celowanie
   w podłogę — most da się postawić na lawie (i tak utonie, bo lawa rośnie).

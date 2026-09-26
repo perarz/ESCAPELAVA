@@ -4,8 +4,9 @@
 > bez śladu — NIE odtwarzamy go, budujemy wg tego dokumentu. Implementacja etapami,
 > każdy etap grywalny i testowany w Play zanim zaczniemy następny.
 >
-> 🏗️ **2026-09-24: v4 — fazy A-D NAPISANE, OrangeBuilding w grze na v4; poprawki po pierwszym teście
-> Kacpra CZEKAJĄ NA PONOWNY TEST W PLAY; następna faza E (RiderTracker).** Rozdział „v4” na samym końcu
+> 🏗️ **2026-09-25: v4 — fazy A-D NAPISANE, OrangeBuilding w grze na v4; test dymny 25.09 znalazł
+> i częściowo naprawił „grupy kolapsu nie spadają” (4 → 14 z 24 spada fizyką, reszta przez siatkę
+> bezpieczeństwa do klientów); całość CZEKA NA TEST KACPRA W PLAY; potem faza E (RiderTracker).** Rozdział „v4” na samym końcu
 > pliku jest AKTUALNY: zastępuje pass podparcia v3 (dla budynków z danymi) i usunięty `StructureService`.
 > Rozdziały v2/v3 zostają jako historia i opis kodu, który dalej działa na reszcie mapy.
 >
@@ -338,8 +339,9 @@ Nowe remote'y: `DebrisFall` (przekazanie drobnicy: klient kopiuje i animuje, ser
 
 ## v4 (2026-09-24) — graf konstrukcji + plan kolapsu + budżet fizyki
 
-> 🏗️ **STAN NA 25.09: A-D napisane, D + 4 poprawki po teście z 24.09 CZEKAJĄ NA PONOWNY TEST KACPRA
-> W PLAY; następna faza E (RiderTracker).** Architektura uzgodniona w debacie Claude ↔ drugi czat
+> 🏗️ **STAN NA 25.09 (wieczór): A-D napisane; poprawki z 24.09 + poprawki z testu dymnego 25.09
+> (niżej, „Test dymny 25.09”) CZEKAJĄ NA TEST KACPRA W PLAY; potem faza E (RiderTracker).**
+> Architektura uzgodniona w debacie Claude ↔ drugi czat
 > 23-24.09 (decyzje Kacpra niżej). ⚠️ Liczby P0 poniżej sprzed `BakeVersion` 2 — od kiedy szkło jest
 > pasażerem, doczepionych jest **193 (w tym 18 szyb)**, nie 175.
 > **Faza P0 — `StructureBake` NAPISANY i sprawdzony na OrangeBuilding w Edit (24.09, odczyt, bez Play):**
@@ -385,6 +387,61 @@ Nowe remote'y: `DebrisFall` (przekazanie drobnicy: klient kopiuje i animuje, ser
 > | przenikalne party lewitują | gruz KLIENTA lądował promieniem na RUCHOMEJ bryle kolapsu albo leżał na stropie, który potem spadł; listwy skruszonego elementu zostawały | klient: lądowanie ignoruje ruchome party, sterta tylko nad podłożem, leżący gruz i meble sprawdzają podłoże (`FX.RestChecksPerFrame`) i spadają dalej; serwer: listwy/szyby skruszonego elementu i nad dziurą v4 spadają |
 > | pudła, szafki „pobugowane” | 1474 duże party dekoracji szły ścieżką ścian (poszarpane dziury), drobne części tego samego mebla odpadały osobno | REKWIZYTY (`Destructible.propOf`, `Config.Destruction.Props`): wszystko w `Decorations` pada W CAŁOŚCI (najwyższy Model ≤ 24 studów); 18 316 partów w 1021 meblach, poza regułą 65 (dywany, płoty, szyny drabin) |
 >
+>
+> **Test dymny 25.09 (Claude przez MCP, za zgodą Kacpra — obserwacja, nie werdykt).** Seria 6 bomb
+> z zachłannego planu bake'u (te same punkty co `STRUCTURE_TEST` S6: pocisk z `ThrowBomb` klienta
+> przestawiany na serwerze w punkt i kotwiczony), postać na dachu wieży, na serwerze rejestrator:
+> każda odkotwiczona bryła OrangeBuilding — Y korzenia przy starcie i przy osiadaniu — plus stopy
+> gracza i to, co pod nimi. Liczba grup na bombę zgodna z symulacją w Edit (2, 2, 2, 4, 6, 5).
+> | Przebieg | Zmiana | Spadło fizyką | Zaklinowane | Uwagi |
+> |---|---|---|---|---|
+> | 1-2 | (stan z 24.09) | **4 z 25** | 21 osiadło W MIEJSCU po 0,7 s | wieża stała nad zburzonym parterem, dach pod graczem odkotwiczony 0,8 s, ruch 0,06 studa |
+> | 5 | filtr fragmentów + przeciążenie + siatka | 7 | 12 → klienci | log podpór za zgrubny |
+> | 6 | + kikuty + filtr styku z boku | 13 | 10 → klienci | dach z graczem zjechał 7 studów i został platformą; jazda na stropie 20 studów, do 47 stud/s |
+> | 7 | + natychmiastowe zdjęcie kolizji przy przekazaniu + przygniecenie względne | **14 z 24** | 9 → klienci, 1 w miejscu | przygniecenie 49 dmg — prawidłowe (grupa spadła na stojącego gracza) |
+> Przyczyny zmierzone (rejestrator + symulacja w Edit + log `[Collapse] … ZAKLINOWANA … trzyma:`):
+> - **fragment skruszonego elementu** wyrzucany BEZ filtra nachodzeń klinował się w słupie/stropie,
+>   DebrisService usypiał go w miejscu, a to, co przez skruszenie straciło podparcie, leżało na nim
+>   (symulacja: 11 z 21 grup leży na skruszonym) → `filterOverlaps` wspólny dla grup i fragmentów;
+> - **kikuty przeciętych chunków** (dziura ~18 w chunku ~20-22: solver `Severed`, a pasy nad i pod
+>   dziurą zostają zakotwiczone) — na takim kikucie wisiał m.in. dach → kikut INNEGO parta, którego
+>   styk z grupą leży w zniszczonym chunku, leci z grupą (decyzja Kacpra: „spadają z tym, co trzymają”);
+> - **pion na stojącym poziomie** spadający tylko przez dziedziczenie zasięgu → PRZECIĄŻENIE w solverze:
+>   poziom pod takim pionem pęka (decyzja Kacpra; scenariusze S1-S8 bez zmian, szacunek dalej 6 bomb);
+> - **tarcie z boku**: sąsiad nachodzący o setne studa trzymał grupę → styk z boku filtrowany zawsze;
+> - **kolizja przekazywanych kawałków przez 0,25 s** (opóźnienie kasowania v3) → zdejmowana od razu;
+> - **przygniecenie jeźdźca przez własną bryłę** (59 dmg: kikut nad HRP „leciał na niego”) → prędkość
+>   WZGLĘDNA gracz ↔ kawałek.
+> **Siatka bezpieczeństwa** (decyzja Kacpra): grupa, która po `JamCheckTime` 0,4 s przesunęła się
+> < 1 stud i obróciła < 3°, idzie do klientów (kolizja od razu), pozostałe czekające dostają nowe okno;
+> log mówi, co ją trzymało (część v4 + STAN chunka). **Zostało (przebieg 7)**: 3 × fragment kruszenia
+> dalej pod grupą, 2 × „nic pod spodem” (bomba 1 — przyczyna nieustalona), 2 × kikut własnego parta
+> grupy (przypadek brzegowy `takePieces`), 1 × stojący strop (pas ściany zaczynający się w grubości
+> stropu), 1 × prawidłowe rumowisko pod spodem. Tory `OutsideDecorations.Railway` wchodzą w strop
+> OrangeBuilding na Y 54 i też potrafią trzymać bryłę.
+> Jeździec w Studio: szczelina stopy ↔ bryła na serwerze 0,3-2 studa przy 20-47 stud/s, bez ragdolla
+> w locie i bez obrażeń z upadku — opóźnienie na prawdziwym serwerze będzie większe (faza E/G).
+>
+> **Test Kacpra 25.09 (po teście dymnym) — zgłoszenia, przyczyny, decyzje:**
+> | Zgłoszenie | Przyczyna (zmierzona) | Decyzja / stan |
+> |---|---|---|
+> | „na niektórych partach jak stoję, przesuwają mnie jak na taśmie” | zakotwiczony part ZACHOWUJE prędkość (pomiar na silniku: po 0,5 s dalej 1,2 stud/s i 0,6 rad/s); rumowisko kotwiczone przy < 1,5 stud/s, gruz usypiany tak samo = taśmociąg | ✅ `Utils.anchorAtRest` (zeruje obie prędkości) w `CollapseService.settle`/`jam` i usypianiu `DebrisService` — test dymny: 47 osiadłych kawałków, prędkość 0,000 |
+> | „rzucam bombę, a party już się nie rozwalają na mniejsze” — **leżące po zawaleniu** | leżące bryły v4 (`rubbleOf`) i gruz serwera NIGDY nie są cięte — wybuch tylko budzi i pcha (duże bryły ledwo drgną) | **bomba tnie leżącą bryłę jak ścianę** — ✅ `CollapseService.cutRubble` (test dymny: 3 bomby w rumowisko → 5, 6, 4 przecięte kawałki, 8-13 ms CPU, zero błędów). ⚠️ Gruz `DebrisService` (fragmenty kruszenia, v3) dalej tylko pchany |
+> | drabina: „przy bombie te po bokach odpadają, a środek (szczeble) zostaje zbugowany” | szyna (1×66×1) to listwa → łamana jak drobnica → oddawana klientom W CAŁOŚCI; szczeble dotykają tylko szyn i nic nie sprawdza, czy po zniknięciu szyn mają na czym wisieć. Do tego bake doczepia CAŁĄ drabinę (2 szyny + 30 z 32 szczebli) do jednego kawałka stropu 3. piętra (ch181), bo szyny przez niego przechodzą, a szczeble dziedziczą właściciela po szynach | wymaganie Kacpra: **„naruszone party mają spadać”** — nic nie wisi. DO ZROBIENIA (plan niżej) |
+> | „skoro part i tak nie ma kolizji, to go posiekaj, a nie takie duże kloce, przez które da się przechodzić” + „zmień kolor na ciemny szary, żeby było widać, że to debris” | przekazany klientom POJEDYNCZY duży part (zaklinowany strop 22×33, szyna 66, grupa ponad budżetem) leciał jednym klocem bez kolizji i leżał 3-20 s | ✅ `DebrisFXController.spawnFall` siecze part dłuższy niż `FX.HandoffSliceAbove` (4) na kawałki `Fracture.TargetChunkSize` (w budżecie trybu); cały lokalny gruz budynku (kawałki dziur, posiekane bryły, odłamki) ciemnoszary `FX.LocalDebrisColor` z rozrzutem jasności; meble i szkło bez zmian. Test: 0 błędów, szczyt 1698 kawałków w Pełnym (limit 2000) |
+| „usuń te wibracje przy niszczeniu filarów” | trzęsienie kamery `StructureFX "collapse"` — v4 wysyła je przy KAŻDEJ spadającej grupie | ✅ `FX.CollapseShakeMax` / `CreakShakeMax` = 0 (pył i dźwięk zostają, wstrząs od wybuchu też) |
+| „party się bugują” = wiszą chwilę, potem znikają | siatka zaklinowania. Nowy log (`holdersOf`: KAŻDY styk bez filtra — POD/NAD/BOK z głębokością, rodzaj chunków grupy) pokazał: 4 z 11 zaklinowań = filarek leżący na FRAGMENCIE skruszonej ściany pod sobą (fragment miał filtr tylko z tym, na co nachodził, i startował w górę) | ✅ `filterContacts`: fragment kruszenia bez kolizji ze wszystkim, czego dotyka przy starcie → **zaklinowań 11 → 4** (19 z 21 grup osiada fizyką). Zostały: 2 × filarek na krawędzi sąsiedniego, CAŁEGO kawałka przeciętej belki (hipoteza: styk węższy niż `MinInterfaceWidth` — solver nie liczy go jako podpory, fizyka tak; do zmierzenia szerokości styku), 1 × bryła w szczelinie 0,02-0,03 między stojącymi stropami (przyczyna niepewna), 1 × bryła na wcześniejszym rumowisku (prawidłowe) |
+| (decyzja Kacpra 25.09) odrzut obudzonego rumowiska | obudzona bryła leciała 72 stud/s na 45 studów i zabijała | ✅ `Collapse.WakeImpulseFactor` 0,3 |
+>
+> **Zrobione 25.09 (wieczór): cięcie rumowiska** — `CollapseService.cutRubble` (ta sama dziura-prostokąt i próg co konstrukcja, payload `cuts` z `win`, oryginał zostaje resztką pod graczami — `Pieces.pickReuse`, wspólne ze `StructuralService`; potem spawy grupy od nowa — `reweld`, i zwykłe `wakeRubble`). Log `[Destr] … rumowisko cięte=N`.
+> **Obserwacja z testu dymnego (nie zgłoszona przez Kacpra, do decyzji)**: obudzona leżąca bryła (4:23) przeleciała ~45 studów z prędkością 72 stud/s i zabiła gracza przygnieceniem — impuls fali dla obudzonego rumowiska jest za duży jak na ciężkie płyty („latające płyty”).
+> **26.09 (test Kacpra z kolegą, dotyczy destrukcji)**: „czasem bomba kolegi nic mi nie robi, 0 ragdolla, 0 dmg” — przyczyna NIEUSTALONA. Jedna z możliwych: wyjątek w `DestructionService.detonate` zjadał obrażenia graczy (były liczone PO destrukcji, bez zabezpieczenia) → `BombService` woła destrukcję w `xpcall` i drukuje `[Bomb] BŁĄD destrukcji …` ze śladem; druga: osłona — leżące rumowisko v4 (od 25.09 jest go więcej i jest cięte) liczy się w `computeOcclusion` jak ściana (×0,45 za bryłę, poniżej `MinEffect` 0,05 = brak trafienia) → log `[Bomb] … miss — <gracz> … osłonięty (occ=…)`. Rozstrzygnie log z następnego testu. NIEPRZETESTOWANE, nawet składnia (MCP odcięty).
+>
+> **Plan na następną sesję (przed kodem: szczegóły + ewentualne pytania):**
+> 1. Fragmenty kruszenia v4 są dziś gruzem `DebrisService` (tylko pchane, osobny budżet) — przenieść do `CollapseService`, żeby też się cięły.
+> 2. **Drabina / długie listwy** — (a) bake: listwa w łańcuchu dostaje właściciela z NAJBLIŻSZEGO chunka, nie z pierwszego ogniwa (drabina rozłożona na piętra); (b) listwa dłuższa niż chunk trafiona bombą → wycinany odcinek, nie cała; (c) po zabraniu listwy — listwy, które straciły ostatni styk, spadają (łańcuch, „nic nie wisi”).
+> 3. Potem faza E (RiderTracker).
+>
 > ⚠️ Świadome braki fazy D: obrażenia jeźdźca to zwykły upadek (0,5 i grace = faza E — RiderTracker),
 > krawędź dziury prosta (bez poszarpanej wargi), meble ze spadającego stropu padają animacją u klientów
 > (nie jadą z bryłą), fragmenty L3 idą przez budżet DebrisService (osobny od budżetu kolapsu — do
@@ -426,6 +483,11 @@ Nowe remote'y: `DebrisFall` (przekazanie drobnicy: klient kopiuje i animuje, ser
 | Prototyp | **OrangeBuilding** |
 | Reset mapy (`MapService`) | bez zmian — najpierw pomiar w MicroProfilerze |
 | Charakter | **„sandbox i naturalnie, nie sztucznie”** |
+| (25.09) Jeździec: co znaczy 0,5 | **połowa obrażeń** za pełną wysokość (nie połowa wysokości) |
+| (25.09) Wysokość jazdy | **z prędkości przy uderzeniu** (ΔV²/2g hamowania bryły), nie z różnicy Y |
+| (25.09) Zaklinowana grupa | **do klientów** (kolizja od razu), log co trzymało |
+| (25.09) Pion na stojącej belce, za daleko od słupa | **belka pęka pod nim** (przeciążenie) |
+| (25.09) Kikuty przeciętego słupa/belki | **spadają z tym, co trzymają**; pień, którego nic nie rusza, zostaje |
 
 ### Architektura
 ```
@@ -460,6 +522,8 @@ KLIENT: VFX, pył, gruz bez kolizji, kopie mebli, poszarpana warga dziur — ilo
   OrangeBuilding 24.09: cały parter pod wieżą zniszczony, a wieża nie spadała).
 - **Solver**: Dijkstra po „zasięgu” = odległość od ostatniej prawdziwej podpory; spada chunk bez
   zasięgu ≤ `MaxSpan`. Cięcie przez cały przekrój nośny (słup 5×5 vs dziura 18×18) = `Severed`.
+  **Przeciążenie (25.09)**: poziom, na którym (Bearing) stoi spadający pion, pęka i spada razem
+  z nim — inaczej fizycznie dalej by go trzymał (iteracja do punktu stałego w `StructureCore.solve`).
 - **TRIM/Other** nie są węzłami: `AttachedTo` właściciela, idą z nim (Follow / Cosmetic / Destroy).
 - **Brak niewidzialnych awarii**: interfejs traci szerokość tylko, gdy znika materiał; podpora
   „zniszczona” strukturalnie kruszy się (znika jej geometria).

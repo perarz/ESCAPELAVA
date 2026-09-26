@@ -48,6 +48,7 @@ local PlayerService = require(script.Parent.PlayerService)
 local AntiCheatService = require(script.Parent.AntiCheatService)
 local GameLoopService = require(script.Parent.GameLoopService)
 local FallDamageService = require(script.Parent.FallDamageService)
+local RagdollService = require(script.Parent.RagdollService)
 
 local GrappleService = {}
 
@@ -176,6 +177,13 @@ local function handleFireGrapple(player: Player, targetPos: any)
 
 	-- 2. Żywy gracz w rundzie.
 	if not PlayerService.isAlive(player) then return end
+
+	-- 2b. Nie w ragdollu (zgłoszenie Kacpra 26.09: „podczas ragdolla da się handhookiem lecieć
+	--     i kolegę w kosmos wywaliło”). Lot ciągnie korzeń postaci LinearVelocity z siłą
+	--     liczoną pod stojącą postać, a ciało wisi wtedy na przegubach toolboxa — solver
+	--     wystrzeliwuje całość. Sprawdzane PRZED cooldownem i zużyciem: w ragdollu hak nic
+	--     nie kosztuje. Klient blokuje to samo u siebie, ale nie ufamy mu (hard rule 2).
+	if RagdollService.isRagdolled(player) then return end
 
 	-- 3. Cooldown. Zużywa się na PRÓBIE, nie na sukcesie — inaczej spam kliknięć w niebo
 	--    kosztuje serwer raycast przy każdym kliknięciu.

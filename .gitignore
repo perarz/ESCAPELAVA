@@ -18,3 +18,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Lokalne ustawienia Claude Code (m.in. obejście MCP dla Roblox Studio — CLAUDE.md, lekcja 13)
+.claude/settings.local.json

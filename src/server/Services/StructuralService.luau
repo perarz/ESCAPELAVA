@@ -228,28 +228,6 @@ function StructuralService.anyNear(center: Vector3, radius: number): boolean
 	return false
 end
 
--- Która resztka dostaje ORYGINALNĄ instancję: ta, na której stoi najwięcej graczy, przy
--- remisie największa. Tolerancja pionowa hojna — pozycja postaci na serwerze jest spóźniona
--- względem klienta (network ownership). Ta sama reguła co v3 (fix „przenikanie przez podłogę”).
-local function pickReuse(rem: { Fracture.Chunk }, cf: CFrame, feetWorld: { Vector3 }): number
-	local best, bestScore, bestVolume = 1, -1, -1
-	for i, box in ipairs(rem) do
-		local h = box.size * 0.5
-		local score = 0
-		for _, f in ipairs(feetWorld) do
-			local d = cf:PointToObjectSpace(f) - box.offset
-			if math.abs(d.X) <= h.X + 1 and math.abs(d.Y) <= h.Y + 3 and math.abs(d.Z) <= h.Z + 1 then
-				score += 1
-			end
-		end
-		local volume = box.size.X * box.size.Y * box.size.Z
-		if score > bestScore or (score == bestScore and volume > bestVolume) then
-			best, bestScore, bestVolume = i, score, volume
-		end
-	end
-	return best
-end
-
 -- Dziura-prostokąt w kawałku (kolizja v4, Fracture.planWindow). Oryginał zostaje przycięty
 -- do pasa, na którym stoją gracze; pozostałe pasy to nowe kawałki. Zwraca payload dla
 -- klientów (kawałki dziury animują oni) albo nil, gdy wybuch nie sięga kawałka.
@@ -285,7 +263,7 @@ function StructuralService.cutHole(part: BasePart, center: Vector3, holeRadius: 
 		StructuralService.releasePiece(rec, index, part)
 		part:Destroy()
 	else
-		local reuse = pickReuse(rem, cf, feetWorld)
+		local reuse = Pieces.pickReuse(rem, cf, feetWorld)
 		-- Nowe pasy PRZED przycięciem oryginału — gracz na oryginale nie traci gruntu.
 		for i, box in ipairs(rem) do
 			if i ~= reuse then

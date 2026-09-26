@@ -28,6 +28,9 @@ local PlayerService = {}
 
 local aliveSet: { [Player]: boolean } = {}
 local diedConns: { [Player]: RBXScriptConnection } = {}
+-- Martwi, na których czeka już timer powrotu do lobby (DeathRagdollTime). Koniec rundy
+-- zostawia ich temu timerowi; martwego BEZ timera odradza sam.
+local respawnPending: { [Player]: boolean } = {}
 local initialized = false
 local warnedNoLobby = false
 local warnedNoSpawns = false
@@ -216,8 +219,26 @@ local function onDeath(player: Player, hum: Humanoid?)
 	Remotes.AliveChanged:FireClient(player, false)
 	Remotes.PlayerDied:FireAllClients(player, "round")
 
-	task.defer(function()
-		if not player.Parent then return end -- left server
+	-- Martwy leży chwilę jako ragdoll (przewraca go toolbox na humanoid.Died), dopiero potem
+	-- lobby — decyzja Kacpra 25.09. Kamera zostaje na ciele, więc widać, że i gdzie się zginęło.
+	-- Stan rundy już o nim nie wie (aliveSet wyżej), więc czekanie niczego w grze nie blokuje.
+	local deadCharacter = player.Character
+	respawnPending[player] = true
+	task.delay(Config.Game.DeathRagdollTime, function()
+		respawnPending[player] = nil
+		if not player.Parent then return end -- wyszedł z gry
+		-- Nie ruszamy tylko gracza, który ma już INNĄ, ŻYWĄ postać (np. start rundy załadował
+		-- mu nową w tym czasie). ⚠️ Pierwsza wersja (25.09) wymagała, żeby to była dalej ta
+		-- sama martwa postać. Postać, która spadła pod mapę, silnik rozbiera (party poniżej
+		-- FallenPartsDestroyHeight) i `Character` może już na nią nie wskazywać — wtedy nikt
+		-- jej nie odradzał, a koniec rundy martwych pomijał. Najbardziej prawdopodobna przyczyna
+		-- zgłoszenia Kacpra 26.09 „jak zginął, to gdzieś ciągle pod mapą był” (wywnioskowana
+		-- z kodu, niezmierzona).
+		local current = player.Character
+		if current and current ~= deadCharacter then
+			local hum = current:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then return end
+		end
 		sendToLobby(player)
 	end)
 end
@@ -251,10 +272,21 @@ local LOBBY_NEAR_THRESHOLD = 25 -- stud; ponad = teleport, poniżej = zostaw w l
 local function sendSurvivorsToLobby()
 	-- POST_ROUND/LOBBY: teleportuj TYLKO graczy fizycznie daleko od lobby spota.
 	-- Martwi spectator'zy są już w lobby po onDeath — nie chcemy ich znowu LoadCharacter.
+	-- Martwy, który jeszcze leży jako ragdoll (DeathRagdollTime), wróci sam — bez tego
+	-- śmierć ostatniego gracza (runda kończy się od razu) przenosiła jego ciało do lobby.
 	local target = getLobbyTargetPosition()
 	for _, p in ipairs(Players:GetPlayers()) do
 		local char = p.Character
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hum and hum.Health <= 0 then
+			-- Martwy bez czekającego timera (np. zginął poza zasięgiem onDeath) — odradzamy
+			-- teraz, zamiast zostawiać trupa do następnej rundy.
+			if not respawnPending[p] then
+				sendToLobby(p)
+			end
+			continue
+		end
 		if not hrp then
 			-- Brak postaci (np. fresh join w trakcie POST_ROUND) — zwykły load+teleport.
 			sendToLobby(p)
@@ -321,6 +353,7 @@ end
 
 local function onPlayerRemoving(player: Player)
 	aliveSet[player] = nil
+	respawnPending[player] = nil
 	disconnectDied(player)
 end
 

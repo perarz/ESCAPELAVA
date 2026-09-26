@@ -100,6 +100,47 @@ local function randomUnit(rng: Random): Vector3
 	return Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-1, 1), rng:NextNumber(-1, 1))
 end
 
+-- Lokalny gruz budynku jest CIEMNOSZARY (decyzja Kacpra 25.09) — nie ma kolizji, więc kolor
+-- mówi graczowi „przez to przejdziesz, na tym nie staniesz”. Lekki rozrzut jasności, żeby
+-- sterta nie wyglądała jak jeden plastikowy klocek.
+local function debrisColor(rng: Random): Color3
+	local base = FX.LocalDebrisColor
+	local k = 1 + rng:NextNumber(-FX.LocalDebrisColorJitter, FX.LocalDebrisColorJitter)
+	return Color3.new(math.clamp(base.R * k, 0, 1), math.clamp(base.G * k, 0, 1), math.clamp(base.B * k, 0, 1))
+end
+
+-- Kawałek gruzu budynku (odłamek dziury albo posiekana bryła): box albo klin, lekki shrink
+-- i obrót (siatka nie może czytać się jak siatka), ciemnoszary, z materiałem i wariantem
+-- źródła — mapa stoi na Plastic + „Studs” (hard rule 15). Jedno miejsce dla obu dróg.
+local function makeChunk(rng: Random, cf: CFrame, size: Vector3, mat: any, var: any, tr: any): BasePart
+	local part: BasePart
+	if rng:NextNumber() < FRAC.WedgeChance then
+		-- Czasem klin zamiast boxa — poszarpane krawędzie czytają się jako "odłamany".
+		part = Instance.new("WedgePart")
+	else
+		part = Instance.new("Part")
+	end
+	part.Name = "LocalChunk"
+	local rj = math.rad(FRAC.ChunkRotJitter)
+	part.Size = size * FRAC.ChunkShrink
+	part.CFrame = cf * CFrame.Angles(rng:NextNumber(-rj, rj), rng:NextNumber(-rj, rj), rng:NextNumber(-rj, rj))
+	part.Color = debrisColor(rng)
+	if typeof(mat) == "EnumItem" then
+		pcall(function()
+			part.Material = mat
+		end)
+	end
+	-- Wariant PO materiale — ustawienie materiału czyści wariant.
+	if typeof(var) == "string" then
+		part.MaterialVariant = var
+	end
+	if typeof(tr) == "number" then
+		part.Transparency = tr
+	end
+	Utils.smoothSurfaces(part)
+	return part
+end
+
 -- ============================================================================
 -- Pula lokalnego gruzu: sufit, czas życia, gaśnięcie, lot, przewracanie mebli
 -- ============================================================================
@@ -632,7 +673,7 @@ local function spawnFrag(rng: Random, center: Vector3, radius: number, samples: 
 		s * rng:NextNumber(0.6, 1.4),
 		s * rng:NextNumber(0.6, 1.4)
 	)
-	frag.Color = sample.color
+	frag.Color = debrisColor(rng)
 	frag.Material = sample.material
 	frag.MaterialVariant = sample.variant
 	-- Gładko, a nie jak chce `Instance.new`: odłamek ma 0.4-1.5 studa, więc domyślny
@@ -818,36 +859,10 @@ local function spawnCutChunks(
 		end)
 	end
 
-	local rj = math.rad(FRAC.ChunkRotJitter)
 	for i = 1, math.min(#jobs, profile.CutChunksPerBlast) do
 		local job = jobs[i]
 		local cut = job.cut
-		local part: BasePart
-		if rng:NextNumber() < FRAC.WedgeChance then
-			-- Czasem klin zamiast boxa — poszarpane krawędzie czytają się jako "odłamany".
-			part = Instance.new("WedgePart")
-		else
-			part = Instance.new("Part")
-		end
-		part.Name = "LocalChunk"
-		-- Lekki shrink + obrót: kawałki nie tworzą idealnej siatki, gruz wygląda na połamany.
-		part.Size = job.chunk.size * FRAC.ChunkShrink
-		part.CFrame = cut.cf * CFrame.new(job.chunk.offset)
-			* CFrame.Angles(rng:NextNumber(-rj, rj), rng:NextNumber(-rj, rj), rng:NextNumber(-rj, rj))
-		part.Color = if typeof(cut.color) == "Color3" then cut.color else FALLBACK_COLOR
-		if typeof(cut.mat) == "EnumItem" then
-			pcall(function()
-				part.Material = cut.mat
-			end)
-		end
-		-- Wariant PO materiale — mapa stoi na Plastic + "Studs" (hard rule 15).
-		if typeof(cut.var) == "string" then
-			part.MaterialVariant = cut.var
-		end
-		if typeof(cut.tr) == "number" then
-			part.Transparency = cut.tr
-		end
-		Utils.smoothSurfaces(part)
+		local part = makeChunk(rng, cut.cf * CFrame.new(job.chunk.offset), job.chunk.size, cut.mat, cut.var, cut.tr)
 
 		local d = Fracture.boxSurfaceDistance(Vector3.zero, part.Size, part.CFrame:PointToObjectSpace(center))
 		local linear, angular = Shockwave.velocity(part.Position, part.Size, center, d, radius, impulse, minT, rng)
@@ -907,10 +922,13 @@ local function instancePosition(inst: Instance): Vector3?
 end
 
 -- Kopia mebla/parta, która pada (albo leci) u nas. Kopia PRZED schowaniem oryginału —
--- sklonowałaby się niewidzialna.
+-- sklonowałaby się niewidzialna. Zwraca, ile partów postawiła (budżet trybu grafiki).
 --   * mebel (Model): przewraca się od wybuchu; w Pełnym potem rozsypuje się na części,
 --     a odrzucony (blisko bomby) rozsypuje się od razu, części lecą od wybuchu
---   * pojedynczy part: leci (odrzut) albo pada z lekkim, losowym ruchem
+--   * duży pojedynczy part budynku: SIEKANY na kawałki wielkości odłamków dziury
+--     (FX.HandoffSliceAbove) — bez kolizji jeden wielki kloc to „ściana, przez którą się
+--     przechodzi” (zgłoszenie Kacpra 25.09: zaklinowane stropy 22×33, szyny drabiny 66)
+--   * mały pojedynczy part: leci (odrzut) albo pada z lekkim, losowym ruchem
 local function spawnFall(
 	inst: Instance,
 	launch: boolean,
@@ -918,12 +936,36 @@ local function spawnFall(
 	radius: number,
 	impulse: number,
 	rng: Random,
-	profile: Profile
-)
+	profile: Profile,
+	budgetLeft: number
+): number
+	if inst:IsA("BasePart") and not Destructible.isSmall(inst :: BasePart) and budgetLeft >= 2 then
+		local src = inst :: BasePart
+		local size = src.Size
+		if math.max(size.X, size.Y, size.Z) > FX.HandoffSliceAbove then
+			local cf = src.CFrame
+			local slices = Fracture.slice(size, FRAC.TargetChunkSize, FRAC.MinChunkSize, math.min(FRAC.MaxChunksPerPart, budgetLeft), rng)
+			for _, c in ipairs(slices) do
+				local chunk = makeChunk(rng, cf * CFrame.new(c.offset), c.size, src.Material, src.MaterialVariant, src.Transparency)
+				local linear: Vector3, angular: Vector3
+				if launch then
+					local d = Fracture.boxSurfaceDistance(Vector3.zero, chunk.Size, chunk.CFrame:PointToObjectSpace(center))
+					linear, angular = Shockwave.velocity(chunk.Position, chunk.Size, center, d, radius, impulse, 0.15, rng)
+				else
+					-- Rozpad w miejscu: kawałki rozchodzą się lekko, a opadają same (grawitacja).
+					linear = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(0, 0.5), rng:NextNumber(-1, 1)) * FX.DropSpeed
+					angular = randomUnit(rng) * FX.DropSpin
+				end
+				launchPiece(chunk, linear, angular, profile.RubbleLifetime, profile)
+			end
+			return #slices
+		end
+	end
+
 	local ok, copy = pcall(function()
 		return inst:Clone()
 	end)
-	if not ok or copy == nil then return end
+	if not ok or copy == nil then return 0 end
 	local root = copy :: Instance
 
 	local parts: { BasePart } = {}
@@ -944,7 +986,7 @@ local function spawnFall(
 	end
 	if #parts == 0 then
 		root:Destroy()
-		return
+		return 0
 	end
 	root.Parent = getFolder()
 
@@ -963,7 +1005,7 @@ local function spawnFall(
 		else
 			startTopple(root :: Model, parts, center, launch, profile, rng)
 		end
-		return
+		return #parts
 	end
 
 	local p = root :: BasePart
@@ -980,6 +1022,7 @@ local function spawnFall(
 			profile
 		)
 	end
+	return 1
 end
 
 local function onDebrisFall(fall: any)
@@ -1005,10 +1048,8 @@ local function onDebrisFall(fall: any)
 			local pos = instancePosition(inst)
 			local near = pos ~= nil and (camPos == nil or (pos - camPos).Magnitude <= profile.FXDistance)
 			if near and budget > 0 then
-				local n = countParts(inst)
-				if n <= budget then
-					budget -= n
-					spawnFall(inst, launch, center, radius, impulse, rng, profile)
+				if countParts(inst) <= budget then
+					budget -= spawnFall(inst, launch, center, radius, impulse, rng, profile, budget)
 				end
 			end
 			-- Oryginał chowamy ZAWSZE — także ponad budżetem i daleko: serwer i tak go

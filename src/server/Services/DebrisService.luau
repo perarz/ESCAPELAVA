@@ -595,7 +595,7 @@ local function scan()
 					-- Kolizje MUSZĄ wrócić zanim uśpimy — inaczej leżąca platforma na zawsze
 					-- przenikałaby przez inny gruz.
 					restoreGroup(part, entry)
-					part.Anchored = true
+					Utils.anchorAtRest(part) -- usypiany przy prędkości < SleepSpeed: bez zerowania = taśmociąg
 					entry.asleep = true
 					entry.supportCheckedAt = now
 					-- Platformą zostaje tylko duży kawałek i tylko gdy jest wolne miejsce;

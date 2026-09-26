@@ -93,6 +93,7 @@ export type BlastStats = {
 	felled: number,         -- spadło z utraty podparcia (łącznie)
 	felledServer: number,   -- z tego zostało gruzem serwera (duże płyty)
 	pushed: number,         -- już-nieanchorowanych obiektów pchniętych falą
+	rubbleCut: number,      -- leżących kawałków rumowiska v4 z dziurą (25.09)
 	cpuMs: number,          -- czysty czas CPU (BEZ czekania na klatki — stary `ms` je wliczał)
 	frames: number,         -- ile klatek wybuch czekał (budżet CPU + broadphase)
 }
@@ -802,7 +803,7 @@ type Damaged = { part: BasePart, hpLeft: number, maxHp: number }
 
 local function newStats(): BlastStats
 	return {
-		structural = 0, cut = 0, remnants = 0, launchedServer = 0, damaged = 0, glass = 0,
+		structural = 0, cut = 0, remnants = 0, launchedServer = 0, damaged = 0, glass = 0, rubbleCut = 0,
 		smallParts = 0, handoff = 0, felled = 0, felledServer = 0, pushed = 0,
 		cpuMs = 0, frames = 0,
 	}
@@ -810,11 +811,11 @@ end
 
 local function logBlast(radius: number, damage: number, stats: BlastStats)
 	if not CFG.Debug then return end
-	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
+	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
 		radius, damage,
 		stats.structural, stats.cut, stats.remnants, stats.launchedServer, stats.damaged, stats.glass,
 		stats.smallParts, stats.handoff,
-		stats.felled, stats.felledServer, stats.pushed,
+		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut,
 		DebrisService.getTotalCount(), DBR.MaxTotalDebris,
 		stats.cpuMs, stats.frames))
 end
@@ -917,7 +918,7 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	local structList: { Hit } = {}
 	local smallHits: { Hit } = {}
 	local v4Hits: { Hit } = {}
-	local rubbleHits: { BasePart } = {}
+	local rubbleHits: { Hit } = {}
 	local unanchoredInMap: { BasePart } = {}
 	local outsideMap: { BasePart } = {}
 
@@ -936,8 +937,10 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 			continue
 		end
 		if CollapseService.isRubble(part) then
-			-- Leżąca bryła kolapsu v4 — wybuch ją budzi i pcha (CollapseService), nie tnie.
-			table.insert(rubbleHits, part)
+			-- Leżąca bryła kolapsu v4: blisko bomby cięta jak ściana (decyzja Kacpra 25.09 —
+			-- wcześniej tylko budzona i pchana, więc „bomba przestawała rozwalać”), potem budzona.
+			local d = surfaceDistance(part, center)
+			table.insert(rubbleHits, { part = part, distance = d, dmg = damage * (1 - math.clamp(d / radius, 0, 1)) })
 			continue
 		end
 		if not part.Anchored then
@@ -1076,10 +1079,10 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	-- wybuchów). Obrażenia strukturalne idą zawsze, gdy wybuch sięga budynku v4 — także
 	-- wtedy, gdy nic nie przeciął (osłabianie sumuje się: decyzja Kacpra 24.09).
 	local v4Cuts: { any } = {}
+	local SD = Config.Structure.Damage
+	local holeRadius = math.clamp(radius * (1 - SD.HoleThreshold / math.max(damage, 0.001)), SD.MinHoleRadius, radius)
 	if #v4Hits > 0 or StructuralService.anyNear(center, radius) then
-		local SD = Config.Structure.Damage
 		local cause = StructuralService.newCause(attacker, center)
-		local holeRadius = math.clamp(radius * (1 - SD.HoleThreshold / math.max(damage, 0.001)), SD.MinHoleRadius, radius)
 		table.sort(v4Hits, function(a, b)
 			return a.distance < b.distance
 		end)
@@ -1092,6 +1095,23 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 			end
 		end
 		StructuralService.structuralDamage(center, radius, damage, cause)
+	end
+	-- Leżące rumowisko v4: ta sama dziura-prostokąt i ten sam próg co konstrukcja. Resztka,
+	-- którą trzeba potem obudzić, może być innym kawałkiem niż trafiony (trafiony mógł zniknąć).
+	table.sort(rubbleHits, function(a, b)
+		return a.distance < b.distance
+	end)
+	for _, hit in ipairs(rubbleHits) do
+		if hit.dmg >= SD.HoleThreshold and hit.part.Parent then
+			local payload, live = CollapseService.cutRubble(hit.part, center, holeRadius, feetWorld)
+			if payload then
+				table.insert(v4Cuts, payload)
+				stats.rubbleCut += 1
+				if live then
+					hit.part = live
+				end
+			end
+		end
 	end
 
 	-- ---- Wyrzut w całości: duże → gruz serwera (budżet), reszta → u klientów -----
@@ -1254,9 +1274,9 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	end
 	-- Leżące bryły kolapsu v4 — budzi je CollapseService (budżet; jedna bryła = jeden impuls,
 	-- kolejne jej kawałki z tej listy są już w locie i zwracają false).
-	for _, part in ipairs(rubbleHits) do
-		if part.Parent then
-			CollapseService.wakeRubble(part, center, radius, impulse, minT)
+	for _, hit in ipairs(rubbleHits) do
+		if hit.part.Parent then
+			CollapseService.wakeRubble(hit.part, center, radius, impulse, minT)
 		end
 	end
 

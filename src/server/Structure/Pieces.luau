@@ -166,4 +166,28 @@ function Pieces.spawnBox(source: BasePart, b: Box): Part
 	return Pieces.spawn(source, cf, size)
 end
 
+-- Która resztka cięcia dostaje ORYGINALNĄ instancję: ta, na której stoi najwięcej graczy,
+-- przy remisie największa. Tolerancja pionowa hojna — pozycja postaci na serwerze jest
+-- spóźniona względem klienta (network ownership). Reguła z v3 (fix „przenikanie przez
+-- podłogę”): gracz na oryginale nie traci gruntu, bo nowe resztki powstają OBOK niego.
+-- Jedno miejsce dla dziur w konstrukcji (StructuralService) i w rumowisku (CollapseService).
+function Pieces.pickReuse(rem: { { offset: Vector3, size: Vector3 } }, cf: CFrame, feetWorld: { Vector3 }): number
+	local best, bestScore, bestVolume = 1, -1, -1
+	for i, box in ipairs(rem) do
+		local h = box.size * 0.5
+		local score = 0
+		for _, f in ipairs(feetWorld) do
+			local d = cf:PointToObjectSpace(f) - box.offset
+			if math.abs(d.X) <= h.X + 1 and math.abs(d.Y) <= h.Y + 3 and math.abs(d.Z) <= h.Z + 1 then
+				score += 1
+			end
+		end
+		local volume = box.size.X * box.size.Y * box.size.Z
+		if score > bestScore or (score == bestScore and volume > bestVolume) then
+			best, bestScore, bestVolume = i, score, volume
+		end
+	end
+	return best
+end
+
 return Pieces

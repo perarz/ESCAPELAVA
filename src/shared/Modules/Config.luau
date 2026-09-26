@@ -66,6 +66,12 @@ Config.Game = {
 	-- przestają się goić. W 80-sekundowej rundzie bez apteczek to spójne — ale gdyby
 	-- kiedyś doszło leczenie, zacząć od tej flagi.
 	DisableHealthRegen = true,
+
+	-- Ile sekund martwy gracz leży jako ragdoll, zanim wróci do lobby (decyzja Kacpra
+	-- 25.09: „po śmierci od razu włącza się ragdoll i tak z 2 sekundy leżysz martwy” —
+	-- wcześniej lobby ładowało się w następnej klatce i nie było widać, że i od czego się
+	-- zginęło). Ragdoll przy śmierci robi toolbox (humanoid.Died), tu tylko czekamy.
+	DeathRagdollTime = 2,
 }
 
 Config.Lava = {
@@ -74,7 +80,7 @@ Config.Lava = {
 	-- (`FX.MinSurfaceY`), więc przy nierosnącej lawie nie było jej jak zobaczyć.
 	Enabled = true,
 	StartY = -5,
-	MaxY = 0,
+	MaxY = 250,
 	-- DESIGN: szybka i dynamiczna gra. Runda ~80s total, nie 5+ minut.
 	--
 	-- ⚠️ WYDŁUŻONE DO 10 MINUT NA TESTY (2026-08-12, prośba Kacpra) — długa runda daje
@@ -1321,15 +1327,28 @@ Config.Destruction = {
 		-- 200 kawałków lądujących naraz to ściana szumu i zjazd FPS na słabym sprzęcie.
 		ImpactSoundsPerSecond = 6,
 
-		-- Wstrząs ekranu przy kolapsie sekcji (mocniejszy i dłuższy niż przy wybuchu —
-		-- wali się piętro, ma być czuć).
-		CollapseShakeMax = 2.2,
+		-- Wstrząs ekranu przy kolapsie sekcji. WYŁĄCZONY (decyzja Kacpra 25.09: „usuń te
+		-- wibracje przy niszczeniu filarów”) — v4 wysyła `collapse` przy KAŻDEJ spadającej
+		-- grupie, więc przy kaskadzie ekran trząsł się bez przerwy. Pył i dźwięk zostają;
+		-- wstrząs od samego wybuchu (ShakeMax niżej) też. Gałka zostaje, gdyby wrócić.
+		CollapseShakeMax = 0,
 		CollapseShakeDuration = 1.2,
 		CollapseShakeDistance = 160,
-		-- Ostrzeżenie (creak) — subtelne, ma niepokoić, nie oślepiać.
-		CreakShakeMax = 0.5,
+		-- Ostrzeżenie (creak) — wyłączone razem z kolapsem (ta sama decyzja).
+		CreakShakeMax = 0,
 		CreakShakeDuration = 0.9,
 		CreakShakeDistance = 110,
+		-- LOKALNY GRUZ = CIEMNOSZARY (decyzja Kacpra 25.09: „zmień kolor na jakiś ciemny
+		-- szary, że to widać, że debris”). Gruz u gracza nie ma kolizji — kolor mówi „przez
+		-- to przejdziesz, na tym nie staniesz”. Dotyczy gruzu z BUDOWY (kawałki dziur,
+		-- posiekane bryły, odłamki); meble i szkło zostają w swoich kolorach.
+		LocalDebrisColor = Color3.fromRGB(62, 62, 66),
+		LocalDebrisColorJitter = 0.1, -- ± jasność na kawałek — jednolity kolor wyglądałby jak plastik
+		-- Pojedynczy przekazany part budynku dłuższy niż tyle jest SIEKANY na kawałki wielkości
+		-- odłamków dziury (Fracture.TargetChunkSize), zamiast lecieć jednym klocem (Kacper
+		-- 25.09: „skoro i tak nie ma kolizji, to go posiekaj, a nie że takie duże kloce
+		-- zostają, przez które da się przechodzić” — zaklinowane stropy 22×33, szyny 66).
+		HandoffSliceAbove = 4,
 		-- Ambientowy screen shake dla każdego w pobliżu (trafieni dostają mocniejszy z BombHit).
 		ShakeMaxDistance = 90,
 		ShakeMax = 1.1,
@@ -1472,6 +1491,19 @@ Config.Structure = {
 		SettleSpeed = 1.5,
 		SettleTime = 0.6,
 		MaxFallTime = 8,       -- po tylu sekundach lotu kotwiczymy na siłę
+		-- ZAKLINOWANIE (test dymny 25.09: 21 z 25 grup „osiadło” w miejscu po 0,7 s, bo
+		-- fizycznie coś je trzymało). Grupa, która po JamCheckTime od odkotwiczenia przesunęła
+		-- się mniej niż JamMinMove i obróciła mniej niż JamMinAngle, idzie do klientów
+		-- (decyzja Kacpra 25.09). 0,4 s: wolna grupa spada w tym czasie ~17 studów, więc 1 stud
+		-- to pewny sygnał; krócej łapałoby grupy leżące chwilę na przekazanym (0,25 s) gruzie.
+		JamCheckTime = 0.4,
+		JamMinMove = 1,
+		JamMinAngle = 0.05,    -- rad (~3°) — ściana przewracająca się na zawiasie też „rusza”
+		JamProbe = 0.3,        -- stud pod spodem grupy: szukanie tego, co ją trzyma (do logu)
+		-- Kikut przeciętego elementu dotykający grupy bliżej niż tyle leci razem z nią
+		-- (decyzja Kacpra 25.09). Mniejsze niż ContactPadding bake'u (0,15) gubiłoby styki,
+		-- które solver widział; dużo większe łapałoby kikuty tylko stojące obok.
+		StubContact = 0.2,
 		MonitorHz = 10,
 		-- Gruz po zatrzymaniu (decyzja Kacpra 24.09): duże elementy zostają do końca rundy
 		-- jako platformy, małe znikają po kilku sekundach.
@@ -1481,12 +1513,15 @@ Config.Structure = {
 		-- Filtr kolizji na starcie: pary kawałek grupy ↔ stojąca konstrukcja, które na siebie
 		-- NACHODZĄ (158 par w OrangeBuilding), nie zderzają się — inaczej silnik wypycha
 		-- odkotwiczony kawałek „wybuchowo”.
-		OverlapMinDepth = 0.05,
+		OverlapMinDepth = 0.05, -- dotyczy oparcia od spodu; styk z boku filtrowany zawsze (needsFilter)
 		OverlapFilterMax = 80,
 		-- Kawałek ze skruszonego elementu: duży = fragment fizyki serwera (ściany mogą
 		-- naprawdę odlecieć — decyzja Kacpra), mały = animacja u klientów.
 		FragmentMinVolume = 45,
 		FragmentSpeed = 18,
+		-- Obudzona LEŻĄCA bryła dostaje tylko tyle impulsu fali (decyzja Kacpra 25.09: „mniejszy
+		-- odrzut dla wszystkich”) — pełny wyrzucał ją 72 stud/s na 45 studów i zabijał przygnieceniem.
+		WakeImpulseFactor = 0.3,
 		-- Przekazanie klientom (Remotes.DebrisFall): zasięg i siła, z jaką klient wyrzuca
 		-- skruszone kawałki (upadek grup ponad budżetem leci bez wyrzutu).
 		HandoffRadius = 24,

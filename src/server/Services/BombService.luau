@@ -261,9 +261,6 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 	local exemptThrower = not RunService:IsStudio()
 	for _, p in ipairs(Players:GetPlayers()) do
 		if exemptThrower and p == thrower then continue end
-		-- Tylko żywi w rundzie. Bez tego bomba rzucona blisko lobby zabijała spectatorów,
-		-- a onDeath ich ignoruje (nie są w aliveSet) → trup bez respawnu do następnej rundy.
-		if not PlayerService.isAlive(p) then continue end
 		local char = p.Character
 		if not char then continue end
 		local hum = char:FindFirstChildOfClass("Humanoid")
@@ -273,6 +270,14 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 
 		local distance = (hrp.Position - blastCenter).Magnitude
 		if distance > def.blastRadius then continue end
+		-- Od tego miejsca gracz JEST w zasięgu — każde pominięcie logujemy z powodem
+		-- (26.09: „czasem bomba nic mu nie robi” — bez tego nie wiadomo, który warunek).
+		-- Tylko żywi w rundzie. Bez tego bomba rzucona blisko lobby zabijała spectatorów,
+		-- a onDeath ich ignoruje (nie są w aliveSet) → trup bez respawnu do następnej rundy.
+		if not PlayerService.isAlive(p) then
+			log(thrower, "miss", ("%s dist=%.1f — nie jest żywy w rundzie (aliveSet)"):format(p.Name, distance))
+			continue
+		end
 
 		-- Linear falloff, ale z floor — średni dystans nadal dostaje push, nie 0
 		local rawT = math.clamp(1 - distance / def.blastRadius, 0, 1)
@@ -283,7 +288,11 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 		-- i taga przez dwie ściany).
 		local occlusion = DestructionService.computeOcclusion(blastCenter, hrp.Position)
 		local effT = rawT * occlusion
-		if effT < Config.Destruction.Occlusion.MinEffect then continue end
+		if effT < Config.Destruction.Occlusion.MinEffect then
+			log(thrower, "miss", ("%s dist=%.1f — osłonięty (occ=%.2f, efekt %.3f < %.2f)"):format(
+				p.Name, distance, occlusion, effT, Config.Destruction.Occlusion.MinEffect))
+			continue
+		end
 
 		local damageT = effT  -- damage skaluje liniowo do 0
 		-- Floor knockbacku liczony PRZED osłoną (floor jest dla otwartej przestrzeni),
@@ -343,7 +352,17 @@ local function detonate(root: Instance, center: Vector3, thrower: Player, def: a
 	-- Destrukcja PRZED damage: gdy bomba zdmuchnie ścianę, gracz za nią jest już odsłonięty
 	-- w momencie liczenia obrażeń (occlusion polega na tej kolejności). VFX wybuchu
 	-- odpala DestructionService (Remotes.BlastFX → klienci renderują).
-	DestructionService.detonate(center, def.destruction, thrower)
+	-- ⚠️ W xpcall: błąd w destrukcji NIE MOŻE anulować obrażeń graczy — bez tego jeden wyjątek
+	-- w DestructionService zjadał całą resztę wybuchu. To jedna z dwóch możliwych przyczyn
+	-- zgłoszenia Kacpra 26.09 „czasem bomba nic mu nie robi, 0 ragdolla, 0 dmg” (druga:
+	-- warunki pominięcia niżej, logowane jako `miss`) — NIEPOTWIERDZONA, log rozstrzygnie.
+	-- Błąd drukujemy głośno, z miejscem wystąpienia, żeby dało się go naprawić u źródła.
+	local ok, err = xpcall(DestructionService.detonate, function(e: any): string
+		return tostring(e) .. "\n" .. debug.traceback() -- ślad z MIEJSCA błędu, nie z tego wywołania
+	end, center, def.destruction, thrower)
+	if not ok then
+		warn(("[Bomb] BŁĄD destrukcji przy wybuchu %s: %s"):format(tostring(center), tostring(err)))
+	end
 
 	applyDamageAndKnockback(center, thrower, def)
 

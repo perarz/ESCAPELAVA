@@ -79,6 +79,23 @@ local function getCharParts(): (Humanoid?, BasePart?)
 	return hum, nil
 end
 
+-- Czy nasza postać leży jako ragdoll. Toolbox ARTFVL zwiotcza postać przez
+-- `ChangeState(Physics)`, nie przez PlatformStand — sam PlatformStand (poprzednia wersja
+-- warunku) nie łapał ragdolla i hak ciągnął bezwładne ciało (26.09: „podczas ragdolla da
+-- się handhookiem lecieć i kolegę w kosmos wywaliło”). Trzy sygnały, bo każdy dociera
+-- w innym momencie: flaga toolboxa (ustawia ją serwer, replikuje się do nas przez
+-- PlayerGui), stan Physics i PlatformStand. Serwer blokuje strzał osobno.
+local function isRagdolled(hum: Humanoid): boolean
+	if hum.PlatformStand or hum:GetState() == Enum.HumanoidStateType.Physics then
+		return true
+	end
+	local gui = localPlayer:FindFirstChild("PlayerGui")
+	local folder = gui and gui:FindFirstChild("ragdoll")
+	local vars = folder and folder:FindFirstChild("variables")
+	local flag = vars and vars:FindFirstChild("ragdoll")
+	return flag ~= nil and flag:IsA("BoolValue") and (flag :: BoolValue).Value
+end
+
 -- ── Lina ─────────────────────────────────────────────────────────────────────────────
 -- Czysto lokalny part (wzorzec DebrisFXController): zero replikacji, zero fizyki serwera.
 -- ⚠️ `Locked = true` jest WYMAGANE — bez tego `Destructible.canSpawnFXFrom` przepuszcza
@@ -211,9 +228,9 @@ local function stepFlight(dt: number)
 		endFlight("interrupted")
 		return
 	end
-	-- Toolbox ARTFVL ustawia PlatformStand na czas ragdolla (bomba w trakcie lotu) — lina
-	-- i toolbox walczyłyby wtedy o prędkość postaci.
-	if hum.PlatformStand then
+	-- Ragdoll w trakcie lotu (bomba, upadek) — lina i toolbox walczyłyby o prędkość
+	-- postaci, a solver wystrzeliwuje bezwładne ciało.
+	if isRagdolled(hum) then
 		endFlight("interrupted")
 		return
 	end
@@ -260,6 +277,8 @@ end
 local function startFlight(anchor: Vector3, goal: Vector3, maxTime: number)
 	local hum, hrp = getCharParts()
 	if not (hum and hrp) or hum.Health <= 0 then return end
+	-- Wywrotka mogła przyjść między strzałem a potwierdzeniem serwera.
+	if isRagdolled(hum) then return end
 
 	-- Nowy zaczep w trakcie lotu zastępuje stary (item jest zużywalny, więc każdy kosztuje).
 	endFlight("replaced")
@@ -316,8 +335,9 @@ local function hookTool(tool: Tool)
 		local now = os.clock()
 		if now - lastFireAt < Config.RateLimits.Grapple then return end
 
-		local _, hrp = getCharParts()
-		if not hrp then return end
+		local hum, hrp = getCharParts()
+		if not (hum and hrp) then return end
+		if isRagdolled(hum) then return end
 
 		local mouse = localPlayer:GetMouse()
 		local target = mouse.Hit and mouse.Hit.Position

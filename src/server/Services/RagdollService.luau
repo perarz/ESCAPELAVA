@@ -69,6 +69,15 @@ local function findRagdoll(player: Player): RagdollFolder?
 	}
 end
 
+-- Czy gracz leży teraz jako ragdoll. Źródłem jest flaga toolboxa (`variables.ragdoll`),
+-- którą ustawia jego skrypt serwerowy przy wywrotce i zdejmujemy my przy wstawaniu —
+-- jedno miejsce, z którego pytają inne serwisy (hak: strzał w ragdollu wystrzeliwał
+-- postać w kosmos, zgłoszenie Kacpra 26.09).
+function RagdollService.isRagdolled(player: Player): boolean
+	local rag = findRagdoll(player)
+	return rag ~= nil and rag.flag ~= nil and rag.flag.Value == true
+end
+
 -- Prędkość dla wywrotki, która NIE zabija lotu: poziom tłumiony (biegnący przewraca
 -- się do przodu), pion nietknięty (spadanie toczy się dalej).
 function RagdollService.dampHorizontal(velocity: Vector3, factor: number): Vector3
