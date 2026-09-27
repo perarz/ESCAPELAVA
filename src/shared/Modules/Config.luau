@@ -1417,6 +1417,11 @@ Config.Destruction = {
 		-- tym samym ziarnem co klient, zmiana tylko u klienta rozjechałaby resztki).
 		DebrisPieceVolume = 12, -- studs³ na kawałek: panel 6×6×1 → 3, belka 13,5×3×1 → 4, klocek 3×6×1 → 2
 		DebrisMaxPieces = 16,   -- sufit na bryłę / dziurę (było 48)
+		-- Na której ścianie leży kawałek po upadku (27.09, Kacper: „zawsze stoją góra do góry,
+		-- takie spiczaste”): losowo, z wagą (pole ściany)^wykładnik — jak w prawdziwym upadku
+		-- najczęściej na największej. 3: płytka 3×3×1 leży płasko w ~94%, pręt 1×1×6 staje na
+		-- końcu w ~0,1%; sześcian — równo. 0 = każda ściana tak samo prawdopodobna.
+		RestFaceExponent = 3,
 		-- Ambientowy screen shake dla każdego w pobliżu (trafieni dostają mocniejszy z BombHit).
 		ShakeMaxDistance = 90,
 		ShakeMax = 1.1,

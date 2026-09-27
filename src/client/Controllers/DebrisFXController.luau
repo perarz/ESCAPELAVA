@@ -253,31 +253,43 @@ end
 
 -- ---- Lądowanie -------------------------------------------------------------
 
--- Kładzie kawałek PŁASKO na powierzchni: oś parta najbliższa normalnej obraca się do
--- normalnej (najmniejszy obrót), a part staje tuż nad punktem. Bez tego kawałek zamarłby
--- w losowym obrocie, do połowy w podłodze.
+-- Kładzie kawałek na powierzchni, tuż nad punktem (bez tego zamarłby w losowym obrocie,
+-- do połowy w podłodze). NA KTÓREJ ścianie leży — losowo, z wagą (pole ściany)^RestFaceExponent,
+-- i z losowym obrotem wokół normalnej (27.09, Kacper: „zawsze stoją góra do góry, takie
+-- spiczaste, na całej mapie”). Wcześniej wygrywała oś najbliższa normalnej (najmniejszy
+-- obrót), a odłamki ze ścian lecą zwykle pionowo — lądowały na sztorc, wszystkie tak samo.
+local restRng = Random.new()
+
+local function restAxis(sizes: { number }): number
+	local e = FX.RestFaceExponent
+	local w = {
+		(sizes[2] * sizes[3]) ^ e, -- leży na ścianie prostopadłej do X
+		(sizes[1] * sizes[3]) ^ e,
+		(sizes[1] * sizes[2]) ^ e,
+	}
+	local roll = restRng:NextNumber() * (w[1] + w[2] + w[3])
+	if roll < w[1] then return 1 end
+	if roll < w[1] + w[2] then return 2 end
+	return 3
+end
+
 local function land(b: Body, p: BasePart, point: Vector3, normal: Vector3)
-	local cf = p.CFrame
-	local axes = { cf.RightVector, cf.UpVector, cf.LookVector }
 	local sizes = { p.Size.X, p.Size.Y, p.Size.Z }
-	local bestIndex, bestDot = 1, -1
-	for i, a in ipairs(axes) do
-		local d = math.abs(a:Dot(normal))
-		if d > bestDot then
-			bestIndex, bestDot = i, d
-		end
-	end
-	local axis = axes[bestIndex]
-	if axis:Dot(normal) < 0 then
-		axis = -axis
-	end
-	local rotation = cf - cf.Position
-	local cross = axis:Cross(normal)
-	if cross.Magnitude > 1e-4 then
-		local angle = math.acos(math.clamp(axis:Dot(normal), -1, 1))
-		rotation = CFrame.fromAxisAngle(cross.Unit, angle) * rotation
-	end
-	local half = sizes[bestIndex] * 0.5
+	local k = restAxis(sizes)
+	-- Kierunki osi parta w świecie: oś k wzdłuż normalnej (strona losowa), następna w losowym
+	-- kierunku w płaszczyźnie podłoża, trzecia z iloczynu (układ prawoskrętny: e_k × e_j = e_l).
+	local j = k % 3 + 1
+	local l = j % 3 + 1
+	local ref = if math.abs(normal.Y) < 0.99 then Vector3.yAxis else Vector3.xAxis
+	local a = normal:Cross(ref).Unit
+	local c = normal:Cross(a)
+	local theta = restRng:NextNumber(0, math.pi * 2)
+	local dirs: { Vector3 } = { Vector3.zero, Vector3.zero, Vector3.zero }
+	dirs[k] = if restRng:NextNumber() < 0.5 then normal else -normal
+	dirs[j] = a * math.cos(theta) + c * math.sin(theta)
+	dirs[l] = dirs[k]:Cross(dirs[j])
+	local rotation = CFrame.fromMatrix(Vector3.zero, dirs[1], dirs[2], dirs[3])
+	local half = sizes[k] * 0.5
 	p.Anchored = true
 	p.CFrame = CFrame.new(point + normal * (half + 0.01)) * rotation
 	b.state = "rest"
