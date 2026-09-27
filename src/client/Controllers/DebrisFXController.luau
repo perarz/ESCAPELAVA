@@ -813,6 +813,12 @@ end
 
 type ChunkJob = { cut: any, chunk: Fracture.Chunk, volume: number }
 
+-- Ile kawałków z bryły o tym rozmiarze (27.09 — `FX.DebrisPieceVolume` / `DebrisMaxPieces`):
+-- proporcjonalnie do objętości, z sufitem. Mały part to 1-3 kawałki, duży — większe kawałki.
+local function pieceCap(size: Vector3): number
+	return math.clamp(math.ceil(size.X * size.Y * size.Z / FX.DebrisPieceVolume), 1, FX.DebrisMaxPieces)
+end
+
 local function spawnCutChunks(
 	rng: Random,
 	cuts: { any },
@@ -838,7 +844,7 @@ local function spawnCutChunks(
 		local win = cut.win
 		if typeof(win) == "table" and typeof(win.offset) == "Vector3" and typeof(win.size) == "Vector3" then
 			holeChunks = {}
-			local slices = Fracture.slice(win.size, FRAC.TargetChunkSize, FRAC.MinChunkSize, FRAC.MaxChunksPerPart, Random.new(cut.seed))
+			local slices = Fracture.slice(win.size, FRAC.TargetChunkSize, FRAC.MinChunkSize, pieceCap(win.size), Random.new(cut.seed))
 			for _, c in ipairs(slices) do
 				table.insert(holeChunks, { offset = win.offset + c.offset, size = c.size })
 			end
@@ -945,7 +951,7 @@ local function spawnFall(
 		local size = src.Size
 		if math.max(size.X, size.Y, size.Z) > FX.HandoffSliceAbove then
 			local cf = src.CFrame
-			local slices = Fracture.slice(size, FRAC.TargetChunkSize, FRAC.MinChunkSize, math.min(FRAC.MaxChunksPerPart, budgetLeft), rng)
+			local slices = Fracture.slice(size, FRAC.TargetChunkSize, FRAC.MinChunkSize, math.min(pieceCap(size), budgetLeft), rng)
 			for _, c in ipairs(slices) do
 				local chunk = makeChunk(rng, cf * CFrame.new(c.offset), c.size, src.Material, src.MaterialVariant, src.Transparency)
 				local linear: Vector3, angular: Vector3

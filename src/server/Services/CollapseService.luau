@@ -780,6 +780,50 @@ local function holdersOf(a: Active): string
 		if #names > 0 then table.concat(names, "; ") else "zero styków bez filtra")
 end
 
+-- Na czym grupa LEŻY, jeśli to coś pewnego: geometria mapy spoza budynków v4 (fundament,
+-- ulica, ściany mapy), teren, osiadłe rumowisko albo uśpiony gruz. nil = nic takiego pod
+-- spodem (trzyma ją własna konstrukcja budynku albo tarcie z boku — to przypadek dla siatki).
+-- Test 27.09 (CyanOffice): panele 3×6×1 stojące na belce tuż nad fundamentem po zniszczeniu
+-- belki opadały na `Map.Locked.Foundation` o mniej niż `JamMinMove`; siatka brała je za
+-- zaklinowane i klienci siekli je na drobny gruz — Kacper: „sypią się, choć nie powinny”.
+local function groundUnder(a: Active): string?
+	local own: { [BasePart]: boolean } = {}
+	for _, p in ipairs(a.pieces) do
+		own[p] = true
+	end
+	for _, f in ipairs(a.followers) do
+		own[f] = true
+	end
+	for _, p in ipairs(a.pieces) do
+		if not p.Parent then continue end
+		local b = Pieces.boxOf(p)
+		for _, hit in ipairs(Workspace:GetPartBoundsInBox(p.CFrame, p.Size + Vector3.one * (CFG.JamProbe * 2))) do
+			if own[hit] or not hit.CanCollide or not hit.Anchored or isCharacterPart(hit) then continue end
+			if hit:IsA("Terrain") then
+				return "teren"
+			end
+			local hb = Pieces.boxOf(hit)
+			local o = hb.max:Min(b.max) - hb.min:Max(b.min)
+			-- Tylko POD spodem, z zakładką w poziomie — ta sama definicja co w `holdersOf`.
+			if not (hb.max.Y <= b.min.Y + CFG.JamProbe and o.X > 0.3 and o.Z > 0.3) then continue end
+			local r = rubbleOf[hit]
+			if r then
+				if r.phase == "Settled" then
+					return "rumowisko " .. r.def.groupId
+				end
+				continue
+			end
+			if flyingOf[hit] then continue end
+			if DebrisService.isRegistered(hit) then
+				return "gruz serwera" -- zakotwiczony = uśpiony
+			end
+			if StructuralService.ownerOf(hit) then continue end -- własna konstrukcja: siatka
+			return hit:GetFullName()
+		end
+	end
+	return nil
+end
+
 local function jam(a: Active, moved: number)
 	local holders = holdersOf(a)
 	finishFlight(a)
@@ -835,6 +879,14 @@ local function checkJams(now: number)
 		local _, angle = a.startCF:ToObjectSpace(cf):ToAxisAngle()
 		if moved >= CFG.JamMinMove or math.abs(angle) >= CFG.JamMinAngle then
 			a.jamCheckAt = nil -- ruszyła: dalej zwykłe osiadanie
+			continue
+		end
+		-- Nie ruszyła, bo już leży na gruncie (spadła o mniej niż JamMinMove) — osiada.
+		local ground = groundUnder(a)
+		if ground then
+			a.jamCheckAt = nil
+			log("%s: grupa %s wylądowała (ruch %.2f stud) na: %s", a.rec.id, a.def.groupId, moved, ground)
+			settle(a)
 			continue
 		end
 		jam(a, moved)

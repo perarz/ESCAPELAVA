@@ -1371,6 +1371,15 @@ Config.Destruction = {
 		-- 25.09: „skoro i tak nie ma kolizji, to go posiekaj, a nie że takie duże kloce
 		-- zostają, przez które da się przechodzić” — zaklinowane stropy 22×33, szyny 66).
 		HandoffSliceAbove = 4,
+		-- ILE kawałków z jednej bryły (27.09, Kacper: „przy niedużym parcie powstaje z niego za
+		-- dużo odpadu”, „za bardzo się sypią z całego parta”). Do tej pory liczba wynikała tylko
+		-- z rozmiaru kawałka (Fracture.TargetChunkSize 3,2): panel 6×6 → ~4, klocek 8×8×8 → ~27,
+		-- strop 22×33 → 48. Teraz ~1 kawałek na tyle studów³, z sufitem — duża bryła rozpada się
+		-- na WIĘKSZE kawałki (Fracture.slice zawsze dzieli największy), a nie na 48 drobnych.
+		-- Dotyczy przekazanych brył i dziur v4 (u klienta); dziury v3 zostają (serwer liczy je
+		-- tym samym ziarnem co klient, zmiana tylko u klienta rozjechałaby resztki).
+		DebrisPieceVolume = 12, -- studs³ na kawałek: panel 6×6×1 → 3, belka 13,5×3×1 → 4, klocek 3×6×1 → 2
+		DebrisMaxPieces = 16,   -- sufit na bryłę / dziurę (było 48)
 		-- Ambientowy screen shake dla każdego w pobliżu (trafieni dostają mocniejszy z BombHit).
 		ShakeMaxDistance = 90,
 		ShakeMax = 1.1,
