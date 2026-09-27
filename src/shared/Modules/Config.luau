@@ -1217,6 +1217,35 @@ Config.Destruction = {
 		ShatterLife = 1.5,   -- s życia kawałków rozpadniętego mebla (w obu trybach grafiki)
 		VaporDust = 18,      -- cząstek obłoku na rekwizyt (× ParticleScale trybu)
 	},
+	-- AUTA (27.09, decyzja Kacpra: „wybucha + ogień”). Party aut są `Locked` (kontrakt „wybuch
+	-- nie tyka” — inaczej v3 ciąłby je na dziury i rozsypywał 72 drobne części osobno), więc
+	-- bomba pomijała je w całości. Teraz auto w zasięgu DZIURY bomby wybucha jako całość:
+	-- rozlatuje się u klientów, na jego miejscu płonie ogień (SAM efekt — nie rozprzestrzenia
+	-- się i nie rani; pożary jako mechanika są poza v1.0), a wybuch idzie tą samą ścieżką co
+	-- bomba (gracze + otoczenie), tylko słabszy. Auto obok w zasięgu dziury wybucha łańcuchowo.
+	Cars = {
+		Folders = { Cars = true }, -- model auta = bezpośrednie dziecko takiego folderu
+		-- s od trafienia do wybuchu. 0 = razem z bombą (Kacper 27.09: 0,35 s „wygląda jak bug”).
+		-- Nawet przy 0 wybuch idzie klatkę później (task.delay w CarService) — wprost z wnętrza
+		-- wybuchu bomby wszedłby w jej niedokończoną destrukcję.
+		Delay = 0,
+		FireTime = 6,              -- s płonięcia wraku (efekt u klientów)
+		-- Wybuch auta: pola jak w ItemDefinitions.bomb (BombService.explodeAt), słabszy od bomby.
+		Blast = {
+			blastRadius = 16,       -- gracze (bomba: 22)
+			damagePercent = 0.4,    -- MaxHealth w epicentrum (bomba: 0.5)
+			knockbackForce = 380,   -- (bomba: 450)
+			knockbackMinT = 0.3,
+			ragdollDuration = 2,
+			destruction = {
+				radius = 18,        -- (bomba: 24)
+				damage = 130,       -- (bomba: 160) → dziura do ~4 studów: łańcuch tylko dla aut tuż obok
+				impulse = 85,
+				minImpulseT = 0.1,
+				glassRadius = 25,
+			},
+		},
+	},
 
 	-- (KOLAPS SEKCJI v2 — `Collapse` z filarami `Pillar` — USUNIĘTY 2026-09-24 razem ze
 	-- StructureService: na mapie było 0 filarów. Kolaps robi teraz v4: `Config.Structure`.)

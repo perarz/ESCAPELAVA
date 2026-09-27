@@ -338,12 +338,87 @@ local function onStructureFX(kind: any, position: any, magnitude: any)
 	end
 end
 
+-- ============================================================================
+-- Płonący wrak auta (27.09, Kacper: „wybucha + ogień”). Czysty efekt: ogień nie rani i się
+-- nie rozprzestrzenia (pożary jako mechanika są poza v1.0). Płomienie w obrysie auta przy
+-- ziemi, dym nad nimi i pomarańczowe światło; po `duration` emitery gasną, a dym dopala się.
+-- ============================================================================
+
+local FIRE_TEXTURE = "rbxasset://textures/particles/fire_main.dds"
+
+local function onCarFire(cf: any, size: any, duration: any)
+	if typeof(cf) ~= "CFrame" or typeof(size) ~= "Vector3" or typeof(duration) ~= "number" then return end
+	duration = math.clamp(duration, 0, 30)
+	local scale = QualityController.profile().ParticleScale
+	local base = cf.Position - Vector3.new(0, size.Y * 0.5 - 0.5, 0)
+	local anchor = makeAnchor(base, duration + 3)
+	-- Emitery sypią z objętości kotwicy — kotwica w obrysie auta, płomienie po całym wraku.
+	anchor.Size = Vector3.new(math.max(size.X * 0.7, 1), 1, math.max(size.Z * 0.7, 1))
+	anchor.CFrame = CFrame.new(base) * (cf - cf.Position)
+
+	local flames = Instance.new("ParticleEmitter")
+	flames.Texture = FIRE_TEXTURE
+	flames.Color = ColorSequence.new(Color3.fromRGB(255, 190, 80), Color3.fromRGB(255, 70, 20))
+	flames.LightEmission = 1
+	flames.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 3),
+		NumberSequenceKeypoint.new(1, 0.6),
+	})
+	flames.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	flames.Lifetime = NumberRange.new(0.6, 1.2)
+	flames.Rate = math.max(8, 45 * scale)
+	flames.Speed = NumberRange.new(3, 8)
+	flames.EmissionDirection = Enum.NormalId.Top
+	flames.SpreadAngle = Vector2.new(20, 20)
+	flames.Acceleration = Vector3.new(0, 6, 0)
+	flames.Rotation = NumberRange.new(0, 360)
+	flames.RotSpeed = NumberRange.new(-60, 60)
+	flames.Parent = anchor
+
+	local smoke = Instance.new("ParticleEmitter")
+	smoke.Texture = SMOKE_TEXTURE
+	smoke.Color = ColorSequence.new(Color3.fromRGB(60, 55, 50), Color3.fromRGB(30, 30, 30))
+	smoke.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 3),
+		NumberSequenceKeypoint.new(1, 9),
+	})
+	smoke.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.5),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	smoke.Lifetime = NumberRange.new(2, 3.5)
+	smoke.Rate = math.max(3, 12 * scale)
+	smoke.Speed = NumberRange.new(5, 9)
+	smoke.EmissionDirection = Enum.NormalId.Top
+	smoke.SpreadAngle = Vector2.new(15, 15)
+	smoke.Rotation = NumberRange.new(0, 360)
+	smoke.RotSpeed = NumberRange.new(-30, 30)
+	smoke.Parent = anchor
+
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(255, 140, 50)
+	light.Range = 18
+	light.Brightness = 2
+	light.Shadows = false
+	light.Parent = anchor
+
+	task.delay(duration, function()
+		flames.Enabled = false
+		smoke.Enabled = false
+		light.Enabled = false
+	end)
+end
+
 local initialized = false
 function ExplosionFXController.init()
 	if initialized then return end
 	initialized = true
 	Remotes.BlastFX.OnClientEvent:Connect(onBlastFX)
 	Remotes.StructureFX.OnClientEvent:Connect(onStructureFX)
+	Remotes.CarFire.OnClientEvent:Connect(onCarFire)
 end
 
 return ExplosionFXController

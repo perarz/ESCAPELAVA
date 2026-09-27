@@ -60,6 +60,7 @@ local DebrisService = require(script.Parent.DebrisService)
 local StructuralService = require(script.Parent.StructuralService)
 local CollapseService = require(script.Parent.CollapseService)
 local PropService = require(script.Parent.PropService)
+local CarService = require(script.Parent.CarService)
 
 local DestructionService = {}
 
@@ -98,6 +99,7 @@ export type BlastStats = {
 	rubbleCut: number,      -- leżących kawałków rumowiska v4 z dziurą (25.09)
 	stripCut: number,       -- listew v4, z których bomba wycięła odcinek (26.09)
 	stripFell: number,      -- kawałków listew v4, które straciły ostatnie oparcie (26.09)
+	cars: number,           -- aut zapalonych tym wybuchem (27.09)
 	vaporized: number,      -- rekwizytów, które zniknęły z obłokiem (wieszaki i drobne, 26.09)
 	shattered: number,      -- mebli rozpadniętych na kawałki (26.09)
 	propPushed: number,     -- mebli odepchniętych w całości (fizyka serwera, 26.09)
@@ -865,7 +867,7 @@ type Damaged = { part: BasePart, hpLeft: number, maxHp: number }
 local function newStats(): BlastStats
 	return {
 		structural = 0, cut = 0, remnants = 0, launchedServer = 0, damaged = 0, glass = 0, rubbleCut = 0,
-		stripCut = 0, stripFell = 0, vaporized = 0, shattered = 0, propPushed = 0,
+		stripCut = 0, stripFell = 0, vaporized = 0, shattered = 0, propPushed = 0, cars = 0,
 		smallParts = 0, handoff = 0, felled = 0, felledServer = 0, pushed = 0,
 		cpuMs = 0, frames = 0,
 	}
@@ -873,11 +875,11 @@ end
 
 local function logBlast(radius: number, damage: number, stats: BlastStats)
 	if not CFG.Debug then return end
-	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d listwy cięte=%d bez oparcia=%d | rekwizyty: znikło=%d rozpad=%d odepchnięte=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
+	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d listwy cięte=%d bez oparcia=%d | rekwizyty: znikło=%d rozpad=%d odepchnięte=%d | auta=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
 		radius, damage,
 		stats.structural, stats.cut, stats.remnants, stats.launchedServer, stats.damaged, stats.glass,
 		stats.smallParts, stats.handoff,
-		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut, stats.stripCut, stats.stripFell, stats.vaporized, stats.shattered, stats.propPushed,
+		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut, stats.stripCut, stats.stripFell, stats.vaporized, stats.shattered, stats.propPushed, stats.cars,
 		DebrisService.getTotalCount(), DBR.MaxTotalDebris,
 		stats.cpuMs, stats.frames))
 end
@@ -984,6 +986,8 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	local rubbleHits: { Hit } = {}
 	-- Rekwizyty (26.09): jedna pozycja na JEDNOSTKĘ (mebel, wieszak) — decyduje najbliższa część.
 	local propHits: { [Instance]: { distance: number, dmg: number } } = {}
+	-- Auta (27.09): najbliższa część każdego auta w zasięgu — decyzja niżej, z `holeRadius`.
+	local carHits: { [Model]: number } = {}
 	local function notePropHit(unit: Instance, distance: number, dmg: number)
 		local cur = propHits[unit]
 		if not cur then
@@ -1000,6 +1004,18 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 		if part:IsA("Terrain") then continue end
 		-- Gracze: damage/knockback robi BombService. Łapie też Accessory (rodzic = Character).
 		if isCharacterPart(part) then continue end
+		-- Auto (27.09): jego party są Locked, więc PRZED ochroną — auto wybucha jako całość
+		-- (CarService), a nie jest cięte ani pomijane. Części w przekazaniu (auto już wybuchło).
+		local car = Destructible.carOf(part)
+		if car then
+			if not pendingParts[part] and not CarService.hasExploded(car) then
+				local d = surfaceDistance(part, center)
+				if not carHits[car] or d < carHits[car] then
+					carHits[car] = d
+				end
+			end
+			continue
+		end
 		-- Chronione są pomijane ŚWIADOMIE (kontrakt) — nie raportujemy ich jako problem.
 		if isProtected(part, ctx) then continue end
 		if glassSet[part] or pendingParts[part] then continue end
@@ -1242,6 +1258,14 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	for i = 1, math.min(#pushCandidates, PROPS.MaxPushPerBlast) do
 		table.insert(pushUnits, pushCandidates[i].unit)
 	end
+	-- Auta w zasięgu DZIURY wybuchają (decyzja Kacpra 27.09) — z opóźnieniem, więc łańcuch
+	-- aut jest widoczny, a ten wybuch zdąży się skończyć.
+	for car, d in pairs(carHits) do
+		if d <= holeRadius and car.Parent then
+			CarService.ignite(car, attacker)
+			stats.cars += 1
+		end
+	end
 
 	-- ---- Wyrzut w całości: duże → gruz serwera (budżet), reszta → u klientów -----
 	local handoff = newHandoff()
@@ -1482,6 +1506,17 @@ function DestructionService.handOffToClients(list: { Instance }, center: Vector3
 	end
 	local col = Config.Structure.Collapse
 	sendHandoff(h, center, col.HandoffRadius, if launch then col.HandoffImpulse else 0)
+end
+
+-- Rozpad u klientów (auto po wybuchu — CarService, 27.09): części lecą od wybuchu i szybko
+-- znikają, serwer kasuje po HandoffDelay.
+function DestructionService.shatterToClients(list: { Instance }, center: Vector3)
+	local h = newHandoff()
+	for _, inst in ipairs(list) do
+		shatterOff(h, inst)
+	end
+	local cars = Config.Destruction.Cars.Blast.destruction
+	sendHandoff(h, center, cars.radius, cars.impulse)
 end
 
 -- Drobnica i meble leżące na kawałkach, które właśnie spadają — do klientów, inaczej

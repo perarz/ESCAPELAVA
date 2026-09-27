@@ -369,6 +369,23 @@ local function detonate(root: Instance, center: Vector3, thrower: Player, def: a
 	log(thrower, "detonate", "pos=" .. tostring(center))
 end
 
+-- Wybuch bez pocisku (27.09 — auto, CarService): ta sama ścieżka co bomba — destrukcja
+-- otoczenia PRZED obrażeniami (osłona), błąd destrukcji nie zjada obrażeń. `def` ma pola jak
+-- ItemDefinitions.bomb. Bez sprawcy (nikt nie rzucał) tylko otoczenie: tag zabójstwa
+-- i log potrzebują gracza.
+function BombService.explodeAt(center: Vector3, def: any, attacker: Player?)
+	local ok, err = xpcall(DestructionService.detonate, function(e: any): string
+		return tostring(e) .. "\n" .. debug.traceback()
+	end, center, def.destruction, attacker)
+	if not ok then
+		warn(("[Bomb] BŁĄD destrukcji przy wybuchu auta %s: %s"):format(tostring(center), tostring(err)))
+	end
+	if attacker and attacker.Parent then
+		applyDamageAndKnockback(center, attacker, def)
+		log(attacker, "car", "pos=" .. tostring(center))
+	end
+end
+
 -- Lecąca bomba z modelu Kacpra (`ItemDefinitions.bomb.toolModel` — ten sam model, którym
 -- gracz przed chwilą machał w ręce; to ma być ta sama bomba, nie dwa różne przedmioty).
 --

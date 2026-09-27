@@ -100,6 +100,11 @@
 
 - **REKWIZYTY (24.09)**: wszystko w folderze `Decorations` budynku przy wybuchu pada/odlatuje W CAŁOŚCI — cały mebel = najwyższy `Model` pod `Decorations`, do 24 studów (`Config.Destruction.Props.MaxSize`), nigdy nie jest cięty jak ściana. Chcesz, żeby coś padało jako jedna rzecz: zgrupuj to w `Model`. Większe od 24 (dywany, płoty, długie szyny) zostają przy cięciu.
 
+## Auta i rekwizyty (2026-09-26/27)
+
+- **AUTA — `…OutsideDecorations.Cars` (27.09)**: auto = **Model będący bezpośrednim dzieckiem folderu o nazwie z `Config.Destruction.Cars.Folders`** (dziś `Cars`). Dziś 8 × `Car1` (98 partów). Party aut są i mają zostać **`Locked`** — to trzyma je z dala od zwykłej destrukcji (cięcie na dziury, drobnica osobno); wybuch auta robi `CarService` dla CAŁEGO modelu. Nowe auto = nowy model w `Cars` (albo nowy folder dopisany do `Cars.Folders`). Auto poza takim folderem bomba dalej pomija (bo `Locked`).
+- **REKWIZYTY — `<budynek>.Decorations.<Kategoria>` (26-27.09)**: kategoria = nazwa folderu między rekwizytem a `Decorations`. Foldery z `Config.Destruction.Props.Vaporize` znikają z obłokiem (wieszaki, rośliny, paczki, krzesła, TV, obrazy, lustra, dywany, beczki…), każdy INNY folder to meble (odpychane, rozpad od 2 trafień). ⚠️ Nowa nazwa folderu (też liczba pojedyncza/mnoga: `Chair`/`Chairs`, `TV`/`TVs`) domyślnie = mebel — dopisać do `Vaporize`, jeśli ma znikać.
+
 ## Mapa pod destrukcję v3 (2026-09-23)
 
 Pełny opis systemu: `DESTRUCTION_PLAN.md` → „v3”. Tu tylko to, co zależy od tego, jak mapa jest zbudowana:

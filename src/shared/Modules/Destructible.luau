@@ -231,6 +231,21 @@ function Destructible.propCategory(unit: Instance): string?
 	return nil
 end
 
+-- Auto, do którego należy part (27.09): model będący bezpośrednim dzieckiem folderu z
+-- `Cars.Folders`. Świadomie BEZ sprawdzania `Locked` — party aut są Locked, żeby zwykła
+-- destrukcja ich nie cięła, a auto wybucha jako całość (CarService).
+function Destructible.carOf(part: BasePart): Model?
+	local node = part.Parent
+	while node and node ~= Workspace do
+		local parent = node.Parent
+		if node:IsA("Model") and parent and Config.Destruction.Cars.Folders[parent.Name] then
+			return node
+		end
+		node = parent
+	end
+	return nil
+end
+
 -- Jednostka, która pada razem z tym partem: NAJWIĘKSZY kwalifikujący się Model nad nim
 -- (ubranie → wieszak z całym stojakiem), albo sam part, gdy żaden model się nie nadaje.
 -- Idziemy w górę przez foldery; pierwszy model, który się NIE nadaje, kończy szukanie —

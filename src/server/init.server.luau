@@ -21,6 +21,7 @@ local ShopService = require(script.Services.ShopService)
 local SettingsService = require(script.Services.SettingsService)
 local DebrisService = require(script.Services.DebrisService)
 local PropService = require(script.Services.PropService)
+local CarService = require(script.Services.CarService)
 local StructuralService = require(script.Services.StructuralService)
 local CollapseService = require(script.Services.CollapseService)
 local DestructionService = require(script.Services.DestructionService)
@@ -67,6 +68,12 @@ CollapseService.init({
 	dropResting = DestructionService.dropResting,
 })
 BombService.init()
+-- Auta (27.09): wybuch jak bomby i rozpad u klientów wstrzyknięte — DestructionService woła
+-- CarService, BombService woła DestructionService (bezpośredni require = cykl).
+CarService.inject({
+	explode = BombService.explodeAt,
+	shatter = DestructionService.shatterToClients,
+})
 LavaService.init()
 -- PRZED PlayerService: ten spawnuje graczy, a spawn idzie już przez AppearanceService.
 AppearanceService.init()

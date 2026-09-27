@@ -70,6 +70,9 @@ local REMOTE_NAMES = {
 	                      --   przez atrybut gracza `Config.Graphics.AttributeName`; nic w grze
 	                      --   od tego nie zależy (SettingsService)
 	"StructureFX",        -- FireAllClients: (kind: "creak"|"collapse", position: Vector3, magnitude: number)
+	"CarFire",            -- FireAllClients: (cf: CFrame, size: Vector3, duration: number) — płonący
+	                      --   wrak auta po wybuchu (27.09). Czysty efekt u klienta: ogień nie rani
+	                      --   i się nie rozprzestrzenia (pożary jako mechanika poza v1.0)
 	                      --   kolaps grupy budynku v4 (CollapseService: "collapse" przy starcie
 	                      --   lotu grupy; "creak" dziś nieużywany). Klient robi pył, dźwięk i wstrząs
 	"DevCommand",         -- klient→server: FireServer(command: string) — "skip" | "endRound".
