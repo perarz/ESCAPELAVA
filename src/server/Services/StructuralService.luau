@@ -312,7 +312,8 @@ function StructuralService.rebuild()
 			warn(("[Structure] budynek %s z Config.Structure.Buildings nie istnieje w mapie"):format(id))
 			continue
 		end
-		local parts = Core.collectParts(folder, Core.buildingConfig(CFG, id), Config.Destruction.Small)
+		local bcfg = Core.buildingConfig(CFG, id)
+		local parts = Core.collectParts(folder, bcfg, Config.Destruction.Small)
 		local data, dataParts, source = loadData(id, folder, parts)
 		if not data then
 			continue -- brak danych → budynek zostaje na v3
@@ -322,7 +323,11 @@ function StructuralService.rebuild()
 		for _, idx in ipairs(data.Demoted or {}) do
 			dataParts[idx].kind = "Trim"
 		end
-		local state = BuildingState.new(data, Config)
+		-- Solver w grze liczy TYMI SAMYMI ustawieniami budynku co bake (MaxSpan per budynek, 27.09)
+		-- — inaczej budynek, który w bake'u stoi, w grze od razu miałby czerwone chunki.
+		local bconfig = table.clone(Config)
+		bconfig.Structure = bcfg
+		local state = BuildingState.new(data, bconfig)
 		if not state.enabled then
 			warn(("[Structure] %s: nietknięty budynek NIE stoi (%d chunków bez podpory) — kolaps wyłączony, dziury działają. Sprawdź STRUCTURE_BAKE."):format(id, state.baselineFalling))
 		end

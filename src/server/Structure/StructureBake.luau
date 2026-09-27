@@ -608,7 +608,7 @@ end
 -- przecina wszystkie chunki `BombEstimateKinds` w promieniu `BombEstimateRadius`;
 -- każda kolejna tam, gdzie zrzuci najwięcej. Zachłanny = nie optymalny — to rząd wielkości.
 function StructureBake.stress(result: Result, config: any)
-	local cfg = config.Structure
+	local cfg = Core.buildingConfig(config.Structure, result.buildingId)
 	local chunks = result.chunks
 	local out = Core.outgoing(result.ifaces)
 	local invalidSet: { [number]: boolean } = {}

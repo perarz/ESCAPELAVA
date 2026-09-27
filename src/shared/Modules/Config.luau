@@ -1501,6 +1501,8 @@ Config.Structure = {
 	-- przez bake i test (migracja budynek po budynku).
 	-- Budynki na v4 (klucz = nazwa folderu w Map.Buildings). `true` = reguły ogólne; tabela =
 	-- ustawienia tylko dla tego budynku (26.09, migracja GreenBuildingu — decyzje Kacpra):
+	--   MaxSpan           — własne przęsła (np. { Slab = 27 }), SandBuilding 27.09; bake i solver w grze.
+	--   TrimMaxThickness  — własny próg grubości listwy (Classify.TrimMaxThickness).
 	--   TrimMaxWidth      — własny próg listwy (Classify.TrimMaxWidth). GreenBuilding stoi na
 	--                       belkach krawędziowych 1×2, które przy ogólnym 2 są listwami (250 z 284
 	--                       chunków bez podparcia); ogólne 1,9 psuje za to OrangeBuilding.
@@ -1529,6 +1531,11 @@ Config.Structure = {
 		OldBuilding1 = { DemoteUnsupported = true },
 		Construction = { DemoteUnsupported = true },
 		PupleHotel = { DemoteUnsupported = true },
+		-- 27.09: czerwony był ŚRODEK stropu 44×0,5×73 (nie róg): najkrótsza droga do pionu 25,8 >
+		-- MaxSpan.Slab 24. Z progiem grubości 0,4 (ściany 0,5 niosą), szerokości 1,9 i Slab 27 —
+		-- 0 czerwonych bez degradacji (~20 listew → belki), szacunek 8 bomb. Degradacja zrobiłaby
+		-- listwę z całego stropu (znikałby spod nóg zamiast spadać).
+		SandBuilding = { TrimMaxThickness = 0.4, TrimMaxWidth = 1.9, MaxSpan = { Slab = 27 } },
 	},
 	-- Brak zapisanych danych (TRYB 3 bake'u) → dane liczone przy starcie rundy (~15 ms na
 	-- budynek, ten sam kod co bake). Wygodne w prototypie; przed launchem dane mają być

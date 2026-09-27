@@ -122,17 +122,36 @@ end
 -- Klasyfikacja i zbieranie partów budynku
 -- ============================================================================
 
--- Ustawienia konstrukcji dla JEDNEGO budynku: wpis w `Buildings` może nadpisać próg listwy
--- (26.09, GreenBuilding). Bake i gra biorą to stąd, więc klasyfikacja nie może się rozjechać.
+-- Ustawienia konstrukcji dla JEDNEGO budynku: wpis w `Buildings` może nadpisać progi listwy
+-- (26.09, GreenBuilding) i zasięg przęseł `MaxSpan` (27.09, SandBuilding). Bake, solver w grze
+-- (BuildingState) i raport biorą to stąd, więc nie mogą się rozjechać.
 function StructureCore.buildingConfig(cfg: any, id: string): any
 	local own = cfg.Buildings and cfg.Buildings[id]
-	if typeof(own) ~= "table" or own.TrimMaxWidth == nil then
+	if typeof(own) ~= "table" then
 		return cfg
 	end
-	local classify = table.clone(cfg.Classify)
-	classify.TrimMaxWidth = own.TrimMaxWidth
-	local out = table.clone(cfg)
-	out.Classify = classify
+	local out = cfg
+	if own.TrimMaxWidth ~= nil or own.TrimMaxThickness ~= nil then
+		out = table.clone(out)
+		local classify = table.clone(cfg.Classify)
+		if own.TrimMaxWidth ~= nil then
+			classify.TrimMaxWidth = own.TrimMaxWidth
+		end
+		if own.TrimMaxThickness ~= nil then
+			classify.TrimMaxThickness = own.TrimMaxThickness
+		end
+		out.Classify = classify
+	end
+	if typeof(own.MaxSpan) == "table" then
+		if out == cfg then
+			out = table.clone(out)
+		end
+		local span = table.clone(cfg.MaxSpan)
+		for kind, value in pairs(own.MaxSpan) do
+			span[kind] = value
+		end
+		out.MaxSpan = span
+	end
 	return out
 end
 
