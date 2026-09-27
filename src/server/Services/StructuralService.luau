@@ -298,7 +298,15 @@ function StructuralService.rebuild()
 		warn("[Structure] nie ma folderu Buildings w Workspace.Map — destrukcja v4 wyłączona")
 		return
 	end
+	local first = true
 	for id, own in pairs(CFG.Buildings) do
+		-- Jeden budynek na klatkę (27.09): analiza na żywo to 3-34 ms na budynek, przy dziewięciu
+		-- ~150 ms przycięcia serwera w jednej klatce. Rebuild idzie przy starcie i na COUNTDOWN,
+		-- kiedy bomb nie ma, więc chwilowo niepełna lista budynków niczego nie psuje.
+		if not first then
+			task.wait()
+		end
+		first = false
 		local folder = root:FindFirstChild(id)
 		if not folder then
 			warn(("[Structure] budynek %s z Config.Structure.Buildings nie istnieje w mapie"):format(id))

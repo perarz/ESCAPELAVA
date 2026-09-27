@@ -1198,7 +1198,15 @@ Config.Destruction = {
 		-- kategorii w Decorations. Wszystko inne w Decorations to MEBLE.
 		-- 27.09: + Chairs (tak nazywa się folder krzeseł w OrangeKebab i CyanOffice — decyzja Kacpra:
 		-- wszystkie krzesła znikają). Biurka CyanOffice (OfficeDesks, 48 × ~109 partów) zostają MEBLAMI.
-		Vaporize = { ClothingHangers = true, Plants = true, Packages = true, TrashBins = true, Chair = true, Chairs = true, TV = true },
+		-- 27.09 (migracja 4 budynków, decyzja Kacpra): + drobiazgi (ToiletPapers, Products, Paintings,
+		-- Mirrors), dywany (Carpets), beczki (Barrels); dla spójności liczby pojedyncze/mnogie tego,
+		-- co już znika (TVs/Tvs, TrashBin, Painting, Carpet). Drzwi (Doors) zostają meblami.
+		Vaporize = {
+			ClothingHangers = true, Plants = true, Packages = true, TrashBins = true, TrashBin = true,
+			Chair = true, Chairs = true, TV = true, TVs = true, Tvs = true,
+			ToiletPapers = true, Products = true, Paintings = true, Painting = true, Mirrors = true,
+			Carpets = true, Carpet = true, Barrels = true,
+		},
 		-- MEBLE: w zasięgu dziury rozpad od razu; dalej, od tych obrażeń, odepchnięcie w całości
 		-- (fizyka serwera, PropService); drugie trafienie → rozpad. 80 = dawny próg drobnicy
 		-- (~12 studów od bomby 160/24).
@@ -1512,6 +1520,15 @@ Config.Structure = {
 		OrangeKebab = true,
 		CyanOffice = true,
 		OldBuilding2 = { TrimMaxWidth = 1.9 },
+		-- 27.09 (druga tura, decyzja Kacpra): degradacja zamienia w listwy tylko DROBNE elementy —
+		-- PurpleSchool: ozdobne słupki na dachu 4×18×4 / 4×14×4 z czapkami i 2 klocki; OldBuilding1:
+		-- 5 paneli 1×6×3 (próg 1,9 mu szkodzi — robi czerwony strop 32×30); Construction: 1 element
+		-- 7×3×1; PupleHotel: 8 paneli i 2 belki 8×1×13. SandBuilding CZEKA: nawet z progami 0,4/1,9
+		-- zostaje 1 czerwony róg stropu 44×0,5×73, a degradacja zrobiłaby listwę z CAŁEGO stropu.
+		PurpleSchool = { TrimMaxWidth = 1.9, DemoteUnsupported = true },
+		OldBuilding1 = { DemoteUnsupported = true },
+		Construction = { DemoteUnsupported = true },
+		PupleHotel = { DemoteUnsupported = true },
 	},
 	-- Brak zapisanych danych (TRYB 3 bake'u) → dane liczone przy starcie rundy (~15 ms na
 	-- budynek, ten sam kod co bake). Wygodne w prototypie; przed launchem dane mają być
