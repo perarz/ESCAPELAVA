@@ -103,6 +103,7 @@ export type BlastStats = {
 	vaporized: number,      -- rekwizytów, które zniknęły z obłokiem (wieszaki i drobne, 26.09)
 	shattered: number,      -- mebli rozpadniętych na kawałki (26.09)
 	propPushed: number,     -- mebli odepchniętych w całości (fizyka serwera, 26.09)
+	orphans: number,        -- rzeczy, które spadły, bo nic ich już nie trzymało (28.09)
 	cpuMs: number,          -- czysty czas CPU (BEZ czekania na klatki — stary `ms` je wliczał)
 	frames: number,         -- ile klatek wybuch czekał (budżet CPU + broadphase)
 }
@@ -231,12 +232,16 @@ type Handoff = {
 	-- (wieszak to do 66 partów), a serwer kasuje instancję od razu.
 	vapor: { { cf: CFrame, size: Vector3 } },
 	vaporInst: { Instance },
+	-- Duże dekoracje dotykające tego, co znika (28.09) — spadną tylko, gdy nic ich nie trzyma.
+	orphanCandidates: { Instance },
+	-- Rzeczy, które ODCHODZĄ inną drogą (odepchnięty mebel) — sprawdzamy tylko, co na nich stało.
+	orphanSeeds: { Instance },
 	seen: { [Instance]: boolean },
 	parts: number,         -- ile BasePartów łącznie (statystyka)
 }
 
 local function newHandoff(): Handoff
-	return { launch = {}, drop = {}, shatter = {}, vapor = {}, vaporInst = {}, seen = {}, parts = 0 }
+	return { launch = {}, drop = {}, shatter = {}, vapor = {}, vaporInst = {}, orphanCandidates = {}, orphanSeeds = {}, seen = {}, parts = 0 }
 end
 
 local function markPending(inst: Instance)
@@ -300,13 +305,20 @@ local function shatterOff(h: Handoff, inst: Instance)
 	table.insert(h.shatter, inst)
 end
 
+-- Zdefiniowane niżej (potrzebuje looseUnit); tu, bo woła je każde przekazanie.
+local dropOrphans: (h: Handoff) -> number
+
 -- Ogłoszenie + skasowanie po HandoffDelay. Kolejność jest kontraktem: klient MUSI dostać
 -- listę, zanim do niego dojedzie usunięcie — inaczej nie ma już czego skopiować, a mebel
 -- zwyczajnie znika (dokładnie zgłoszony objaw). Remote idzie przed kasowaniem w tym samym
 -- strumieniu, a opóźnienie pokrywa odroczone wywołanie handlera po stronie klienta.
-local function sendHandoff(h: Handoff, center: Vector3, radius: number, impulse: number)
+-- Zwraca, ile osieroconych rzeczy dołączyło do przekazania (statystyka).
+local function sendHandoff(h: Handoff, center: Vector3, radius: number, impulse: number): number
+	-- Jedno miejsce dla wszystkich ścieżek (wybuch, podparcie v3, kolaps v4, auta): wszystko,
+	-- co stało TYLKO na tym, co właśnie znika, idzie razem z nim.
+	local orphans = dropOrphans(h)
 	local nLaunch, nDrop, nShatter = #h.launch, #h.drop, #h.shatter
-	if nLaunch + nDrop + nShatter + #h.vapor == 0 then return end
+	if nLaunch + nDrop + nShatter + #h.vapor == 0 then return orphans end
 
 	Remotes.DebrisFall:FireAllClients({
 		center = center,
@@ -337,6 +349,7 @@ local function sendHandoff(h: Handoff, center: Vector3, radius: number, impulse:
 			end
 		end
 	end)
+	return orphans
 end
 
 -- Drobnica, którą wolno dopisać do przekazania jako „przyczepioną” do czegoś, co znika.
@@ -371,8 +384,20 @@ local function pointInChunks(point: Vector3, chunks: { Fracture.Chunk }, margin:
 	return false
 end
 
+-- Duża dekoracja (28.09): w folderze dekoracji, ale ponad `Props.MaxSize` — deska rusztowania
+-- 2×0,5×40, lada, dywan, szyna drabiny. Nie jest rekwizytem (bomba tnie ją jak ścianę) ani
+-- drobnicą, więc „przyczepione” jej nie łapało i po upadku belek zostawała w powietrzu.
+local function bigDecor(n: BasePart, ctx: Ctx): BasePart?
+	if n:IsA("Terrain") or not n.Anchored or pendingParts[n] or isSmall(n) then return nil end
+	if Destructible.propCategory(n) == nil or Destructible.propOf(n, ctx) ~= nil then return nil end
+	if isProtected(n, ctx) or not isDestructible(n, ctx) or StructuralService.ownerOf(n) then return nil end
+	if DebrisService.isRegistered(n) or CollapseService.isRubble(n) then return nil end
+	return n
+end
+
 -- Drobnica dotykająca parta, który znika W CAŁOŚCI (wyrzucona bryła, płyta bez podparcia)
--- — bez tego obrazki, listwy i rzeczy stojące na płycie wisiałyby w powietrzu.
+-- — bez tego obrazki, listwy i rzeczy stojące na płycie wisiałyby w powietrzu. Duża dekoracja
+-- tylko kandyduje: spadnie, gdy nic innego jej nie trzyma (dropOrphans).
 local function collectAttachedTo(part: BasePart, h: Handoff, ctx: Ctx)
 	local pad = Vector3.one * (SMALL.AttachPadding * 2)
 	for _, n in ipairs(Workspace:GetPartBoundsInBox(part.CFrame, part.Size + pad)) do
@@ -380,9 +405,126 @@ local function collectAttachedTo(part: BasePart, h: Handoff, ctx: Ctx)
 			local unit = looseUnit(n, ctx)
 			if unit then
 				handOff(h, unit, false)
+			elseif bigDecor(n, ctx) then
+				table.insert(h.orphanCandidates, n)
 			end
 		end
 	end
+end
+
+-- ---- Osierocone (28.09) ----------------------------------------------------------
+-- Zgłoszenie Kacpra: TV zostaje w powietrzu, deski na rusztowaniu też. Zmierzone: wszystkie
+-- 6 TV w SandBuildingu dotyka WYŁĄCZNIE szafki (na mapie 295 rekwizytów dotyka tylko innych
+-- rekwizytów — produkty na półkach, kosze, łóżka), a „przyczepione” zbierało tylko to, co
+-- dotyka spadającej konstrukcji: szafka szła, TV zostawał. Deska 2×0,5×40 nie łapała się nigdzie.
+-- Decyzje Kacpra 28.09: rzecz na meblu spada razem z nim; duża dekoracja zostaje, póki dotyka
+-- czegoś stojącego (ta sama zasada co listwy v4 z 26.09). To jedna reguła: SKUPISKO luźnych
+-- rzeczy spada, gdy żadna jego część nie dotyka niczego, co zostaje — dwie paczki opierające
+-- się o siebie na półce, która spadła, nie trzymają się nawzajem w powietrzu.
+
+local ORPHAN_PAD = Vector3.one * (SMALL.AttachPadding * 2)
+
+local function orphanUnit(n: BasePart, ctx: Ctx): Instance?
+	return looseUnit(n, ctx) or bigDecor(n, ctx)
+end
+
+-- Coś, na czym można się oprzeć: zakotwiczone, kolidujące i nie w drodze do klientów.
+-- Odkotwiczone (lecąca grupa kolapsu, odepchnięty mebel, gruz serwera) już nie trzyma.
+local function holds(n: BasePart): boolean
+	if n:IsA("Terrain") then return true end
+	return n.Anchored and n.CanCollide and not pendingParts[n] and not isCharacterPart(n)
+end
+
+local function boxOf(inst: Instance): (CFrame?, Vector3?)
+	if inst:IsA("BasePart") then
+		return inst.CFrame, inst.Size
+	elseif inst:IsA("Model") then
+		return inst:GetBoundingBox()
+	end
+	return nil, nil
+end
+
+-- Skupisko luźnych rzeczy stykających się ze `start`. `held` = coś z niego dotyka czegoś,
+-- co zostaje. Bbox modelu jest grubszy od kształtu — w razie wątpliwości wychodzi „trzyma”,
+-- czyli rzecz zostaje jak dotąd; ponad limit też (bezpiecznie, i nie mielimy pół mapy).
+local function orphanCluster(start: Instance, ctx: Ctx): ({ Instance }, boolean)
+	local cluster = { start }
+	local inCluster: { [Instance]: boolean } = { [start] = true }
+	local i = 1
+	while i <= #cluster do
+		local u = cluster[i]
+		i += 1
+		local cf, size = boxOf(u)
+		if not cf or not size then return cluster, true end
+		for _, n in ipairs(Workspace:GetPartBoundsInBox(cf, size + ORPHAN_PAD)) do
+			if n == u or n:IsDescendantOf(u) then continue end
+			local other = orphanUnit(n, ctx)
+			if other then
+				if not inCluster[other] then
+					if #cluster >= PROPS.OrphanMaxCluster then return cluster, true end
+					inCluster[other] = true
+					table.insert(cluster, other)
+				end
+			elseif holds(n) then
+				return cluster, true
+			end
+		end
+	end
+	return cluster, false
+end
+
+dropOrphans = function(h: Handoff): number
+	local frontier: { Instance } = {}
+	for _, list in ipairs({ h.launch, h.drop, h.shatter, h.vaporInst, h.orphanSeeds }) do
+		table.move(list, 1, #list, #frontier + 1, frontier)
+	end
+	local candidates = h.orphanCandidates
+	if #frontier == 0 and #candidates == 0 then return 0 end
+	local ctx = buildCtx()
+	local judged: { [Instance]: boolean } = {}
+	local fell = 0
+	local budget = PROPS.OrphanMaxJudged
+
+	local function judge(unit: Instance)
+		if judged[unit] or h.seen[unit] or budget <= 0 then return end
+		local cluster, held = orphanCluster(unit, ctx)
+		budget -= #cluster
+		for _, u in ipairs(cluster) do
+			judged[u] = true
+		end
+		if held then return end
+		for _, u in ipairs(cluster) do
+			-- `force`: decyzja „nic go nie trzyma” już zapadła — sufit payloadu zostawiłby go w powietrzu.
+			handOff(h, u, false, true)
+			table.insert(frontier, u)
+			fell += 1
+		end
+	end
+
+	for _, c in ipairs(candidates) do
+		if c.Parent then
+			judge(c)
+		end
+	end
+	-- Łańcuch: to, co stało tylko na rzeczy, która właśnie odchodzi (TV na szafce, paczka
+	-- na paczce). Nowo osierocone trafiają na koniec kolejki.
+	local qi = 1
+	while qi <= #frontier and budget > 0 do
+		local src = frontier[qi]
+		qi += 1
+		if not src.Parent then continue end
+		local cf, size = boxOf(src)
+		if not cf or not size then continue end
+		for _, n in ipairs(Workspace:GetPartBoundsInBox(cf, size + ORPHAN_PAD)) do
+			local unit = orphanUnit(n, ctx)
+			if unit then
+				judge(unit)
+			end
+		end
+	end
+	table.clear(candidates)
+	table.clear(h.orphanSeeds)
+	return fell
 end
 
 -- ============================================================================
@@ -867,7 +1009,7 @@ type Damaged = { part: BasePart, hpLeft: number, maxHp: number }
 local function newStats(): BlastStats
 	return {
 		structural = 0, cut = 0, remnants = 0, launchedServer = 0, damaged = 0, glass = 0, rubbleCut = 0,
-		stripCut = 0, stripFell = 0, vaporized = 0, shattered = 0, propPushed = 0, cars = 0,
+		stripCut = 0, stripFell = 0, vaporized = 0, shattered = 0, propPushed = 0, orphans = 0, cars = 0,
 		smallParts = 0, handoff = 0, felled = 0, felledServer = 0, pushed = 0,
 		cpuMs = 0, frames = 0,
 	}
@@ -875,11 +1017,11 @@ end
 
 local function logBlast(radius: number, damage: number, stats: BlastStats)
 	if not CFG.Debug then return end
-	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d listwy cięte=%d bez oparcia=%d | rekwizyty: znikło=%d rozpad=%d odepchnięte=%d | auta=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
+	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d listwy cięte=%d bez oparcia=%d | rekwizyty: znikło=%d rozpad=%d odepchnięte=%d osierocone=%d | auta=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
 		radius, damage,
 		stats.structural, stats.cut, stats.remnants, stats.launchedServer, stats.damaged, stats.glass,
 		stats.smallParts, stats.handoff,
-		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut, stats.stripCut, stats.stripFell, stats.vaporized, stats.shattered, stats.propPushed, stats.cars,
+		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut, stats.stripCut, stats.stripFell, stats.vaporized, stats.shattered, stats.propPushed, stats.orphans, stats.cars,
 		DebrisService.getTotalCount(), DBR.MaxTotalDebris,
 		stats.cpuMs, stats.frames))
 end
@@ -928,8 +1070,9 @@ local function settleLater(
 		end
 		collectAttachedTo(p, h, ctx)
 	end
-	sendHandoff(h, center, radius, impulse)
 
+	-- Przekazanie PO odkotwiczeniu (28.09): płyta jeszcze zakotwiczona „trzymałaby” to, co na
+	-- niej stoi, i osierocone (dropOrphans w sendHandoff) zostałoby w powietrzu.
 	for _, p in ipairs(toServer) do
 		if not p.Parent then continue end
 		-- Joints przed odkotwiczeniem — zweldowany sąsiad zostałby pociągnięty za płytą.
@@ -949,6 +1092,7 @@ local function settleLater(
 			rng:NextNumber(-1, 1)
 		) * 2
 	end
+	stats.orphans += sendHandoff(h, center, radius, impulse)
 
 	stats.felled = count
 	stats.felledServer = #toServer
@@ -1412,7 +1556,7 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 		glass = glassPanes,
 		cuts = cutPayload,
 	})
-	sendHandoff(handoff, center, radius, impulse)
+	stats.orphans += sendHandoff(handoff, center, radius, impulse)
 
 	-- ===== 4. ZASTOSOWANIE =======================================================
 	for _, entry in ipairs(glassEntries) do
@@ -1456,11 +1600,18 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	end
 	-- Meble odepchnięte w całości (26.09). Po wszystkich przekazaniach: mebel, który ten sam
 	-- wybuch zabrał inną drogą (stał na przeciętej ścianie), już tu nie wraca.
+	-- To, co stało tylko na odepchniętym meblu (TV na szafce), spada u klientów (28.09) — mebel
+	-- jest już odkotwiczony, więc niczego nie trzyma.
+	local pushedHandoff = newHandoff()
 	for _, unit in ipairs(pushUnits) do
 		if unit.Parent and not handoff.seen[unit] then
 			PropService.push(unit, center, radius, impulse, minT)
 			stats.propPushed += 1
+			table.insert(pushedHandoff.orphanSeeds, unit)
 		end
+	end
+	if #pushedHandoff.orphanSeeds > 0 then
+		stats.orphans += sendHandoff(pushedHandoff, center, radius, 0)
 	end
 	-- Leżące bryły kolapsu v4 — budzi je CollapseService (budżet; jedna bryła = jeden impuls,
 	-- kolejne jej kawałki z tej listy są już w locie i zwracają false).
@@ -1468,6 +1619,26 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 		if hit.part.Parent then
 			CollapseService.wakeRubble(hit.part, center, radius, impulse, minT)
 		end
+	end
+
+	-- Duże dekoracje przy dziurach i wyrzuconych bryłach (28.09): deska leżąca na belce, z której
+	-- bomba wycięła odcinek pod nią. Klatkę później — resztki muszą wejść do broadphase, a do
+	-- tej pory przycięty oryginał wyglądałby jeszcze na cały i „trzymał” deskę.
+	if #cuts > 0 or #v4Cuts > 0 or #launchServerList > 0 then
+		task.spawn(function()
+			task.wait()
+			local lateCtx = buildCtx()
+			local h = newHandoff()
+			for _, n in ipairs(Workspace:GetPartBoundsInRadius(center, radius + SMALL.AttachPadding * 2)) do
+				if bigDecor(n, lateCtx) then
+					table.insert(h.orphanCandidates, n)
+				end
+			end
+			local fell = sendHandoff(h, center, radius, 0)
+			if fell > 0 and CFG.Debug then
+				print(("[Destr] osierocone po dziurach: %d"):format(fell))
+			end
+		end)
 	end
 
 	stats.cut = #cuts

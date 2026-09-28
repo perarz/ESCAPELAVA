@@ -22,7 +22,8 @@
 -- nachodzą w chwili startu, dostają NoCollisionConstraint; z resztą świata grupa zderza się
 -- normalnie (ląduje na piętrze niżej, gracz na niej stoi).
 --
--- ZALEŻNOŚCI: StructuralService (stan i kawałki), DebrisService (fragmenty, przygniecenie),
+-- ZALEŻNOŚCI: StructuralService (stan i kawałki), DebrisService (przygniecenie; od 28.09 już
+-- nie fragmenty kruszenia — te są tu, jako jednoelementowe grupy),
 -- LavaService (powierzchnia). Przekazanie klientom (DestructionService) wstrzykiwane w init —
 -- DestructionService woła ten serwis (rubble), więc bezpośredni require byłby cyklem.
 
@@ -77,6 +78,7 @@ type Active = {
 	jamCheckAt: number?, -- kiedy sprawdzić, czy nie zaklinowana; nil = nie sprawdzać
 	stillSince: number?,
 	retireAt: number?,
+	fragment: boolean?, -- fragment kruszenia (28.09): jedna bryła bez chunków, wylatuje od wybuchu
 }
 
 export type Injected = {
@@ -154,7 +156,7 @@ end
 -- ściany pod sobą — fragment startuje z prędkością w górę i od wybuchu, więc podpierał
 -- (a nawet podnosił) dokładnie to, co przez jego skruszenie straciło podparcie. Z dalszym
 -- światem (podłoga, na którą spadnie) zderza się normalnie.
-local function filterContacts(fragment: BasePart)
+local function filterContacts(fragment: BasePart, filters: { Instance })
 	local count = 0
 	local pad = Vector3.one * (CFG.StubContact * 2)
 	for _, hit in ipairs(Workspace:GetPartBoundsInBox(fragment.CFrame, fragment.Size + pad)) do
@@ -164,6 +166,7 @@ local function filterContacts(fragment: BasePart)
 		nc.Part0 = fragment
 		nc.Part1 = hit
 		nc.Parent = fragment
+		table.insert(filters, nc)
 		count += 1
 	end
 end
@@ -193,23 +196,82 @@ end
 -- Kruszenie osłabionego elementu (Crumbled): fragment chunka znika z mapy
 -- ============================================================================
 
-local function launchFragment(part: BasePart, from: Vector3?, attackerId: number)
+-- `reserved` = budżet już obiecany w tej samej klatce, ale jeszcze nie zajęty (fragmenty kruszenia).
+local function fits(a: Active, reserved: number?): boolean
+	local free = CFG.MaxCost - used - (reserved or 0) - (if a.priority == 0 then 0 else CFG.ReserveP0)
+	return a.cost <= free
+end
+
+-- Fragment kruszenia = jednoelementowa grupa kolapsu (28.09, decyzje Kacpra). Do 28.09 był
+-- gruzem DebrisService: bomba go tylko pchała, nigdy nie cięła, miał osobny budżet i leżał do
+-- końca rundy. Teraz to samo rumowisko co bryły pięter: wspólny budżet fizyki (bez miejsca —
+-- animacja u klientów, jak mały fragment), osiada, a leżący jest cięty bombą (`cutRubble`),
+-- budzony, gaśnie w lawie; mały znika po `SmallRubbleLifetime`, duży zostaje platformą.
+-- Przygniecenie liczy `crushCheck` (prędkość względna, jak dla grup).
+local fragmentSeq = 0
+
+local function newFragment(rec: Rec, part: BasePart, cause: Cause?): Active
+	fragmentSeq += 1
+	local b = Pieces.boxOf(part)
+	local s = part.Size
+	local volume = s.X * s.Y * s.Z
+	local id = "F" .. fragmentSeq
+	return {
+		key = rec.id .. ":" .. id,
+		rec = rec,
+		def = {
+			groupId = id, chunkIds = {}, depth = 0, pivot = {}, parts = {}, splitParts = {},
+			followers = {}, volume = volume, min = b.min, max = b.max,
+		},
+		cause = cause,
+		priority = 2,
+		cost = 2, -- jak grupa: 1 + kawałki z kolizją
+		volume = volume,
+		center = part.Position,
+		pieces = { part },
+		followers = {},
+		followerCollide = {},
+		filters = {},
+		root = part,
+		phase = "Queued",
+		queuedAt = os.clock(),
+		releasedAt = 0,
+		startCF = part.CFrame,
+		jamCheckAt = nil,
+		stillSince = nil,
+		retireAt = nil,
+		fragment = true,
+	}
+end
+
+-- Filtr kontaktów ma być już założony (a.filters) — patrz komentarz w `crumble`.
+local function launchFragment(a: Active, from: Vector3?)
+	local part = a.root :: BasePart
+	part:SetAttribute(ATTACKER_ATTR, if a.cause then a.cause.attackerUserId else 0)
+	part.CustomPhysicalProperties = concrete
 	part.Anchored = false
-	part:SetAttribute(ATTACKER_ATTR, attackerId)
-	part.Parent = DebrisService.getFolder()
-	DebrisService.register(part)
+	flyingOf[part] = a
+	pcall(function()
+		part:SetNetworkOwner(nil) -- bryła z kolizją należąca do klienta = exploit
+	end)
 	local away = if from then part.Position - from else Vector3.yAxis
 	local dir = if away.Magnitude > 1e-3 then away.Unit else Vector3.yAxis
 	part.AssemblyLinearVelocity = dir * CFG.FragmentSpeed + Vector3.new(0, CFG.FragmentSpeed * 0.3, 0)
+	a.phase = "Flying"
+	a.releasedAt = os.clock()
+	-- Wylatuje od wybuchu — sprawdzanie zaklinowania nie dotyczy (jak obudzone rumowisko).
+	a.jamCheckAt = nil
+	used += a.cost
+	table.insert(flying, a)
 end
 
 local function crumble(rec: Rec, chunkId: number, cause: Cause?)
 	local c = rec.state.chunks[chunkId]
 	local box: Box = { min = c.min, max = c.max }
 	local center = if cause and cause.center then cause.center else (c.min + c.max) * 0.5
-	local attackerId = if cause then cause.attackerUserId else 0
 	local toClients: { Instance } = {}
-	local toLaunch: { BasePart } = {}
+	local toLaunch: { Active } = {}
+	local reserved = 0
 	local fragments: { BasePart } = {}
 	for _, piece in ipairs(table.clone(StructuralService.piecesOf(rec, c.part))) do
 		local pb = Pieces.boxOf(piece)
@@ -231,8 +293,10 @@ local function crumble(rec: Rec, chunkId: number, cause: Cause?)
 			Pieces.setBox(piece, keep[1])
 		end
 		fragments[#fragments + 1] = fragment
-		if Pieces.volume(inter) >= CFG.FragmentMinVolume and DebrisService.reserve(1) > 0 then
-			table.insert(toLaunch, fragment)
+		local frag = if Pieces.volume(inter) >= CFG.FragmentMinVolume then newFragment(rec, fragment, cause) else nil
+		if frag and fits(frag, reserved) then
+			reserved += frag.cost
+			table.insert(toLaunch, frag)
 		else
 			table.insert(toClients, fragment)
 		end
@@ -242,9 +306,13 @@ local function crumble(rec: Rec, chunkId: number, cause: Cause?)
 	-- leżący, a słup albo strop, który przez to kruszenie stracił podparcie, leżał potem
 	-- na tym fragmencie — i tak aż do dachu. Zmierzone: 11 z 21 spadających grup w serii
 	-- 6 bomb leży bezpośrednio na skruszonym elemencie.
-	for _, fragment in ipairs(toLaunch) do
-		filterContacts(fragment)
-		launchFragment(fragment, center, attackerId)
+	for _, frag in ipairs(toLaunch) do
+		filterContacts(frag.root :: BasePart, frag.filters)
+		launchFragment(frag, center)
+	end
+	if #toLaunch + #toClients > 0 then
+		log("%s: kruszenie ch%d — fragmentów fizyką %d, u klientów %d (budżet %d/%d)",
+			rec.id, chunkId, #toLaunch, #toClients, used, CFG.MaxCost)
 	end
 	-- Listwy i szyby, które przez to kruszenie straciły OSTATNIE oparcie, spadają (test 24.09:
 	-- bez tego zostawały w powietrzu). Od 26.09 tylko te — wcześniej spadały wszystkie listwy
@@ -610,11 +678,6 @@ local function degrade(a: Active)
 	log("%s: grupa %s ponad budżet (P%d, koszt %d, zajęte %d/%d) — upadek u klientów", a.rec.id, a.def.groupId, a.priority, a.cost, used, CFG.MaxCost)
 end
 
-local function fits(a: Active): boolean
-	local free = CFG.MaxCost - used - (if a.priority == 0 then 0 else CFG.ReserveP0)
-	return a.cost <= free
-end
-
 -- ============================================================================
 -- Lot → osiadanie / lawa / przygniecenie
 -- ============================================================================
@@ -667,8 +730,10 @@ local function settle(a: Active)
 		a.retireAt = os.clock() + CFG.SmallRubbleLifetime
 		table.insert(settledTemp, a)
 	end
-	log("%s: grupa %s osiadła po %.1f s (%s)", a.rec.id, a.def.groupId, os.clock() - a.releasedAt,
-		if a.retireAt then "mała — zniknie" else "platforma do końca rundy")
+	if not a.fragment then -- fragmenty: podsumowanie jest w logu kruszenia
+		log("%s: grupa %s osiadła po %.1f s (%s)", a.rec.id, a.def.groupId, os.clock() - a.releasedAt,
+			if a.retireAt then "mała — zniknie" else "platforma do końca rundy")
+	end
 end
 
 local function groupTop(a: Active): number

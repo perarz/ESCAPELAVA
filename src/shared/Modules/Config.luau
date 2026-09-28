@@ -86,7 +86,7 @@ Config.Lava = {
 	-- (`FX.MinSurfaceY`), więc przy nierosnącej lawie nie było jej jak zobaczyć.
 	Enabled = true,
 	StartY = -5,
-	MaxY = 250,
+	MaxY = 0,
 	-- DESIGN: szybka i dynamiczna gra. Runda ~80s total, nie 5+ minut.
 	--
 	-- ⚠️ WYDŁUŻONE DO 10 MINUT NA TESTY (2026-08-12, prośba Kacpra) — długa runda daje
@@ -1216,6 +1216,13 @@ Config.Destruction = {
 		PushMaxTime = 8,     -- s — po tylu kotwiczony i tak (toczy się bez końca)
 		ShatterLife = 1.5,   -- s życia kawałków rozpadniętego mebla (w obu trybach grafiki)
 		VaporDust = 18,      -- cząstek obłoku na rekwizyt (× ParticleScale trybu)
+		-- OSIEROCONE (28.09, decyzje Kacpra): rzecz stojąca tylko na meblu spada razem z nim (TV
+		-- na szafce), duża dekoracja ponad MaxSize (deska rusztowania) — gdy nic jej nie trzyma.
+		-- Skupisko stykających się luźnych rzeczy ocenia się razem; ponad limit zostaje na miejscu
+		-- (bezpiecznie: tak jak przed poprawką). Ocena kończy się na pierwszym styku z czymś
+		-- stojącym, więc zwykle skupisko to 1-3 rzeczy (szczebel → szyna drabiny → strop).
+		OrphanMaxCluster = 40, -- rzeczy w jednym skupisku
+		OrphanMaxJudged = 200, -- rzeczy ocenionych na jedno przekazanie (sufit CPU)
 	},
 	-- AUTA (27.09, decyzja Kacpra: „wybucha + ogień”). Party aut są `Locked` (kontrakt „wybuch
 	-- nie tyka” — inaczej v3 ciąłby je na dziury i rozsypywał 72 drobne części osobno), więc
@@ -1627,7 +1634,9 @@ Config.Structure = {
 		OverlapMinDepth = 0.05, -- dotyczy oparcia od spodu; styk z boku filtrowany zawsze (needsFilter)
 		OverlapFilterMax = 80,
 		-- Kawałek ze skruszonego elementu: duży = fragment fizyki serwera (ściany mogą
-		-- naprawdę odlecieć — decyzja Kacpra), mały = animacja u klientów.
+		-- naprawdę odlecieć — decyzja Kacpra), mały = animacja u klientów. Od 28.09 (decyzje
+		-- Kacpra) fragment to rumowisko kolapsu: koszt 2 z MaxCost (bez miejsca → u klientów),
+		-- leżący jest cięty bombą, mały (< SmallRubbleVolume) znika po SmallRubbleLifetime.
 		FragmentMinVolume = 45,
 		FragmentSpeed = 18,
 		-- Obudzona LEŻĄCA bryła dostaje tylko tyle impulsu fali (decyzja Kacpra 25.09: „mniejszy
