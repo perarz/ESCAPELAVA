@@ -112,8 +112,6 @@ export type BlastStats = {
 local HP_ATTR = "DestrHP"
 -- Attribute: oryginalny kolor sprzed przyciemnienia (feedback obrażeń).
 local ORIG_COLOR_ATTR = "DestrOrigColor"
--- Attribute na gruzie: UserId sprawcy (crush kill credit w DebrisService).
-local ATTACKER_ATTR = "BlastAttackerId"
 
 -- HRP → stopy. ⚠️ Ta sama liczba żyje w FallDamageService (HRP_TO_FEET) i LavaService
 -- (FEET_OFFSET) — kandydat do Config, dopóki są trzy kopie.
@@ -705,7 +703,7 @@ local function applyCut(
 end
 
 -- Bryła wyrzucona w całości jako gruz serwera (duża kula/walec/klin/union).
-local function launchServer(part: BasePart, center: Vector3, radius: number, impulse: number, minT: number, attackerId: number)
+local function launchServer(part: BasePart, center: Vector3, radius: number, impulse: number, minT: number)
 	-- Destroy jointów PRZED odkotwiczeniem — ozdoby bywają zweldowane w modele.
 	for _, joint in ipairs(part:GetJoints()) do
 		if joint:IsA("JointInstance") or joint:IsA("WeldConstraint") then
@@ -713,7 +711,6 @@ local function launchServer(part: BasePart, center: Vector3, radius: number, imp
 		end
 	end
 	part.Anchored = false
-	part:SetAttribute(ATTACKER_ATTR, attackerId)
 	part.Parent = DebrisService.getFolder()
 	DebrisService.register(part)
 	pushPart(part, center, radius, impulse, minT)
@@ -1040,7 +1037,6 @@ local function settleLater(
 	damage: number,
 	impulse: number,
 	serverLeft: number,
-	attackerId: number,
 	stats: BlastStats
 )
 	task.wait()
@@ -1082,7 +1078,6 @@ local function settleLater(
 			end
 		end
 		p.Anchored = false
-		p:SetAttribute(ATTACKER_ATTR, attackerId)
 		p.Parent = DebrisService.getFolder()
 		DebrisService.register(p)
 		-- Lekki tumble — spadająca płyta nie jedzie w dół jak winda.
@@ -1112,7 +1107,6 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	local impulse = params.impulse or 0
 	local minT = params.minImpulseT or 0.1
 	local glassRadius = params.glassRadius or 0
-	local attackerId = if attacker then attacker.UserId else 0
 
 	local stats = newStats()
 	stats.frames += awaitBudget()
@@ -1123,6 +1117,8 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	local glassEntries, glassSet = collectGlass(center, glassRadius, ctx)
 
 	local push: { BasePart } = {}
+	-- Kawałki brył kolapsu W LOCIE (M-2, przegląd 29.09) — odrzut liczy CollapseService.
+	local flyingHits: { BasePart } = {}
 	local structList: { Hit } = {}
 	local smallHits: { Hit } = {}
 	local v4Hits: { Hit } = {}
@@ -1184,13 +1180,20 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 			table.insert(rubbleHits, { part = part, distance = d, dmg = damage * (1 - math.clamp(d / radius, 0, 1)) })
 			continue
 		end
+		if CollapseService.isFlying(part) then
+			-- Spawana bryła kolapsu w locie (piętro, fragment kruszenia). NIE do zwykłego `push`:
+			-- ten ustawiał prędkość CAŁEJ bryle z rozmiaru TRAFIONEGO kawałka — mały kikut dawał
+			-- pełny impuls i piętro wylatywało ~60 stud/s (przegląd 29.09, M-2). Decyzja Kacpra:
+			-- odrzut ×0,3 jak obudzone rumowisko — liczy go CollapseService.pushFlying.
+			table.insert(flyingHits, part)
+			continue
+		end
 		if not part.Anchored then
 			-- Luźne (inne bomby w locie itp.) — sama fala. Nieanchorowany part to dla
 			-- systemu gruz, nie konstrukcja. Zgłaszamy tylko, gdy leży w mapie (tam to
 			-- błąd kontraktu); bomby i luźne zabawki poza mapą są w porządku.
 			table.insert(push, part)
-			-- Spadająca grupa kolapsu v4 leży w mapie odkotwiczona z założenia — to nie błąd kontraktu.
-			if ctx.map and part:IsDescendantOf(ctx.map) and not reported[part] and not CollapseService.isFlying(part) then
+			if ctx.map and part:IsDescendantOf(ctx.map) and not reported[part] then
 				reported[part] = true
 				table.insert(unanchoredInMap, part)
 			end
@@ -1575,7 +1578,7 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 
 	for _, part in ipairs(launchServerList) do
 		if part.Parent and part.Anchored and not DebrisService.isRegistered(part) then
-			launchServer(part, center, radius, impulse, minT, attackerId)
+			launchServer(part, center, radius, impulse, minT)
 		end
 	end
 
@@ -1620,6 +1623,10 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 			CollapseService.wakeRubble(hit.part, center, radius, impulse, minT)
 		end
 	end
+	CollapseService.pushFlying(flyingHits, center, radius, impulse, minT)
+	-- Wybuch mógł zabrać to, na czym leży osiadłe rumowisko (dziura w stropie, zbudzony gruz,
+	-- mebel) — CollapseService sprawdzi bryły w okolicy w najbliższym przebiegu (M-1).
+	CollapseService.noteBlast(center, radius)
 
 	-- Duże dekoracje przy dziurach i wyrzuconych bryłach (28.09): deska leżąca na belce, z której
 	-- bomba wycięła odcinek pod nią. Klatkę później — resztki muszą wejść do broadphase, a do
@@ -1656,7 +1663,7 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 
 	-- ===== 5. PODPARCIE „PO” — osobny wątek, klatkę później =======================
 	if graph then
-		task.spawn(settleLater, graph, remnants, originOf, stale, ctx, center, radius, damage, impulse, serverLeft, attackerId, stats)
+		task.spawn(settleLater, graph, remnants, originOf, stale, ctx, center, radius, damage, impulse, serverLeft, stats)
 	else
 		logBlast(radius, damage, stats)
 	end

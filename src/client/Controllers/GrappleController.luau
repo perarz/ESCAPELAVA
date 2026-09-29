@@ -27,6 +27,7 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local GrappleArc = require(ReplicatedStorage.Shared.Modules.GrappleArc)
 local CooldownBarController = require(script.Parent.CooldownBarController)
 local MovementController = require(script.Parent.MovementController)
+local RagdollState = require(script.Parent.RagdollState)
 
 local GrappleController = {}
 
@@ -79,22 +80,10 @@ local function getCharParts(): (Humanoid?, BasePart?)
 	return hum, nil
 end
 
--- Czy nasza postać leży jako ragdoll. Toolbox ARTFVL zwiotcza postać przez
--- `ChangeState(Physics)`, nie przez PlatformStand — sam PlatformStand (poprzednia wersja
--- warunku) nie łapał ragdolla i hak ciągnął bezwładne ciało (26.09: „podczas ragdolla da
--- się handhookiem lecieć i kolegę w kosmos wywaliło”). Trzy sygnały, bo każdy dociera
--- w innym momencie: flaga toolboxa (ustawia ją serwer, replikuje się do nas przez
--- PlayerGui), stan Physics i PlatformStand. Serwer blokuje strzał osobno.
-local function isRagdolled(hum: Humanoid): boolean
-	if hum.PlatformStand or hum:GetState() == Enum.HumanoidStateType.Physics then
-		return true
-	end
-	local gui = localPlayer:FindFirstChild("PlayerGui")
-	local folder = gui and gui:FindFirstChild("ragdoll")
-	local vars = folder and folder:FindFirstChild("variables")
-	local flag = vars and vars:FindFirstChild("ragdoll")
-	return flag ~= nil and flag:IsA("BoolValue") and (flag :: BoolValue).Value
-end
+-- Czy nasza postać leży jako ragdoll — jedno miejsce dla całego klienta (RagdollState, 29.09).
+-- Tu wprowadzone 26.09 („podczas ragdolla da się handhookiem lecieć i kolegę w kosmos
+-- wywaliło”); serwer blokuje strzał osobno.
+local isRagdolled = RagdollState.isRagdolled
 
 -- ── Lina ─────────────────────────────────────────────────────────────────────────────
 -- Czysto lokalny part (wzorzec DebrisFXController): zero replikacji, zero fizyki serwera.

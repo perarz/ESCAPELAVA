@@ -276,7 +276,13 @@ function StructureCore.geometryHash(parts: { PartRec }): string
 	for _, p in ipairs(parts) do
 		feed(p.min.X); feed(p.min.Y); feed(p.min.Z)
 		feed(p.max.X); feed(p.max.Y); feed(p.max.Z)
+		-- Cała nazwa rodzaju, nie jej długość: Slab, Beam, Wall i Trim mają po 4 znaki, więc
+		-- zmiana klasyfikacji bez zmiany geometrii (StructKind, szkło, próg listwy w Config)
+		-- dawała ten sam odcisk i gra wzięłaby nieaktualne zapisane dane (przegląd 29.09, M-9).
 		feed(#p.kind)
+		for i = 1, #p.kind do
+			feed(string.byte(p.kind, i))
+		end
 	end
 	return string.format("%08x%08x", h1, h2)
 end

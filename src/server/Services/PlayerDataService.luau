@@ -6,29 +6,44 @@
 -- Filozofia:
 --   * Klient nigdy nie dotyka DataStore — server jest source of truth.
 --   * UpdateAsync zamiast Get+Set: atomic, brak race condition gdy gracz disconnect.
---   * Session lock: nadpisuję key tylko jeśli ten serwer go zarezerwował (sessionId match).
+--   * Session lock: nadpisuję key tylko jeśli to wejście gracza go zarezerwowało (lockId match).
 --     Zabezpiecza przed roll-back gdy gracz w dwóch serwerach jednocześnie.
 --   * BindToClose: gdy serwer się zamyka (shutdown, restart, update), force save WSZYSTKICH
 --     graczy zanim Roblox zabije proces (max 30s).
 --   * Auto-save co 60s + on PlayerRemoving — gracz traci max ~60s progress przy crashu.
+--   * Nieudane wczytanie (po `LoadRetries` próbach) = wyrzucenie z komunikatem, nie gra na
+--     domyślnych danych (decyzja Kacpra 29.09). Wyjątek: Studio — tam bez „API Services”
+--     DataStore nie działa wcale, więc gra idzie na domyślnych w pamięci, bez zapisu.
 --
 -- API:
 --   PlayerDataService.get(player)            -> data | nil  (live in-memory state)
 --   PlayerDataService.update(player, mutator) -> ok  (mutator: (data) -> data; atomic + replicate?)
 --   PlayerDataService.subscribe(callback)     -> () (fired po każdej mutacji; key:string, player, oldData, newData)
+--   PlayerDataService.waitForData(player, timeout) -> bool (yielduje, aż dane są w pamięci)
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
 
 local PlayerDataService = {}
 
+local PD = Config.PlayerData
+
 -- VERSIONED key namespace — jeśli kiedyś zmieniamy schemat, bump tej liczby
--- żeby nie crashować starych danych w nowym kodzie.
-local DATASTORE_NAME = "ESCAPELAVA_PlayerData_v1"
+-- żeby nie crashować starych danych w nowym kodzie. Studio ma osobny magazyn (sufiks).
+local DATASTORE_NAME = "ESCAPELAVA_PlayerData_v1" .. (if RunService:IsStudio() then PD.StudioStoreSuffix else "")
 
 local store = DataStoreService:GetDataStore(DATASTORE_NAME)
 local sessionId = tostring(os.time()) .. "_" .. tostring(math.random(1, 1e9))
+-- Lock jest per WEJŚCIE gracza, nie per serwer (przegląd 29.09, A-2). Ze wspólnym
+-- `sessionId` szybki powrót na TEN SAM serwer brał klucz od razu — nie czekał na final save
+-- z wyjścia, więc mógł wczytać dane sprzed niego, a „duch” z przerwanego wczytania miał ten
+-- sam lock co nowy gracz i nadpisywał jego zapis.
+local joinSeq = 0
+local lockIdOf: { [Player]: string } = {}
 
 -- In-memory state per player
 local cache: { [Player]: any } = {}
@@ -37,21 +52,20 @@ local saveInFlight: { [Player]: boolean } = {}
 -- Gracze których LOAD failował — trzymają default w pamięci. Save ZABLOKOWANY:
 -- zapis defaultu nadpisałby prawdziwe dane w DataStore (session lock nie chroni,
 -- bo po czystym wyjściu na innym serwerze _sessionId=nil i check przepuszcza).
+-- Od 29.09 tylko w Studio — poza nim nieudane wczytanie wyrzuca gracza.
 local loadFailed: { [Player]: boolean } = {}
 local subscribers: { (string, Player, any, any) -> () } = {}
-
-local AUTO_SAVE_INTERVAL = 60        -- sekund
-local MAX_RETRIES = 3
-local INITIAL_BACKOFF = 0.5          -- sekund (×2 każda retry)
+-- Zapisy do DataStore w toku (także final save z PlayerRemoving i zwolnienie locka) —
+-- BindToClose czeka, aż spadnie do zera (przegląd 29.09, A-6).
+local pendingWrites = 0
 
 -- Session lock przy ŁADOWANIU. Sam lock przy zapisie nie wystarczy: jeśli load bezwarunkowo
 -- przejmie klucz, poprzedni serwer (gracz przeskoczył serwery / szybki rejoin) trafi przy
 -- swoim final save w gałąź "owned by other server" i JEGO zapis przepadnie — czyli mechanizm
 -- chroniący dane sam je kasuje. Dlatego czekamy, aż tamten serwer zwolni lock swoim
--- final save (zwykle ułamek sekundy), i dopiero wtedy ładujemy.
-local LOCK_STALE_SEC = 90            -- starszy lock = serwer padł bez BindToClose → przejmujemy
-local LOCK_WAIT_ATTEMPTS = 3         -- ile razy czekamy zanim przejmiemy siłą
-local LOCK_WAIT_DELAY = 2            -- sekund między próbami
+-- final save (zwykle ułamek sekundy), i dopiero wtedy ładujemy. Starszy niż `LockStaleSec`
+-- lock = serwer padł bez BindToClose → przejmujemy; ostatnia z `LockWaitAttempts` prób
+-- przejmuje siłą.
 
 local function defaultData(): any
 	return {
@@ -93,15 +107,15 @@ local function notifySubscribers(eventKey: string, player: Player, oldData: any,
 	end
 end
 
-local function withRetry<T>(operation: () -> T): (boolean, T?)
-	local backoff = INITIAL_BACKOFF
-	for attempt = 1, MAX_RETRIES do
+local function withRetry<T>(operation: () -> T, attempts: number): (boolean, T?)
+	local backoff = PD.InitialBackoff
+	for attempt = 1, attempts do
 		local ok, result = pcall(operation)
 		if ok then
 			return true, result
 		end
-		warn(("[PlayerData] retry %d/%d po błędzie: %s"):format(attempt, MAX_RETRIES, tostring(result)))
-		if attempt < MAX_RETRIES then
+		warn(("[PlayerData] retry %d/%d po błędzie: %s"):format(attempt, attempts, tostring(result)))
+		if attempt < attempts then
 			task.wait(backoff)
 			backoff *= 2
 		end
@@ -109,21 +123,44 @@ local function withRetry<T>(operation: () -> T): (boolean, T?)
 	return false, nil
 end
 
+-- Zwolnienie locka, który wzięło wczytanie gracza, który w międzyczasie WYSZEDŁ. Jego
+-- PlayerRemoving przyszedł przed końcem wczytania, więc final save nie miał czego zapisać —
+-- bez tego lock wisiał do `LockStaleSec`, a gracz trzymany w pamięci był auto-zapisywany
+-- do końca życia serwera (przegląd 29.09, A-2). Zdejmujemy tylko WŁASNY lock.
+local function releaseLock(key: string, lockId: string)
+	pendingWrites += 1
+	withRetry(function()
+		return store:UpdateAsync(key, function(existing)
+			if existing and existing._sessionId == lockId then
+				existing._sessionId = nil
+				return existing
+			end
+			return nil
+		end)
+	end, PD.SaveRetries)
+	pendingWrites -= 1
+end
+
 local function loadPlayer(player: Player)
 	local key = "u_" .. tostring(player.UserId)
+	joinSeq += 1
+	local lockId = sessionId .. "#" .. tostring(joinSeq)
+	lockIdOf[player] = lockId
+	-- W Studio bez „API Services” każda próba i tak się nie uda — tam krótko, jak zapis.
+	local loadAttempts = if RunService:IsStudio() then PD.SaveRetries else PD.LoadRetries
 	-- UpdateAsync na load żeby od razu zatwierdzić session lock (atomic).
 	local ok, data
-	for attempt = 1, LOCK_WAIT_ATTEMPTS do
+	for attempt = 1, PD.LockWaitAttempts do
 		local lockedByOther = false
-		local lastAttempt = attempt == LOCK_WAIT_ATTEMPTS
+		local lastAttempt = attempt == PD.LockWaitAttempts
 
 		ok, data = withRetry(function()
 			return store:UpdateAsync(key, function(existing)
-				if existing and existing._sessionId and existing._sessionId ~= sessionId then
+				if existing and existing._sessionId and existing._sessionId ~= lockId then
 					local lockAge = os.time() - (existing._savedAt or 0)
-					-- Świeży cudzy lock = tamten serwer jeszcze żyje i zaraz zrobi final save.
-					-- Zwracamy nil → UpdateAsync anuluje zapis (żadnej operacji write) i czekamy.
-					if lockAge < LOCK_STALE_SEC and not lastAttempt then
+					-- Świeży cudzy lock = tamten serwer (albo poprzednie wejście na tym) jeszcze
+					-- robi final save. Zwracamy nil → UpdateAsync anuluje zapis i czekamy.
+					if lockAge < PD.LockStaleSec and not lastAttempt then
 						lockedByOther = true
 						return nil
 					end
@@ -133,31 +170,47 @@ local function loadPlayer(player: Player)
 				lockedByOther = false
 				local d = existing or defaultData()
 				migrateSchema(d)
-				d._sessionId = sessionId
+				d._sessionId = lockId
 				d._savedAt = os.time()
 				return d
 			end)
-		end)
+		end, loadAttempts)
 
 		if not lockedByOther then break end
-		print(("[PlayerData] %s — klucz zajęty przez inny serwer, czekam (%d/%d)"):format(
-			player.Name, attempt, LOCK_WAIT_ATTEMPTS))
-		task.wait(LOCK_WAIT_DELAY)
+		print(("[PlayerData] %s — klucz zajęty (inny serwer albo poprzednie wejście), czekam (%d/%d)"):format(
+			player.Name, attempt, PD.LockWaitAttempts))
+		task.wait(PD.LockWaitDelay)
 		-- Gracz mógł wyjść w trakcie czekania — bez tego wstawilibyśmy cache dla ducha,
 		-- którego PlayerRemoving już nie posprząta.
 		if not player.Parent then return end
 	end
 
 	if not ok or type(data) ~= "table" then
-		warn(("[PlayerData] LOAD FAIL %s — wstawiam default w pamięci (NIE zapisuję)"):format(player.Name))
-		-- Crucial: nie nadpisujemy DataStore default'em, bo to mogłoby usunąć istniejący stan
-		-- gdyby tylko storage failował. Trzymamy default tylko w pamięci aż user disconnect.
-		-- loadFailed blokuje TEŻ save przy leave/BindToClose (bez tego "NIE zapisuję" było
-		-- prawdą tylko na load — savePlayer przy wyjściu i tak nadpisywał prawdziwe dane).
-		data = defaultData()
-		loadFailed[player] = true
-		cache[player] = data
-		notifySubscribers("loaded_default", player, nil, data)
+		if RunService:IsStudio() then
+			warn(("[PlayerData] LOAD FAIL %s — Studio: gram na domyślnych w pamięci (NIE zapisuję). Sprawdź Game Settings → Security → Enable Studio Access to API Services."):format(player.Name))
+			-- Nie nadpisujemy DataStore defaultem — loadFailed blokuje TEŻ save przy
+			-- leave/BindToClose (bez tego savePlayer przy wyjściu nadpisałby prawdziwe dane).
+			data = defaultData()
+			loadFailed[player] = true
+			cache[player] = data
+			notifySubscribers("loaded_default", player, nil, data)
+			return
+		end
+		-- Poza Studio: wszystkie próby zawiodły (awaria DataStore). Gra na domyślnych danych
+		-- oznaczałaby sesję, której nic się nie zapisze, a wygląd i itemy wyglądałyby na
+		-- stracone — decyzja Kacpra 29.09: komunikat i wyjście, dane w DataStore są nietknięte.
+		warn(("[PlayerData] LOAD FAIL %s po %d próbach — wyrzucam z komunikatem"):format(player.Name, PD.LoadRetries))
+		lockIdOf[player] = nil
+		if player.Parent then
+			player:Kick(PD.LoadFailKickMessage)
+		end
+		return
+	end
+
+	-- Wyszedł w trakcie wczytania (PlayerRemoving już był i nie miał czego zapisać).
+	if not player.Parent then
+		releaseLock(key, lockId)
+		lockIdOf[player] = nil
 		return
 	end
 
@@ -165,7 +218,7 @@ local function loadPlayer(player: Player)
 	-- Jitter: gracze którzy weszli razem (start serwera, fala z TikToka) mieliby auto-save
 	-- w tej samej sekundzie → 20 UpdateAsync w jednym ticku i wspólny retry-storm przy błędzie.
 	-- Cofnięcie deadline'u o losowe 0-30s rozkłada zapisy równomiernie w oknie.
-	lastSaveAt[player] = os.clock() - math.random() * (AUTO_SAVE_INTERVAL * 0.5)
+	lastSaveAt[player] = os.clock() - math.random() * (PD.AutoSaveInterval * 0.5)
 	notifySubscribers("loaded", player, nil, data)
 	print(("[PlayerData] loaded %s cash=%d items=%d"):format(player.Name, data.cash or 0, (function() local n=0 for _ in pairs(data.inventory or {}) do n+=1 end return n end)()))
 end
@@ -186,16 +239,18 @@ local function savePlayer(player: Player, isClosing: boolean?): boolean
 		end
 	end
 	local data = cache[player]
-	if not data then return false end
+	local lockId = lockIdOf[player]
+	if not data or not lockId then return false end
 	saveInFlight[player] = true
+	pendingWrites += 1
 
 	local key = "u_" .. tostring(player.UserId)
 	local skippedByLock = false
 	local ok = withRetry(function()
 		store:UpdateAsync(key, function(existing)
-			-- Session lock check: zapisujemy tylko jeśli to NASZ session lub key pusty/stary
-			-- (czyli ostatni zapis był z naszego serwera; nikt inny nie przejął).
-			if existing and existing._sessionId and existing._sessionId ~= sessionId then
+			-- Session lock check: zapisujemy tylko jeśli to NASZ lock (tego wejścia) albo klucz
+			-- pusty/zwolniony — nikt inny nie przejął.
+			if existing and existing._sessionId and existing._sessionId ~= lockId then
 				-- Inny serwer już zalokował tego gracza (np. teleport do innego place).
 				-- Pomijamy save — ten serwer ma stary state, nadpisanie cofnęłoby tamten.
 				-- nil zamiast existing: anuluje operację zapisu zamiast przepisywać to samo.
@@ -212,13 +267,18 @@ local function savePlayer(player: Player, isClosing: boolean?): boolean
 			end
 			return data
 		end)
-	end)
+	end, PD.SaveRetries)
 
 	saveInFlight[player] = false
+	pendingWrites -= 1
 	-- Pominięcie przez lock NIE jest sukcesem. Wcześniej leciał tu print "saved" mimo że
 	-- nic nie zapisaliśmy — dokładnie ten log kłamałby przy diagnozie utraty danych.
 	if skippedByLock then
-		warn(("[PlayerData] save SKIP %s — session lock trzyma inny serwer, nic nie zapisano"):format(player.Name))
+		-- Klucz należy do kogoś innego — ten serwer ma nieaktualny stan i żaden jego zapis już
+		-- nie przejdzie. Wypisujemy gracza z auto-zapisu; wcześniej `lastSaveAt` się nie
+		-- odświeżał i UpdateAsync leciał co 5 s do końca życia serwera (przegląd 29.09, A-2).
+		warn(("[PlayerData] save SKIP %s — session lock trzyma inny serwer, nic nie zapisano; koniec auto-zapisu"):format(player.Name))
+		lastSaveAt[player] = nil
 		return false
 	end
 	if ok then
@@ -226,7 +286,11 @@ local function savePlayer(player: Player, isClosing: boolean?): boolean
 		print(("[PlayerData] saved %s cash=%d"):format(player.Name, data.cash or 0))
 		return true
 	end
-	warn(("[PlayerData] SAVE FAIL %s — zostawiam w pamięci, retry na następnym tick"):format(player.Name))
+	-- Następna próba za SaveFailRetryDelay, nie w kolejnym obrocie pętli co 5 s (A-7).
+	if lastSaveAt[player] then
+		lastSaveAt[player] = os.clock() - PD.AutoSaveInterval + PD.SaveFailRetryDelay
+	end
+	warn(("[PlayerData] SAVE FAIL %s — zostawiam w pamięci, kolejna próba za %d s"):format(player.Name, PD.SaveFailRetryDelay))
 	return false
 end
 
@@ -252,6 +316,20 @@ function PlayerDataService.subscribe(callback: (string, Player, any, any) -> ())
 	table.insert(subscribers, callback)
 end
 
+-- Czeka, aż dane gracza są w pamięci (wczytane albo — w Studio — domyślne). false = limit
+-- czasu albo gracz wyszedł (np. wyrzucony po nieudanym wczytaniu). PlayerService czeka tak
+-- przed PIERWSZYM spawnem, żeby wygląd szedł od razu z zapisu (decyzja Kacpra 29.09, A-1).
+function PlayerDataService.waitForData(player: Player, timeout: number): boolean
+	local deadline = os.clock() + timeout
+	while not cache[player] do
+		if not player.Parent or os.clock() >= deadline then
+			return false
+		end
+		task.wait(0.1)
+	end
+	return true
+end
+
 local function onPlayerAdded(player: Player)
 	loadPlayer(player)
 end
@@ -262,6 +340,7 @@ local function onPlayerRemoving(player: Player)
 	lastSaveAt[player] = nil
 	saveInFlight[player] = nil
 	loadFailed[player] = nil
+	lockIdOf[player] = nil
 end
 
 local function autoSaveLoop()
@@ -272,7 +351,7 @@ local function autoSaveLoop()
 		-- = undefined behavior next() w Lua. Zbieramy due-listę bez yieldów, potem save.
 		local due: { Player } = {}
 		for player, last in pairs(lastSaveAt) do
-			if os.clock() - last >= AUTO_SAVE_INTERVAL then
+			if os.clock() - last >= PD.AutoSaveInterval then
 				table.insert(due, player)
 			end
 		end
@@ -295,35 +374,40 @@ function PlayerDataService.init()
 
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(onPlayerRemoving)
+	-- task.spawn: wczytanie yielduje (UpdateAsync). Synchroniczne blokowało init całego
+	-- serwera, a „loaded” gracza obecnego od startu leciał, zanim Cash/Item/Settings zdążyły
+	-- się zapisać jako subskrybenci — i przepadał (nie było kasy ani itemów u klienta).
 	for _, p in ipairs(Players:GetPlayers()) do
-		onPlayerAdded(p)
+		task.spawn(onPlayerAdded, p)
 	end
 
 	task.spawn(autoSaveLoop)
 
 	-- BindToClose: ratunek przy shutdown servera (Roblox restart, update, place close).
-	-- Mamy ~30s zanim Roblox zabije proces — save wszystkich w parallel.
+	-- Mamy ~30s zanim Roblox zabije proces — save wszystkich w parallel. Po `cache`, nie po
+	-- Players: gracz, którego Roblox już usunął, może być w trakcie final save z PlayerRemoving
+	-- (cache czyścimy dopiero po nim) — wcześniej BindToClose go nie widział i kończył się,
+	-- zanim ten zapis doszedł (przegląd 29.09, A-6). Czekamy na OBA warunki: nasze wątki
+	-- (final save czeka najpierw na trwający auto-zapis i dopiero potem liczy się w
+	-- `pendingWrites` — sam licznik chwilowo spadałby do zera) i `pendingWrites` = 0.
 	game:BindToClose(function()
 		print("[PlayerData] BindToClose — saving all players")
-		local players = Players:GetPlayers()
-		local threads = {}
-		for _, p in ipairs(players) do
-			local thread = task.spawn(function()
-				savePlayer(p, true)
-			end)
-			table.insert(threads, thread)
+		local threads: { thread } = {}
+		for p in pairs(cache) do
+			table.insert(threads, task.spawn(savePlayer, p, true))
 		end
-		-- Czekamy do 25s (zostaw 5s buffer dla Roblox)
-		local deadline = os.clock() + 25
-		while os.clock() < deadline do
-			local anyAlive = false
+		local function busy(): boolean
+			if pendingWrites > 0 then return true end
 			for _, t in ipairs(threads) do
-				if coroutine.status(t) ~= "dead" then anyAlive = true break end
+				if coroutine.status(t) ~= "dead" then return true end
 			end
-			if not anyAlive then break end
+			return false
+		end
+		local deadline = os.clock() + PD.CloseWaitMax
+		while busy() and os.clock() < deadline do
 			task.wait(0.1)
 		end
-		print("[PlayerData] BindToClose done")
+		print(("[PlayerData] BindToClose done (zapisów w toku: %d)"):format(pendingWrites))
 	end)
 end
 

@@ -224,7 +224,7 @@ end
 local function handleBuildBridge(player: Player, anchorPos: any, rotationY: any)
 	-- Rate limit (anti-spam BuildBridge).
 	local now = os.clock()
-	if now - (lastBuildAt[player] or 0) < Config.RateLimits.BridgeBuild then
+	if now - (lastBuildAt[player] or 0) < Config.RateLimits.BridgeBuild * Config.RateLimits.ServerTolerance then
 		Remotes.BridgeResult:FireClient(player, false, "cooldown")
 		return
 	end
@@ -307,7 +307,7 @@ end
 
 local function onEquipItem(player: Player, itemId: any)
 	local now = os.clock()
-	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem then return end
+	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem * Config.RateLimits.ServerTolerance then return end
 	lastEquipAt[player] = now
 
 	if itemId == ITEM_ID then
@@ -321,7 +321,7 @@ end
 
 local function onUnequipItem(player: Player)
 	local now = os.clock()
-	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem then return end
+	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem * Config.RateLimits.ServerTolerance then return end
 	lastEquipAt[player] = now
 	exitBuildMode(player)
 end

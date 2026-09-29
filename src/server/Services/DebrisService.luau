@@ -12,8 +12,8 @@
 --   - FALL-FRACTURE (etap 3): kawałek który twardo uderzył (nagła delta prędkości) pęka
 --     na 2-3 mniejsze + pył. TWARDY limit jednej generacji i floor rozmiaru — bez tego
 --     liczba partów rośnie wykładniczo
---   - CRUSH (etap 3): duży, szybki kawałek rani gracza; kill credit "crushed" dla tego,
---     kto go wystrzelił (attribute BlastAttackerId — kontrakt z DestructionService)
+--   - (29.09) gruz NIE rani — przygniecenie usunięte decyzją Kacpra („usuwamy obrażenia od
+--     spadającego gruzu”); wcześniej duży, szybki kawałek zadawał obrażenia z kill creditem
 --   - sprzątanie całości na RoundEnded
 --
 -- Gruz żyje w Workspace.BlastDebris (POZA Workspace.Map) — MapService restore go nie widzi,
@@ -34,13 +34,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RobloxDebris = game:GetService("Debris")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
-local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Fracture = require(ReplicatedStorage.Shared.Modules.Fracture)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 local GameLoopService = require(script.Parent.GameLoopService)
 local PlayerService = require(script.Parent.PlayerService)
-local KillService = require(script.Parent.KillService)
-local AntiCheatService = require(script.Parent.AntiCheatService)
 local LavaService = require(script.Parent.LavaService)
 
 local DebrisService = {}
@@ -48,9 +45,6 @@ local DebrisService = {}
 local DBR = Config.Destruction.Debris
 local IMP = Config.Destruction.Impact
 local FRAC = Config.Destruction.Fracture
-
--- Kontrakt z DestructionService: kto wystrzelił ten kawałek (UserId).
-local ATTACKER_ATTR = "BlastAttackerId"
 
 local SMOKE_TEXTURE = "rbxasset://textures/particles/smoke_main.dds"
 
@@ -76,9 +70,6 @@ local movingCount = 0
 local totalCount = 0
 local persistentCount = 0
 local seqCounter = 0
-
--- I-frames graczy między trafieniami gruzem (crush).
-local lastCrushAt: { [Player]: number } = {}
 
 local folder: Folder? = nil
 local initialized = false
@@ -381,7 +372,6 @@ local function fractureOnImpact(part: BasePart, entry: Entry)
 
 	local sourceCF = part.CFrame
 	local velocity = part.AssemblyLinearVelocity * IMP.InheritVelocityFactor
-	local attackerId = part:GetAttribute(ATTACKER_ATTR)
 	local gen = entry.generation + 1
 	local parentFolder = DebrisService.getFolder()
 
@@ -398,9 +388,6 @@ local function fractureOnImpact(part: BasePart, entry: Entry)
 		Utils.copyAppearance(part, p)
 		p.Anchored = false
 		p.CanCollide = true
-		if attackerId ~= nil then
-			p:SetAttribute(ATTACKER_ATTR, attackerId)
-		end
 		p.Parent = parentFolder
 		DebrisService.register(p, gen)
 		p.AssemblyLinearVelocity = velocity + Vector3.new(
@@ -635,94 +622,6 @@ local function scan()
 		end
 	end
 end
--- ============================================================================
--- Crush (etap 3): duży, szybki gruz rani graczy. Kill credit "crushed".
--- ============================================================================
-
-local function crushCheck()
-	if not IMP.CrushEnabled then return end
-
-	-- Groźne kawałki tego ticku: szybkie i wystarczająco duże. Zwykle to krótka lista
-	-- (tuż po wybuchu), więc pętla gracze × kawałki jest tania.
-	local dangerous: { BasePart } = {}
-	for part, entry in pairs(registry) do
-		if entry.asleep or not part.Parent then continue end
-		if part.AssemblyLinearVelocity.Magnitude < IMP.CrushSpeed then continue end
-		local s = part.Size
-		if s.X * s.Y * s.Z < IMP.CrushMinVolume then continue end
-		table.insert(dangerous, part)
-	end
-	if #dangerous == 0 then return end
-
-	local now = os.clock()
-	for _, player in ipairs(Players:GetPlayers()) do
-		if not PlayerService.isAlive(player) then continue end
-		if now - (lastCrushAt[player] or 0) < IMP.CrushCooldown then continue end
-		local char = player.Character
-		if not char then continue end
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		local hrp = char:FindFirstChild("HumanoidRootPart")
-		if not hum or hum.Health <= 0 or not hrp or not hrp:IsA("BasePart") then continue end
-
-		for _, part in ipairs(dangerous) do
-			if not part.Parent then continue end
-			-- Kontakt: dystans od POWIERZCHNI kawałka (nie środka — wielka płyta ma
-			-- środek daleko od krawędzi która właśnie miażdży).
-			local localPos = part.CFrame:PointToObjectSpace(hrp.Position)
-			if Fracture.boxSurfaceDistance(Vector3.zero, part.Size, localPos) > IMP.CrushContact then
-				continue
-			end
-			-- Kawałek musi lecieć W gracza (spadający na głowę = velocity w dół, gracz
-			-- pod spodem — dot dodatni). Odlatujący od gracza nie miażdży.
-			local velocity = part.AssemblyLinearVelocity
-			if velocity:Dot(hrp.Position - part.Position) <= 0 then continue end
-
-			local s = part.Size
-			local volumeT = math.clamp((s.X * s.Y * s.Z) / IMP.CrushVolumeForMax, 0, 1)
-			local speedT = math.clamp(velocity.Magnitude / IMP.CrushSpeedForMax, 0, 1)
-			local dmg = math.max(IMP.CrushMinDamage, IMP.CrushMaxDamage * volumeT * speedT)
-
-			local attackerId = part:GetAttribute(ATTACKER_ATTR)
-			DebrisService.applyCrush(player, dmg, if typeof(attackerId) == "number" then attackerId else nil, IMP.CrushMaxDamage)
-
-			if Config.Destruction.Debug then
-				print(("[Debris] crush %s dmg=%.0f vol=%.0f speed=%.0f"):format(
-					player.Name, dmg, s.X * s.Y * s.Z, velocity.Magnitude))
-			end
-			break -- jeden zgniot na tick na gracza (cooldown i tak blokuje)
-		end
-	end
-end
-
--- Jedno miejsce, które zadaje obrażenia od przygniecenia — gruz v3 i spadające grupy
--- kolapsu v4 (CollapseService) idą tą samą ścieżką: kill credit, grace anti-cheata,
--- feedback, wspólny cooldown gracza. Zwraca false, gdy gracz jest w cooldownie.
-function DebrisService.applyCrush(player: Player, dmg: number, attackerId: number?, maxDamage: number): boolean
-	local now = os.clock()
-	if now - (lastCrushAt[player] or 0) < IMP.CrushCooldown then
-		return false
-	end
-	local char = player.Character
-	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if not hum or hum.Health <= 0 then
-		return false
-	end
-	-- Kill credit dla sprawcy (chyba że to własny gruz — samozgniecenie bez creditu,
-	-- ale damage zostaje: fizyka nie wybacza).
-	if attackerId and attackerId ~= player.UserId then
-		local attacker = Players:GetPlayerByUserId(attackerId)
-		if attacker then
-			KillService.tag(hum, attacker, "crush")
-		end
-	end
-	-- Gracz zaraz poleci od uderzenia — bez grace anti-cheat uznałby go za hackera.
-	AntiCheatService.grantGrace(player)
-	hum:TakeDamage(dmg)
-	lastCrushAt[player] = now
-	-- Feedback trafionego: reuse BombHit (shake + FOV punch), skala z siły zgniotu.
-	Remotes.BombHit:FireClient(player, math.clamp(dmg / maxDamage, 0.25, 1) * 0.8)
-	return true
-end
 
 -- ============================================================================
 -- Cleanup + init
@@ -741,10 +640,6 @@ local function clearAll()
 	persistentCount = 0
 end
 
-local function onPlayerRemoving(player: Player)
-	lastCrushAt[player] = nil
-end
-
 function DebrisService.init()
 	if initialized then return end
 	initialized = true
@@ -753,23 +648,15 @@ function DebrisService.init()
 	DebrisService.getFolder()
 
 	local scanInterval = 1 / math.max(DBR.SleepCheckHz, 1)
-	local crushInterval = 1 / math.max(IMP.CrushCheckHz, 1)
 	local scanAcc = 0
-	local crushAcc = 0
 	RunService.Heartbeat:Connect(function(dt: number)
 		scanAcc += dt
 		if scanAcc >= scanInterval then
 			scanAcc = 0
 			scan()
 		end
-		crushAcc += dt
-		if crushAcc >= crushInterval then
-			crushAcc = 0
-			crushCheck()
-		end
 	end)
 
-	Players.PlayerRemoving:Connect(onPlayerRemoving)
 	GameLoopService.RoundEnded:Connect(clearAll)
 end
 

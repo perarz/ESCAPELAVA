@@ -80,6 +80,33 @@ Config.Game = {
 	SpawnWaitMax = 5,
 }
 
+-- Zapis danych gracza (PlayerDataService). Liczby przeniesione z serwisu 29.09 (zasada 5).
+Config.PlayerData = {
+	AutoSaveInterval = 60,   -- s między auto-zapisami jednego gracza
+	InitialBackoff = 0.5,    -- s przed 2. próbą, potem ×2
+	SaveRetries = 3,
+	-- Wczytanie próbuje DŁUŻEJ niż zapis (decyzja Kacpra 29.09): gracz i tak czeka za ekranem
+	-- ładowania, a gdy wszystkie próby zawiodą, wyrzucamy go z komunikatem — nigdy nie gra
+	-- na domyślnych danych, które nadpisałyby jego wygląd i itemy. 6 prób = czekanie ~15 s.
+	LoadRetries = 6,
+	-- Nieudany auto-zapis wraca po tylu sekundach, nie w następnym obrocie pętli (co 5 s).
+	-- Przy awarii DataStore i 50 graczach ponawianie co 5 s samo przekraczało limit zapytań.
+	SaveFailRetryDelay = 30,
+	-- Session lock przy wczytaniu (opis przy loadPlayer).
+	LockStaleSec = 90,
+	LockWaitAttempts = 3,
+	LockWaitDelay = 2,
+	-- Pierwszy spawn czeka na dane (decyzja Kacpra 29.09: wygląd od razu z zapisu). Sufit
+	-- większy niż czekanie na lock + wszystkie próby wczytania, więc zwykle nie jest osiągany;
+	-- po nim gracz dostaje spawn z losowym wyglądem tylko na to jedno życie.
+	SpawnDataWaitMax = 30,
+	-- BindToClose czeka na WSZYSTKIE zapisy w toku; Roblox daje ~30 s, 5 s zapasu.
+	CloseWaitMax = 25,
+	-- Studio zapisuje do osobnego magazynu (decyzja Kacpra 29.09) — testy nie zmieniają kont graczy.
+	StudioStoreSuffix = "_Studio",
+	LoadFailKickMessage = "Nie udało się wczytać Twoich danych (problem po stronie Roblox). Wejdź ponownie — Twój postęp jest bezpieczny.",
+}
+
 Config.Lava = {
 	-- WŁĄCZONA z powrotem 2026-09-21 na prośbę Kacpra — oprawa lawy (embery, dym, bąble,
 	-- para, światła, poświata) zapala się dopiero, gdy tafla wyjdzie z kanału ponad ulicę
@@ -800,6 +827,11 @@ Config.Grapple = {
 }
 
 Config.RateLimits = {
+	-- Serwer przepuszcza akcję już od tego ułamka cooldownu (decyzja Kacpra 29.09, B-5). Klient
+	-- wysyła najwcześniej po PEŁNYM cooldownie (pasek), ale serwer mierzy czas ODBIORU — jitter
+	-- sieci skracał odstęp i legalny rzut / most / hak / push ginął po cichu. Spam i tak ucina
+	-- limit, tylko o 15% luźniejszy. Dotyczy wszystkich limitów akcji niżej (nie BuyItemPerSecond).
+	ServerTolerance = 0.85,
 	BombThrow = 0.5,
 	Push = 4,
 	BridgeBuild = 0.5,
@@ -807,6 +839,10 @@ Config.RateLimits = {
 	-- EquipItem+UnequipItem: klik hotbar slot. Spam clickowanie = flickering Tool
 	-- w rękach innych klientów + bandwidth. 0.15s = ~7 kliknięć/s max, ludzki reflex OK.
 	EquipItem = 0.15,
+	-- Zakupy w sklepie: SUFIT na spam remote'a, nie cooldown (przegląd 29.09). Człowiek nie
+	-- kliknie KUP 10 razy na sekundę; limit 0,5 s między zakupami usunięto wcześniej, bo
+	-- blokował zwykłe klikanie — nie wracać do niego.
+	BuyItemPerSecond = 10,
 	-- Zmiana trybu grafiki w ustawieniach. Zapis idzie tylko do pamięci serwera (DataStore
 	-- dostaje go przy auto-save / wyjściu), więc limit chroni wyłącznie przed spamem
 	-- remote'a. Kliknięcie w trakcie limitu NIE przepada — serwer zapisze ostatni wybór
@@ -1279,19 +1315,8 @@ Config.Destruction = {
 		SpreadSpeed = 6,          -- stud/s losowego rozrzutu odłamków
 		DustMinVolume = 25,       -- pył uderzenia tylko dla większych kawałków
 		MaxImpactsPerTick = 6,    -- cap pęknięć per tick skanu (spike safety)
-
-		-- CRUSH: duży, szybki kawałek gruzu rani gracza (kill credit "crushed" dla tego,
-		-- kto go wystrzelił — attribute BlastAttackerId). Decyzja Kacpra z planu: TAK.
-		CrushEnabled = true,
-		CrushCheckHz = 10,
-		CrushSpeed = 24,          -- stud/s minimum żeby kawałek był groźny
-		CrushMinVolume = 8,       -- studs³ minimum (kamyczki nie zabijają)
-		CrushContact = 2.5,       -- stud od POWIERZCHNI kawałka do HRP = kontakt
-		CrushMaxDamage = 70,      -- dmg przy pełnej objętości i prędkości
-		CrushMinDamage = 12,      -- floor — trafienie gruzem zawsze boli
-		CrushVolumeForMax = 60,   -- studs³ przy których skala objętości = 1.0
-		CrushSpeedForMax = 70,    -- stud/s przy których skala prędkości = 1.0
-		CrushCooldown = 0.7,      -- s niewrażliwości gracza między trafieniami gruzem
+		-- Przygniecenia gruzem NIE MA (decyzja Kacpra 29.09: „usuwamy obrażenia od spadającego
+		-- gruzu”) — ranią bomba, wybuch auta, lawa i upadek. Nie wracać bez decyzji Kacpra.
 	},
 
 	-- STRONA KLIENCKA (ExplosionFXController + DebrisFXController). Wszystko lokalne,
@@ -1400,6 +1425,9 @@ Config.Destruction = {
 		CollapseShakeMax = 0,
 		CollapseShakeDuration = 1.2,
 		CollapseShakeDistance = 160,
+		-- Obłoki pyłu kolapsu na sekundę u jednego klienta (29.09, B-6): budynek to kilkadziesiąt
+		-- grup w kilku klatkach — przy kaskadzie obłoki i tak zlewają się w jeden.
+		CollapseDustPerSecond = 6,
 		-- Ostrzeżenie (creak) — wyłączone razem z kolapsem (ta sama decyzja).
 		CreakShakeMax = 0,
 		CreakShakeDuration = 0.9,
@@ -1618,6 +1646,15 @@ Config.Structure = {
 		JamMinMove = 1,
 		JamMinAngle = 0.05,    -- rad (~3°) — ściana przewracająca się na zawiasie też „rusza”
 		JamProbe = 0.3,        -- stud pod spodem grupy: szukanie tego, co ją trzyma (do logu)
+		JamBelowOverlap = 0.3, -- stud zakładki w poziomie, żeby styk liczył się jako „pod spodem”/„nad”
+		JamLogMax = 8,         -- styków w logu zaklinowania (najpierw POD); reszta jako „(+N)”
+		-- Styk przy STARCIE grupy (28.09): party bliżej niż tyle „dotykają się”. Filtr dostaje dotyk
+		-- ze stojącą częścią budynku v4 (z każdej strony) i z inną spadającą grupą (z boku) —
+		-- log 28.09: najczęstszym „trzymaczem” był styk ściana w ścianę (BOK 0.00) z resztą parta.
+		ReleaseContactPad = 0.05,
+		-- Grupa, która opadła o co najmniej tyle i leży na STOJĄCEJ konstrukcji v4, wylądowała
+		-- (osiada). Mniej = trzymało ją to od startu (styk bez filtra) — to przypadek dla siatki.
+		LandMinDrop = 0.1,
 		-- Kikut przeciętego elementu dotykający grupy bliżej niż tyle leci razem z nią
 		-- (decyzja Kacpra 25.09). Mniejsze niż ContactPadding bake'u (0,15) gubiłoby styki,
 		-- które solver widział; dużo większe łapałoby kikuty tylko stojące obok.
@@ -1646,13 +1683,18 @@ Config.Structure = {
 		-- skruszone kawałki (upadek grup ponad budżetem leci bez wyrzutu).
 		HandoffRadius = 24,
 		HandoffImpulse = 50,
-		-- Przygniecenie spadającą grupą (ta sama ścieżka co gruz v3: DebrisService.applyCrush).
-		CrushSpeed = 18,
-		CrushContact = 2.5,
-		CrushVolumeForMax = 400,
-		CrushSpeedForMax = 50,
-		CrushMinDamage = 20,
-		CrushMaxDamage = 100,
+		-- Osiadła bryła BEZ OPARCIA (M-1, decyzja Kacpra 29.09: spada fizyką). Sprawdzamy ją od
+		-- razu, gdy coś pod nią zniknie (start grupy, wybuch, zniknięcie bryły), a poza tym po
+		-- kolei w tle: najwyżej tyle brył na przebieg monitora, każdą nie częściej niż co tyle s.
+		RubbleRecheckPerTick = 4,
+		RubbleRecheckInterval = 2,
+		RubbleRecheckPad = 1,     -- stud: zasięg „coś pod nią zniknęło” wokół zdarzenia
+		-- Budzona bryła (bombą albo bez oparcia) nie może zostać WYSTRZELONA przez silnik, który
+		-- wypycha ją z nachodzącej geometrii (M-4): przez WakeClampTime prędkość w bok i w górę
+		-- jest przycinana do zamierzonej + zapas; w dół bez limitu (spadanie to grawitacja).
+		WakeClampTime = 0.5,
+		WakeSpeedMargin = 6,      -- stud/s ponad prędkość nadaną wybuchem
+		WakeSpinMargin = 1,       -- rad/s ponad obrót nadany wybuchem
 		MinPieceSize = 0.05, -- kawałek cieńszy niż tyle przy podziale = błąd zaokrąglenia, pomijamy
 		Debug = true,        -- log [Collapse] — wyłączyć przed launchem
 	},
@@ -1730,6 +1772,7 @@ Config.Graphics = {
 table.freeze(Config.Dev.Usernames)
 table.freeze(Config.Dev)
 table.freeze(Config.Game)
+table.freeze(Config.PlayerData)
 table.freeze(Config.UI)
 -- Spawn ma Vector3 fields — freeze tylko po:
 table.freeze(Config.Spawn)

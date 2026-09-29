@@ -128,8 +128,8 @@ ItemDefinitions.shopOrder = { "bomb", "bridge_builder", "grapple" }
 -- innego niż to, co powstanie — czyli most budowany obok krawędzi, na którą celował gracz.
 -- Zwraca (szerokość X, grubość Y, długość Z).
 function ItemDefinitions.worldSize(itemId: string): Vector3?
-	local def = ItemDefinitions[itemId]
-	if type(def) ~= "table" then return nil end
+	local def = ItemDefinitions.get(itemId)
+	if not def then return nil end
 	if def.worldModel then
 		local size = Utils.assetSize(def.worldModel)
 		if size then return size end
@@ -140,12 +140,20 @@ function ItemDefinitions.worldSize(itemId: string): Vector3?
 	return nil
 end
 
+-- Tylko prawdziwa definicja itemu. W tej samej tabeli leżą też `shopOrder`, `worldSize`,
+-- `get` i `exists`, więc gołe `ItemDefinitions[itemId]` dla `"shopOrder"` zwracało listę,
+-- a klient wysyłający `BuyItem("shopOrder")` wywracał handler sklepu na `def.price`
+-- (przegląd 29.09, A-10/B-7). Definicja ma zawsze `id` równe swojemu kluczowi.
 function ItemDefinitions.get(itemId: string)
-	return ItemDefinitions[itemId]
+	local def = ItemDefinitions[itemId]
+	if type(def) == "table" and def.id == itemId then
+		return def
+	end
+	return nil
 end
 
 function ItemDefinitions.exists(itemId: string): boolean
-	return ItemDefinitions[itemId] ~= nil
+	return ItemDefinitions.get(itemId) ~= nil
 end
 
 return ItemDefinitions

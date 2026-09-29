@@ -1,7 +1,8 @@
 --!strict
 -- HotbarController.luau
 -- Renderuje hotbar (5 slotów) z inventory replicated przez InventoryChanged.
--- Klient klika slot → select. Klik LMB w world (InputController) → użycie selectedSlot.
+-- Klient klika slot (albo klawisz 1-5) → EquipItem / UnequipItem; użycie trzymanego itemu
+-- obsługują kontrolery itemów (ToolController, BridgeController, GrappleController).
 --
 -- KONTRAKT NAZW w StarterGui (postawione przez MCP):
 --   StarterGui.HUD.Hotbar (Frame, horizontal layout)
@@ -11,8 +12,11 @@
 --     │   ├── ItemName (TextLabel) — placeholder dla ikony, np. "Bomb"
 --     │   └── SelectStroke (UIStroke) — Thickness=0 default, 3 gdy slot selected
 --
--- Public API:
---   HotbarController.getSelected() -> slotIndex: number?  (do InputController)
+-- ZAZNACZENIE = item, którego Tool (atrybut `ItemId`, stawia go serwer) jest TERAZ w postaci
+-- (przegląd 29.09, B-3). Do 29.09 hotbar pamiętał numer slotu: po śmierci / końcu rundy serwer
+-- zabierał Tool, a slot dalej wyglądał na zaznaczony — pierwszy klik „odznaczał” i dopiero
+-- drugi wyposażał; po skończeniu się pierwszego itemu zaznaczenie przeskakiwało na następny.
+-- Stan z postaci nie może się rozjechać z tym, co gracz trzyma w ręce.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -31,7 +35,7 @@ local localPlayer = Players.LocalPlayer
 local inventory: { [string]: number } = {}
 -- Mapping fizycznego slotu (1-5) → itemId (lub nil)
 local slotToItem: { [number]: string? } = {}
-local selectedSlot: number? = nil
+local equippedItem: string? = nil -- odczyt z postaci (patrz nagłówek), nie pamięć kliknięć
 local slotButtons: { [number]: TextButton } = {}
 -- Debounce EquipItem/UnequipItem (mirror Config.RateLimits.EquipItem — server enforces).
 local lastEquipAt = 0
@@ -74,7 +78,7 @@ local function refreshSlot(slot: number)
 
 	if stroke and stroke:IsA("UIStroke") then
 		-- Biały stroke = "to trzymasz w ręku". Animowany thickness zamiast skoku 0→3.
-		local selected = (selectedSlot == slot)
+		local selected = itemId ~= nil and itemId == equippedItem
 		stroke.Color = Color3.fromRGB(255, 255, 255)
 		stroke.Transparency = 0
 		TweenService:Create(stroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -107,51 +111,55 @@ local function refreshAll()
 	end
 end
 
-local function setSelected(slot: number?)
-	-- Klik na PUSTY slot = no-op. Bez tego UI zaznaczało pusty slot (stroke), a serwer
-	-- dalej trzymał poprzedni Tool w ręku — desync między tym co widać a tym co jest.
-	if slot ~= nil and slot ~= selectedSlot and not slotToItem[slot] then return end
+local function setSelected(slot: number)
+	-- Klik na PUSTY slot = no-op (serwer i tak trzyma poprzedni Tool w ręce).
+	local itemId = slotToItem[slot]
+	if not itemId then return end
 
 	local now = os.clock()
 	if now - lastEquipAt < Config.RateLimits.EquipItem then return end
 	lastEquipAt = now
 
-	if slot == selectedSlot then
-		-- Klik na ten sam slot = deselect (schowaj Tool)
-		selectedSlot = nil
+	if itemId == equippedItem then
+		-- Klik na to, co trzymasz = schowaj. Obramowanie zniknie, gdy serwer zabierze Tool.
 		Remotes.UnequipItem:FireServer()
 	else
-		selectedSlot = slot
-		-- Equip item z mappingu — fires EquipItem(itemId)
-		local itemId = slot and slotToItem[slot]
-		if itemId then
-			Remotes.EquipItem:FireServer(itemId)
-			popSlot(slot :: number)
+		Remotes.EquipItem:FireServer(itemId)
+		popSlot(slot)
+	end
+end
+
+-- Co gracz trzyma w ręce: Tool z atrybutem ItemId w postaci (bez niego — nic).
+local function readEquipped(char: Model?): string?
+	if not char then return nil end
+	for _, child in ipairs(char:GetChildren()) do
+		if child:IsA("Tool") then
+			local id = child:GetAttribute("ItemId")
+			if typeof(id) == "string" then
+				return id
+			end
 		end
 	end
-	refreshAll()
+	return nil
 end
 
-function HotbarController.getSelected(): number?
-	return selectedSlot
-end
-
-function HotbarController.getInventoryEntry(slot: number)
-	local itemId = slotToItem[slot]
-	if not itemId then return nil end
-	return { itemId = itemId, count = inventory[itemId] or 0 }
-end
-
-function HotbarController.getSelectedItemId(): string?
-	if not selectedSlot then return nil end
-	return slotToItem[selectedSlot]
-end
-
-local function ensureSelectionValid()
-	if selectedSlot and not slotToItem[selectedSlot] then
-		selectedSlot = nil
+local function syncEquipped()
+	local id = readEquipped(localPlayer.Character)
+	if id ~= equippedItem then
+		equippedItem = id
 		refreshAll()
 	end
+end
+
+local function hookCharacter(char: Model)
+	-- Nowa postać (śmierć, start rundy) nie ma Toola — zaznaczenie znika samo.
+	syncEquipped()
+	char.ChildAdded:Connect(function(child)
+		if child:IsA("Tool") then syncEquipped() end
+	end)
+	char.ChildRemoved:Connect(function(child)
+		if child:IsA("Tool") then syncEquipped() end
+	end)
 end
 
 function HotbarController.init()
@@ -159,8 +167,11 @@ function HotbarController.init()
 	Remotes.InventoryChanged.OnClientEvent:Connect(function(newInventory)
 		inventory = newInventory or {}
 		refreshAll()
-		ensureSelectionValid()
 	end)
+	localPlayer.CharacterAdded:Connect(hookCharacter)
+	if localPlayer.Character then
+		hookCharacter(localPlayer.Character)
+	end
 
 	local playerGui = localPlayer:WaitForChild("PlayerGui")
 	local hud = playerGui:WaitForChild("HUD", 10)

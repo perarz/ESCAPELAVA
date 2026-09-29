@@ -70,9 +70,13 @@ end
 
 -- Omija postacie (gruz przenika graczy) i sam gruz. Lawa ma CanQuery = false, więc promień
 -- przez nią przechodzi — gruz tonie pod taflą i ląduje na tym, co pod nią.
+-- RespectCanCollide: gruz leży tylko na tym, na czym stanąłby gracz — bez tego lądował na
+-- niewidzialnych/niekolidujących partach mapy i wisiał w powietrzu (przegląd 29.09, B-18).
+-- Ta sama reguła co podparcie gruzu serwera (DebrisService.hasGroundSupport).
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 rayParams.IgnoreWater = true
+rayParams.RespectCanCollide = true
 local rayFilterAt = -math.huge
 
 local function refreshRayFilter(now: number)
@@ -1151,9 +1155,13 @@ local function onDebrisFall(fall: any)
 					budget -= spawnFall(inst, launch, center, radius, impulse, rng, profile, budget)
 				end
 			end
-			-- Oryginał chowamy ZAWSZE — także ponad budżetem i daleko: serwer i tak go
-			-- zaraz skasuje, a widoczny oryginał obok spadającej kopii to podwójny mebel.
-			hideLocally(inst)
+			-- Oryginał chowamy w zasięgu rysowania — także ponad budżetem: serwer i tak go zaraz
+			-- skasuje, a widoczny oryginał obok spadającej kopii to podwójny mebel. DALEKO nie:
+			-- kopii tam nie ma, a przejście po wszystkich partach do 300 instancji z dalekiego
+			-- wybuchu w jednej klatce przycinało telefon (przegląd 29.09, B-19).
+			if near then
+				hideLocally(inst)
+			end
 		end
 	end
 
@@ -1169,7 +1177,9 @@ local function onDebrisFall(fall: any)
 			if near and budget > 0 and countParts(inst) <= budget then
 				budget -= spawnShatter(inst, center, radius, impulse, rng, profile)
 			end
-			hideLocally(inst)
+			if near then
+				hideLocally(inst) -- daleko nie (B-19, opis wyżej)
+			end
 		end
 	end
 	-- Rekwizyty, które zniknęły (wieszaki i drobne): obłok pyłu, bez kopii.

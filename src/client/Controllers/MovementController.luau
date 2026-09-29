@@ -13,8 +13,9 @@
 -- przez Roblox Humanoid auto-replication. WalkSpeed cap enforced przez AntiCheatService (server).
 --
 -- ===== RAGDOLL SAFETY =====
--- Toolbox ARTFVL ustawia Humanoid.PlatformStand=true podczas ragdoll'u (bomba/push).
--- - WalkSpeed nie działa przy PlatformStand=true (humanoid leży, fizyka kości decyduje).
+-- Czy postać leży jako ragdoll — `RagdollState` (29.09: toolbox ARTFVL zwiotcza przez
+-- ChangeState(Physics), nie przez PlatformStand, więc sam PlatformStand go nie łapał).
+-- - WalkSpeed nie działa w ragdollu (humanoid leży, fizyka kości decyduje).
 -- - NIE drainujemy staminy podczas ragdoll (gracz nie biegnie świadomie, byłoby unfair).
 -- - REGENUJEMY staminę podczas ragdoll (gracz "odzyskuje siłę leżąc", logiczne).
 -- - Force-stop sprint przy ragdoll → po un-ragdoll player musi wcisnąć Shift ponownie
@@ -29,6 +30,7 @@ local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local RagdollState = require(script.Parent.RagdollState)
 
 local MovementController = {}
 
@@ -131,8 +133,8 @@ local activeSprintNow: boolean = false
 -- ====================================================================
 
 local function isRagdolled(): boolean
-	-- Toolbox ARTFVL: PlatformStand=true gdy gracz ragdoll'owany. WalkSpeed nie działa.
-	return currentHumanoid ~= nil and currentHumanoid.PlatformStand == true
+	local hum = currentHumanoid
+	return hum ~= nil and RagdollState.isRagdolled(hum)
 end
 
 local function isAlive(): boolean
@@ -363,6 +365,10 @@ local function setupStaminaBar()
 	barAlpha = 0
 	barShown = false
 	bar.Enabled = false -- update loop włączy przy sprincie/regeneracji
+	-- Klon tworzymy RAZ na sesję, a referencję trzymamy do końca — przy domyślnym
+	-- ResetOnSpawn = true pierwszy respawn kasowałby go z PlayerGui i pasek znikałby na
+	-- zawsze (zasada 10 dotyczy każdego GUI klonowanego do PlayerGui, nie tylko HUD).
+	bar.ResetOnSpawn = false
 	bar.Parent = pg
 	staminaBar = bar
 	staminaFill = fill :: GuiObject
@@ -666,12 +672,11 @@ local function ensureJointCache(player: Player): JointCache?
 end
 
 local function isCharacterRagdolled(character: Model): boolean
-	-- Per CLAUDE.md zasada 11: toolbox ARTFVL ragdoll = PlatformStand=true.
 	-- W trakcie ragdoll'u NIE obracamy stawów (BallSocketConstraints driveją fizykę,
 	-- nasze write'y by się fightowały z constraint physics → dziwne wykrzywienia).
 	local hum = character:FindFirstChildOfClass("Humanoid")
 	if not hum then return false end
-	return hum.PlatformStand == true or hum.Health <= 0
+	return hum.Health <= 0 or RagdollState.isRagdolled(hum)
 end
 
 -- ⚠️ OBRÓT IDZIE PRZEZ `C0`, NIE PRZEZ `Transform` (2026-09-23). Pierwsza wersja mnożyła

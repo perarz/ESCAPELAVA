@@ -14,7 +14,12 @@
 --     Ponad budżet grupa nie znika z gry: jej kolizja i tak odchodzi (wynik strukturalny
 --     zawsze się dzieje), tylko upadek animują klienci.
 --   * po zatrzymaniu KOTWICZY grupę (platforma, decyzja Kacpra: duże zostają do końca rundy,
---     małe znikają po kilku sekundach), sprząta zatopione w lawie, zadaje przygniecenie.
+--     małe znikają po kilku sekundach), sprząta zatopione w lawie.
+--   * pilnuje, żeby osiadła bryła miała na czym leżeć (29.09, M-1): gdy spod niej zniknie
+--     oparcie (niższe piętro ruszyło, wybuch, zniknęła bryła pod spodem), budzi ją — spada
+--     fizyką (decyzja Kacpra 29.09). Bez tego rumowisko wisiało w powietrzu do końca rundy.
+--   * NIE zadaje obrażeń: przygniecenie usunięte (decyzja Kacpra 29.09 — „usuwamy obrażenia
+--     od spadającego gruzu”). Jadący na walącym się piętrze dostaje zwykły fall damage.
 --
 -- DLACZEGO filtr kolizji na starcie: w OrangeBuilding 158 par partów konstrukcji na siebie
 -- nachodzi (słupy przez stropy, stropy w belki). Odkotwiczony kawałek nachodzący na stojący
@@ -22,8 +27,8 @@
 -- nachodzą w chwili startu, dostają NoCollisionConstraint; z resztą świata grupa zderza się
 -- normalnie (ląduje na piętrze niżej, gracz na niej stoi).
 --
--- ZALEŻNOŚCI: StructuralService (stan i kawałki), DebrisService (przygniecenie; od 28.09 już
--- nie fragmenty kruszenia — te są tu, jako jednoelementowe grupy),
+-- ZALEŻNOŚCI: StructuralService (stan i kawałki), DebrisService (rozpoznanie uśpionego gruzu
+-- jako podłoża; od 28.09 już nie fragmenty kruszenia — te są tu, jako jednoelementowe grupy),
 -- LavaService (powierzchnia). Przekazanie klientom (DestructionService) wstrzykiwane w init —
 -- DestructionService woła ten serwis (rubble), więc bezpośredni require byłby cyklem.
 
@@ -38,7 +43,6 @@ local Fracture = require(ReplicatedStorage.Shared.Modules.Fracture)
 local Shockwave = require(ReplicatedStorage.Shared.Modules.Shockwave)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 local GameLoopService = require(script.Parent.GameLoopService)
-local PlayerService = require(script.Parent.PlayerService)
 local LavaService = require(script.Parent.LavaService)
 local DebrisService = require(script.Parent.DebrisService)
 local StructuralService = require(script.Parent.StructuralService)
@@ -51,7 +55,6 @@ local CollapseService = {}
 
 local CFG = Config.Structure.Collapse
 local DBR = Config.Destruction.Debris
-local ATTACKER_ATTR = "BlastAttackerId" -- ten sam atrybut, z którego DebrisService bierze kill credit
 
 type Rec = StructuralService.Rec
 type Cause = StructuralService.Cause
@@ -79,6 +82,20 @@ type Active = {
 	stillSince: number?,
 	retireAt: number?,
 	fragment: boolean?, -- fragment kruszenia (28.09): jedna bryła bez chunków, wylatuje od wybuchu
+	unstuck: boolean?, -- siatka zaklinowania: stopień 1 (odblokowanie) już był (28.09)
+	-- Osiadła: czy ma na czym leżeć (29.09, M-1)
+	restMin: Vector3?, -- pudełko, w którym leży (flagowanie po zdarzeniach w okolicy)
+	restMax: Vector3?,
+	supportCheckedAt: number?,
+	recheck: boolean?, -- coś pod nią mogło zniknąć — sprawdzić w najbliższym przebiegu
+	held: boolean?, -- budzona bez impulsu nie ruszyła się: trzyma ją fizyka, nie sprawdzać w tle
+	recheckWakeCF: CFrame?, -- korzeń przy budzeniu „bez oparcia” (czy potem się ruszyła)
+	unsupportedSince: number?, -- bez oparcia, ale bez miejsca w budżecie — od kiedy czeka
+	-- Budzona: limit prędkości w bok/w górę, żeby silnik jej nie wystrzelił (29.09, M-4)
+	clampUntil: number?,
+	clampH: number?,
+	clampUp: number?,
+	clampSpin: number?,
 }
 
 export type Injected = {
@@ -92,6 +109,9 @@ local deps: Injected? = nil
 local queue: { Active } = {}
 local flying: { Active } = {}
 local settledTemp: { Active } = {}
+-- WSZYSTKIE osiadłe grupy (małe są też w settledTemp) — sprawdzanie oparcia (M-1).
+local settledAll: { Active } = {}
+local recheckCursor = 0
 local used = 0
 local lastMonitor = 0
 local rng = Random.new()
@@ -116,11 +136,179 @@ local function isCharacterPart(part: BasePart): boolean
 	return model ~= nil and model:FindFirstChildOfClass("Humanoid") ~= nil
 end
 
+local function ownSet(a: Active): { [BasePart]: boolean }
+	local own: { [BasePart]: boolean } = {}
+	for _, p in ipairs(a.pieces) do
+		own[p] = true
+	end
+	for _, f in ipairs(a.followers) do
+		own[f] = true
+	end
+	return own
+end
+
+-- Pudełko świata wszystkich żywych kawałków grupy (dla osiadłej: gdzie DZIŚ leży).
+local function groupBox(a: Active): (Vector3, Vector3)
+	local mn, mx = Vector3.one * math.huge, -Vector3.one * math.huge
+	for _, list in ipairs({ a.pieces, a.followers }) do
+		for _, p in ipairs(list) do
+			if p.Parent then
+				local b = Pieces.boxOf(p)
+				mn, mx = mn:Min(b.min), mx:Max(b.max)
+			end
+		end
+	end
+	return mn, mx
+end
+
+local function unlistSettled(a: Active)
+	local i = table.find(settledAll, a)
+	if i then
+		table.remove(settledAll, i)
+	end
+	i = table.find(settledTemp, a)
+	if i then
+		table.remove(settledTemp, i)
+	end
+end
+
+-- W tym miejscu mogło zniknąć coś, na czym leżą osiadłe bryły (grupa ruszyła, wybuch, bryła
+-- znikła) — te, których pudełko sięga regionu, sprawdzi najbliższy przebieg monitora (M-1).
+-- Flaga, nie sprawdzenie od razu: resztki po cięciu wchodzą do broadphase dopiero w następnej
+-- klatce (to samo, na co czeka podparcie „po” w DestructionService).
+local function flagRubbleNear(mn: Vector3, mx: Vector3)
+	local pad = Vector3.one * CFG.RubbleRecheckPad
+	local lo, hi = mn - pad, mx + pad
+	for _, a in ipairs(settledAll) do
+		local rmn, rmx = a.restMin, a.restMax
+		if rmn and rmx and rmn.X <= hi.X and rmx.X >= lo.X and rmn.Y <= hi.Y and rmx.Y >= lo.Y
+			and rmn.Z <= hi.Z and rmx.Z >= lo.Z
+		then
+			a.recheck = true
+			a.held = nil
+		end
+	end
+end
+
+-- `hb` leży POD `b`: górą co najwyżej JamProbe nad spodem `b`, z zakładką w poziomie
+-- (`o` = nachodzenie pudełek). Jedna definicja dla lądowania, logu, odblokowania i łańcucha.
+local function isBelow(b: Box, hb: Box, o: Vector3): boolean
+	return hb.max.Y <= b.min.Y + CFG.JamProbe and o.X > CFG.JamBelowOverlap and o.Z > CFG.JamBelowOverlap
+end
+
+-- Chunk parta budynku w miejscu styku (pudełko chunka z luzem pół studa) albo nil. Na granicy
+-- chunków luz łapie oba — a dokładnie tam `takePieces` tnie party, więc styk kawałka grupy
+-- z resztą tego samego parta ZAWSZE leży na granicy. Rozstrzyga chunk, w którym LEŻY trafiony
+-- kawałek (największa część wspólna jego pudełka), nie kolejność listy — ta dawała stojącej
+-- reszcie parta stan „Falling” spadającej grupy (przegląd 29.09, M-5).
+local function chunkAt(rec: Rec, index: number, contact: Vector3, hit: BasePart?): number?
+	local st = rec.state
+	local found: number? = nil
+	local candidates: { number }? = nil
+	for _, cid in ipairs(st.partChunks[index] or {}) do
+		local c = st.chunks[cid]
+		local lo, hi = c.min - Vector3.one * 0.5, c.max + Vector3.one * 0.5
+		if contact.X >= lo.X and contact.X <= hi.X and contact.Y >= lo.Y and contact.Y <= hi.Y and contact.Z >= lo.Z and contact.Z <= hi.Z then
+			if not found then
+				found = cid
+			else
+				local list = candidates or { found :: number }
+				table.insert(list, cid)
+				candidates = list
+			end
+		end
+	end
+	if not candidates or not hit then
+		return found
+	end
+	local hb = Pieces.boxOf(hit)
+	local best, bestVolume = found, -1
+	for _, cid in ipairs(candidates) do
+		local c = st.chunks[cid]
+		local inter = Pieces.intersect(hb, { min = c.min, max = c.max }, 0)
+		local v = if inter then Pieces.volume(inter) else 0
+		if v > bestVolume then
+			best, bestVolume = cid, v
+		end
+	end
+	return best
+end
+
+-- Kawałek grupy, która spada: w locie albo jeszcze w kolejce (chunk `Falling`, kawałek dalej
+-- zakotwiczony — ruszy, gdy przyjdzie jego kolej).
+local function isFallingPiece(hit: BasePart, contact: Vector3): boolean
+	if flyingOf[hit] then
+		return true
+	end
+	local rec, index, kind = StructuralService.ownerOf(hit)
+	if not rec or not index or kind ~= "structure" then
+		return false
+	end
+	local cid = chunkAt(rec, index, contact, hit)
+	return cid ~= nil and rec.state:stateOf(cid) == "Falling"
+end
+
+-- STOJĄCA część budynku v4 w miejscu styku: konstrukcja, która nie spada, albo listwa/ozdoba
+-- (te niczego nie niosą — zostają, póki czegoś dotykają).
+local function isStandingPiece(hit: BasePart, contact: Vector3): boolean
+	local rec, index, kind = StructuralService.ownerOf(hit)
+	if not rec or not index then
+		return false
+	end
+	if kind ~= "structure" then
+		return true
+	end
+	local cid = chunkAt(rec, index, contact, hit)
+	return cid == nil or rec.state:stateOf(cid) ~= "Falling"
+end
+
+-- Stojąca KONSTRUKCJA v4 (nie listwa, nie ozdoba) — na tym grupa może WYLĄDOWAĆ. Listwa niczego
+-- nie niesie: ta sama zasada, z której filtr przy starcie przepuszcza grupę przez listwy
+-- (28.09). Wcześniej `groundUnder` liczył listwę jako grunt i bryła, która opadła pół studa
+-- na parapet albo gzyms, osiadała na nim w powietrzu (przegląd 29.09, M-3).
+local function isStandingStructure(hit: BasePart, contact: Vector3): boolean
+	local rec, index, kind = StructuralService.ownerOf(hit)
+	if not rec or not index or kind ~= "structure" then
+		return false
+	end
+	local cid = chunkAt(rec, index, contact, hit)
+	return cid == nil or rec.state:stateOf(cid) ~= "Falling"
+end
+
+-- Spoiny kawałków z czymkolwiek SPOZA grupy — zabezpieczenie (stary system robi to samo przed
+-- odkotwiczeniem: „ozdoby bywają zweldowane w modele” — DestructionService.launchServer): grupa
+-- przyspawana do stojącej konstrukcji byłaby częścią zakotwiczonej bryły i nie ruszyłaby się
+-- ani o setną studa. Zmierzone 28.09: w 10 budynkach placu 0 spoin — to NIE była przyczyna
+-- zaklinowań z 28.09, ale wystarczy jedno „Join Surfaces” w Studio, żeby wróciła. Własne spawy
+-- grupy (root ↔ kawałki) łączą party z `own` — zostają.
+local function cutExternalJoints(parts: { BasePart }, own: { [BasePart]: boolean }): number
+	local cut = 0
+	for _, p in ipairs(parts) do
+		if not p.Parent then continue end
+		for _, j in ipairs(p:GetJoints()) do
+			local other: BasePart? = nil
+			if j:IsA("WeldConstraint") then
+				local w = j :: WeldConstraint
+				other = if w.Part0 == p then w.Part1 else w.Part0
+			elseif j:IsA("JointInstance") then
+				local w = j :: JointInstance
+				other = if w.Part0 == p then w.Part1 else w.Part0
+			else
+				continue -- NoCollisionConstraint i reszta constraintów nie łączą brył
+			end
+			if other == nil or not own[other] then
+				j:Destroy()
+				cut += 1
+			end
+		end
+	end
+	return cut
+end
+
 -- Czy para wymaga filtra: nachodzenie głębsze niż OverlapMinDepth (słup przez strop) ALBO
 -- JAKIEKOLWIEK nachodzenie w poziomie (styk z boku). Test 25.09: grupy ruszały o 0,4-0,6
 -- studa i stawały bez niczego pod spodem — sąsiad nachodzący z boku o setne studa daje
--- silnikowi siłę dociskającą, a z nią tarcie, które trzyma cały element. Oparcie od spodu
--- (najpłytsza oś pionowa) zostaje bez filtra — na tym grupy mają lądować.
+-- silnikowi siłę dociskającą, a z nią tarcie, które trzyma cały element.
 local function needsFilter(a: BasePart, b: BasePart): boolean
 	local ba, bb = Pieces.boxOf(a), Pieces.boxOf(b)
 	local o = ba.max:Min(bb.max) - ba.min:Max(bb.min)
@@ -131,16 +319,33 @@ local function needsFilter(a: BasePart, b: BasePart): boolean
 	return depth > CFG.OverlapMinDepth or o.Y > depth
 end
 
--- NoCollisionConstraint dla par: odkotwiczany kawałek ↔ cokolwiek, na co w chwili startu
--- nachodzi. Jedna funkcja dla grup kolapsu i fragmentów kruszenia — obie ścieżki startują
--- z tej samej konstrukcji pełnej nachodzących par (słupy przez stropy, belki w słupy).
-local function filterOverlaps(pieces: { BasePart }, own: { [BasePart]: boolean }, filters: { Instance })
+-- Filtry kolizji (NoCollisionConstraint) w chwili startu grupy. Poza nachodzeniem (wyżej)
+-- także DOTYK (do ReleaseContactPad) — log 28.09: 10 z 38 grup zaklinowanych, najczęściej
+-- o styk „BOK 0.00” ze stojącą belką albo stropem (kawałek odcięty po granicy chunka dotyka
+-- reszty parta całą ścianą, a obrót startowy wciska go w sąsiadów) i o listwy pod spodem:
+--   * stojąca część budynku v4 (konstrukcja, która nie spada, listwa, ozdoba) — z KAŻDEJ
+--     strony, także od spodu: solver właśnie orzekł, że grupy nie trzyma (za wąski styk,
+--     listwa niczego nie niesie), więc fizyka nie może jej na tym zatrzymać (decyzja Kacpra
+--     28.09: „spada od razu” — najwyżej na moment przenika przez sam róg belki);
+--   * inna spadająca grupa (w locie albo w kolejce) — tylko z BOKU. Od spodu i od góry
+--     zostaje: piętro jedzie na piętrze.
+-- Reszta świata (fundament, ulice, teren, osiadłe rumowisko, meble) zostaje — na tym grupy lądują.
+local function filterAtRelease(pieces: { BasePart }, own: { [BasePart]: boolean }, filters: { Instance })
 	local count = 0
+	local pad = Vector3.one * (CFG.ReleaseContactPad * 2)
 	for _, p in ipairs(pieces) do
-		for _, hit in ipairs(Workspace:GetPartBoundsInBox(p.CFrame, p.Size)) do
+		local b = Pieces.boxOf(p)
+		for _, hit in ipairs(Workspace:GetPartBoundsInBox(p.CFrame, p.Size + pad)) do
 			if count >= CFG.OverlapFilterMax then return end
 			if own[hit] or hit:IsA("Terrain") or not hit.CanCollide or isCharacterPart(hit) then continue end
-			if not needsFilter(p, hit) then continue end
+			local hb = Pieces.boxOf(hit)
+			local o = hb.max:Min(b.max) - hb.min:Max(b.min) -- ujemne = szczelina
+			local contact = (hb.min:Max(b.min) + hb.max:Min(b.max)) * 0.5
+			local lateral = math.min(o.X, o.Z) < o.Y -- najpłytsze nachodzenie w poziomie = styk z boku
+			local filter = needsFilter(p, hit)
+				or isStandingPiece(hit, contact)
+				or (lateral and isFallingPiece(hit, contact))
+			if not filter then continue end
 			local nc = Instance.new("NoCollisionConstraint")
 			nc.Part0 = p
 			nc.Part1 = hit
@@ -207,7 +412,6 @@ end
 -- końca rundy. Teraz to samo rumowisko co bryły pięter: wspólny budżet fizyki (bez miejsca —
 -- animacja u klientów, jak mały fragment), osiada, a leżący jest cięty bombą (`cutRubble`),
 -- budzony, gaśnie w lawie; mały znika po `SmallRubbleLifetime`, duży zostaje platformą.
--- Przygniecenie liczy `crushCheck` (prędkość względna, jak dla grup).
 local fragmentSeq = 0
 
 local function newFragment(rec: Rec, part: BasePart, cause: Cause?): Active
@@ -247,7 +451,6 @@ end
 -- Filtr kontaktów ma być już założony (a.filters) — patrz komentarz w `crumble`.
 local function launchFragment(a: Active, from: Vector3?)
 	local part = a.root :: BasePart
-	part:SetAttribute(ATTACKER_ATTR, if a.cause then a.cause.attackerUserId else 0)
 	part.CustomPhysicalProperties = concrete
 	part.Anchored = false
 	flyingOf[part] = a
@@ -307,13 +510,16 @@ local function crumble(rec: Rec, chunkId: number, cause: Cause?)
 	-- na tym fragmencie — i tak aż do dachu. Zmierzone: 11 z 21 spadających grup w serii
 	-- 6 bomb leży bezpośrednio na skruszonym elemencie.
 	for _, frag in ipairs(toLaunch) do
-		filterContacts(frag.root :: BasePart, frag.filters)
+		local part = frag.root :: BasePart
+		cutExternalJoints({ part }, { [part] = true })
+		filterContacts(part, frag.filters)
 		launchFragment(frag, center)
 	end
 	if #toLaunch + #toClients > 0 then
 		log("%s: kruszenie ch%d — fragmentów fizyką %d, u klientów %d (budżet %d/%d)",
 			rec.id, chunkId, #toLaunch, #toClients, used, CFG.MaxCost)
 	end
+	flagRubbleNear(c.min, c.max)
 	-- Listwy i szyby, które przez to kruszenie straciły OSTATNIE oparcie, spadają (test 24.09:
 	-- bez tego zostawały w powietrzu). Od 26.09 tylko te — wcześniej spadały wszystkie listwy
 	-- chunka, także trzymające się czegoś jeszcze, a te wiszące na innych listwach zostawały.
@@ -601,14 +807,9 @@ local function release(a: Active): boolean
 	local root = pieces[1]
 	a.root = root
 
-	local own: { [BasePart]: boolean } = {}
-	for _, p in ipairs(pieces) do
-		own[p] = true
-	end
-	for _, p in ipairs(followers) do
-		own[p] = true
-	end
-	filterOverlaps(a.pieces, own, a.filters)
+	local own = ownSet(a)
+	local joints = cutExternalJoints(pieces, own) + cutExternalJoints(followers, own)
+	filterAtRelease(a.pieces, own, a.filters)
 
 	-- Spawanie: jedna bryła. Spawy zostają po zatrzymaniu — kolejny wybuch budzi całą bryłę.
 	for i = 2, #pieces do
@@ -657,8 +858,10 @@ local function release(a: Active): boolean
 	used += a.cost
 	table.insert(flying, a)
 	Remotes.StructureFX:FireAllClients("collapse", a.center, math.clamp(a.volume / 4000, 0.2, 1))
-	log("%s: grupa %s leci (P%d, koszt %d, kawałków %d, pasażerów %d, filtr %d, budżet %d/%d)",
-		a.rec.id, a.def.groupId, a.priority, a.cost, #pieces, #followers, #a.filters, used, CFG.MaxCost)
+	-- Rumowisko leżące na tej grupie (np. zawalone wcześniej piętro wyżej) traci oparcie (M-1).
+	flagRubbleNear(a.def.min, a.def.max)
+	log("%s: grupa %s leci (P%d, koszt %d, kawałków %d, pasażerów %d, filtr %d, spoiny %d, budżet %d/%d)",
+		a.rec.id, a.def.groupId, a.priority, a.cost, #pieces, #followers, #a.filters, joints, used, CFG.MaxCost)
 	return true
 end
 
@@ -675,6 +878,7 @@ local function degrade(a: Active)
 	handOffNow(pieces, a.center, false)
 	a.rec.state:retire(a.def.chunkIds)
 	a.phase = "Gone"
+	flagRubbleNear(a.def.min, a.def.max)
 	log("%s: grupa %s ponad budżet (P%d, koszt %d, zajęte %d/%d) — upadek u klientów", a.rec.id, a.def.groupId, a.priority, a.cost, used, CFG.MaxCost)
 end
 
@@ -691,6 +895,8 @@ local function finishFlight(a: Active)
 end
 
 local function destroyGroup(a: Active)
+	local mn, mx = groupBox(a)
+	unlistSettled(a)
 	for _, p in ipairs(a.pieces) do
 		if p.Parent then p:Destroy() end
 	end
@@ -699,9 +905,11 @@ local function destroyGroup(a: Active)
 	end
 	a.rec.state:retire(a.def.chunkIds)
 	a.phase = "Gone"
+	flagRubbleNear(mn, mx)
 end
 
-local function settle(a: Active)
+-- `forced`: kotwiczenie po MaxFallTime, a nie dlatego, że leży — sprawdzić oparcie od razu.
+local function settle(a: Active, forced: boolean?)
 	finishFlight(a)
 	for _, p in ipairs(a.pieces) do
 		if p.Parent then
@@ -726,6 +934,25 @@ local function settle(a: Active)
 	a.rec.state:settle(a.def.chunkIds)
 	a.phase = "Settled"
 	a.stillSince = nil
+	a.clampUntil = nil
+	-- Od teraz pilnujemy, czy ma na czym leżeć (M-1).
+	a.restMin, a.restMax = groupBox(a)
+	a.supportCheckedAt = os.clock()
+	a.recheck = if forced then true else nil
+	a.held = nil
+	local wakeCF = a.recheckWakeCF
+	if wakeCF and a.root then
+		-- Budzona bez impulsu, bo pudełka świata nie widziały pod nią oparcia (obrócona bryła
+		-- ma pudełko większe od siebie) — a nie ruszyła się: trzyma ją fizyka. Nie sprawdzamy
+		-- jej w tle, dopóki pod spodem coś się nie zmieni — inaczej budziłaby się w kółko.
+		if (a.root.Position - wakeCF.Position).Magnitude < CFG.JamMinMove then
+			a.held = true
+		end
+	end
+	a.recheckWakeCF = nil
+	if not table.find(settledAll, a) then
+		table.insert(settledAll, a)
+	end
 	if a.volume < CFG.SmallRubbleVolume then
 		a.retireAt = os.clock() + CFG.SmallRubbleLifetime
 		table.insert(settledTemp, a)
@@ -747,12 +974,17 @@ local function groupTop(a: Active): number
 end
 
 -- ============================================================================
--- Zaklinowana grupa (siatka bezpieczeństwa, decyzja Kacpra 25.09)
+-- Zaklinowana grupa (siatka bezpieczeństwa, decyzje Kacpra 25.09 i 28.09)
 -- ============================================================================
 -- Solver mówi „spada”, a fizyka trzyma — przy setkach serwerów to się zdarzy w sposób, którego
--- nikt nie przewidział. Grupa, która po odkotwiczeniu w ogóle nie ruszyła, idzie do klientów
--- (jak grupa ponad budżetem): nic nie wisi w powietrzu (kontrakt 15), a to, co na niej leżało,
--- spada dalej prawdziwą fizyką. Log mówi, CO ją trzymało — żeby naprawiać przyczyny.
+-- nikt nie przewidział. Grupa, która po odkotwiczeniu w ogóle nie ruszyła i nie leży na niczym
+-- pewnym, przechodzi DWA stopnie (28.09):
+--   1. ODBLOKOWANIE — traci spoiny z otoczeniem i kolizję ze wszystkim, czego dotyka (poza
+--      spadającą grupą pod nią i nad nią — piętro jedzie na piętrze), i leci dalej fizyką
+--      serwera. Gracz na niej jedzie dalej; do 28.09 podłoga znikała mu spod nóg.
+--   2. Gdy utknie drugi raz — upadek u klientów (jak grupa ponad budżetem): nic nie wisi
+--      w powietrzu (kontrakt 15), a to, co na niej leżało, spada dalej prawdziwą fizyką.
+-- Log mówi, CO ją trzymało — żeby naprawiać przyczyny, a nie tylko skutki.
 
 -- Opis podpory: dla konstrukcji v4 — part, rodzaj i STAN chunka w miejscu styku. To rozstrzyga
 -- przyczynę: Intact = solver przeczy fizyce, Destroyed = geometria nie zniknęła, Falling =
@@ -771,14 +1003,11 @@ local function describeHolder(hit: BasePart, contact: Vector3): string
 	if not rec or not index then
 		return hit:GetFullName()
 	end
-	local st = rec.state
-	for _, cid in ipairs(st.partChunks[index] or {}) do
-		local c = st.chunks[cid]
-		local lo, hi = c.min - Vector3.one * 0.5, c.max + Vector3.one * 0.5
-		if contact.X >= lo.X and contact.X <= hi.X and contact.Y >= lo.Y and contact.Y <= hi.Y and contact.Z >= lo.Z and contact.Z <= hi.Z then
-			local rt = st.rt[cid]
-			return ("%s #%d %s ch%d %s%s"):format(tostring(kind), index, c.kind, cid, rt.state, if rt.reason then "/" .. rt.reason else "")
-		end
+	local cid = chunkAt(rec, index, contact, hit)
+	if cid then
+		local c = rec.state.chunks[cid]
+		local rt = rec.state.rt[cid]
+		return ("%s #%d %s ch%d %s%s"):format(tostring(kind), index, c.kind, cid, rt.state, if rt.reason then "/" .. rt.reason else "")
 	end
 	return ("%s #%d %s poza chunkami"):format(tostring(kind), index, rec.parts[index].kind)
 end
@@ -795,17 +1024,39 @@ local function hasFilter(a: BasePart, b: BasePart): boolean
 	return false
 end
 
--- Co trzyma zaklinowaną grupę: KAŻDY styk z kolizją i bez filtra — pod spodem, nad nią albo
--- z boku, z głębokością nachodzenia. Test 25.09: „nic pod spodem” było najczęstsze, a wersja
--- szukająca tylko podpory od spodu nie widziała styków powstałych dopiero w ruchu.
-local function holdersOf(a: Active): string
-	local own: { [BasePart]: boolean } = {}
+local function isAbove(b: Box, hb: Box, o: Vector3): boolean
+	return hb.min.Y >= b.max.Y - CFG.JamProbe and o.X > CFG.JamBelowOverlap and o.Z > CFG.JamBelowOverlap
+end
+
+type Contact = { part: BasePart, hit: BasePart, box: Box, hitBox: Box, o: Vector3 }
+type HolderEntry = { rank: number, depth: number, text: string }
+
+-- KAŻDY styk kawałków grupy z kolizją i bez filtra (pudełka z luzem JamProbe) — pod spodem,
+-- nad nią albo z boku. Test 25.09: wersja szukająca tylko podpory od spodu nie widziała styków
+-- powstałych dopiero w ruchu. Jedna lista dla logu, łańcucha i odblokowania.
+local function contactsOf(a: Active): { Contact }
+	local own = ownSet(a)
+	local out: { Contact } = {}
 	for _, p in ipairs(a.pieces) do
-		own[p] = true
+		if not p.Parent then continue end
+		local b = Pieces.boxOf(p)
+		for _, hit in ipairs(Workspace:GetPartBoundsInBox(p.CFrame, p.Size + Vector3.one * (CFG.JamProbe * 2))) do
+			if own[hit] or not hit.CanCollide or isCharacterPart(hit) or hit:IsA("Terrain") then continue end
+			if hasFilter(p, hit) then continue end
+			local hb = Pieces.boxOf(hit)
+			local o = hb.max:Min(b.max) - hb.min:Max(b.min) -- ujemne = szczelina
+			if o.X < -CFG.JamProbe or o.Y < -CFG.JamProbe or o.Z < -CFG.JamProbe then continue end
+			table.insert(out, { part = p, hit = hit, box = b, hitBox = hb, o = o })
+		end
 	end
-	for _, f in ipairs(a.followers) do
-		own[f] = true
-	end
+	return out
+end
+
+-- Co trzyma grupę, do logu: najpierw to, co POD spodem, potem z boku (najgłębsze pierwsze), na
+-- końcu nad nią. Log 28.09: przy limicie 6 wpisów w kolejności z silnika podpora od spodu przy
+-- 6 z 10 zaklinowań mogła się nie zmieścić. Plus „przyspawana”: spoina z czymś zakotwiczonym
+-- trzyma bryłę bez żadnego styku.
+local function holdersOf(a: Active, contacts: { Contact }): string
 	local kinds: { [string]: number } = {}
 	for _, id in ipairs(a.def.chunkIds) do
 		local k = a.rec.state.chunks[id].kind
@@ -816,32 +1067,39 @@ local function holdersOf(a: Active): string
 		table.insert(kindList, k .. "×" .. n)
 	end
 	table.sort(kindList)
-	local names: { string } = {}
+	local entries: { HolderEntry } = {}
 	local seen: { [BasePart]: boolean } = {}
-	for _, p in ipairs(a.pieces) do
-		if not p.Parent or #names >= 6 then continue end
-		local b = Pieces.boxOf(p)
-		for _, hit in ipairs(Workspace:GetPartBoundsInBox(p.CFrame, p.Size + Vector3.one * (CFG.JamProbe * 2))) do
-			if own[hit] or seen[hit] or not hit.CanCollide or isCharacterPart(hit) or hit:IsA("Terrain") then continue end
-			if hasFilter(p, hit) then continue end
-			local hb = Pieces.boxOf(hit)
-			local o = hb.max:Min(b.max) - hb.min:Max(b.min) -- ujemne = szczelina
-			if o.X < -CFG.JamProbe or o.Y < -CFG.JamProbe or o.Z < -CFG.JamProbe then continue end
-			seen[hit] = true
-			local where: string
-			if hb.max.Y <= b.min.Y + CFG.JamProbe and o.X > 0.3 and o.Z > 0.3 then
-				where = "POD"
-			elseif hb.min.Y >= b.max.Y - CFG.JamProbe and o.X > 0.3 and o.Z > 0.3 then
-				where = "NAD"
-			else
-				where = ("BOK %.2f"):format(math.min(o.X, o.Z))
-			end
-			local contact = (hb.min:Max(b.min) + hb.max:Min(b.max)) * 0.5
-			table.insert(names, ("%s %s"):format(where, describeHolder(hit, contact)))
-			if #names >= 6 then break end
+	for _, c in ipairs(contacts) do
+		if seen[c.hit] then continue end
+		seen[c.hit] = true
+		local rank, depth, where = 2, math.min(c.o.X, c.o.Z), ""
+		if isBelow(c.box, c.hitBox, c.o) then
+			rank, depth, where = 1, 0, "POD"
+		elseif isAbove(c.box, c.hitBox, c.o) then
+			rank, depth, where = 3, 0, "NAD"
+		else
+			where = ("BOK %.2f"):format(depth)
 		end
+		local contact = (c.hitBox.min:Max(c.box.min) + c.hitBox.max:Min(c.box.max)) * 0.5
+		table.insert(entries, { rank = rank, depth = depth, text = where .. " " .. describeHolder(c.hit, contact) })
 	end
-	return ("[%s, kawałków %d] %s"):format(table.concat(kindList, " "), #a.pieces,
+	table.sort(entries, function(x, y)
+		if x.rank ~= y.rank then
+			return x.rank < y.rank
+		end
+		return x.depth > y.depth
+	end)
+	local names: { string } = {}
+	for k = 1, math.min(#entries, CFG.JamLogMax) do
+		table.insert(names, entries[k].text)
+	end
+	if #entries > CFG.JamLogMax then
+		table.insert(names, ("(+%d)"):format(#entries - CFG.JamLogMax))
+	end
+	local root = a.root
+	local welded = root ~= nil and root.Parent ~= nil and root:IsGrounded()
+	return ("[%s, kawałków %d%s] %s"):format(table.concat(kindList, " "), #a.pieces,
+		if welded then ", PRZYSPAWANA do zakotwiczonego" else "",
 		if #names > 0 then table.concat(names, "; ") else "zero styków bez filtra")
 end
 
@@ -851,14 +1109,11 @@ end
 -- Test 27.09 (CyanOffice): panele 3×6×1 stojące na belce tuż nad fundamentem po zniszczeniu
 -- belki opadały na `Map.Locked.Foundation` o mniej niż `JamMinMove`; siatka brała je za
 -- zaklinowane i klienci siekli je na drobny gruz — Kacper: „sypią się, choć nie powinny”.
-local function groundUnder(a: Active): string?
-	local own: { [BasePart]: boolean } = {}
-	for _, p in ipairs(a.pieces) do
-		own[p] = true
-	end
-	for _, f in ipairs(a.followers) do
-		own[f] = true
-	end
+-- Stojąca konstrukcja v4 pod spodem liczy się (28.09) tylko wtedy, gdy grupa naprawdę na nią
+-- OPADŁA (`moved` ≥ LandMinDrop): styki ze startu mają filtr (filterAtRelease), więc bez tego
+-- ściana opadła o pół studa na stojącą belkę zostałaby odblokowana i przeleciała przez nią.
+local function groundUnder(a: Active, moved: number): string?
+	local own = ownSet(a)
 	for _, p in ipairs(a.pieces) do
 		if not p.Parent then continue end
 		local b = Pieces.boxOf(p)
@@ -867,10 +1122,10 @@ local function groundUnder(a: Active): string?
 			if hit:IsA("Terrain") then
 				return "teren"
 			end
+			if hasFilter(p, hit) then continue end -- fizyka tego styku nie widzi
 			local hb = Pieces.boxOf(hit)
 			local o = hb.max:Min(b.max) - hb.min:Max(b.min)
-			-- Tylko POD spodem, z zakładką w poziomie — ta sama definicja co w `holdersOf`.
-			if not (hb.max.Y <= b.min.Y + CFG.JamProbe and o.X > 0.3 and o.Z > 0.3) then continue end
+			if not isBelow(b, hb, o) then continue end
 			local r = rubbleOf[hit]
 			if r then
 				if r.phase == "Settled" then
@@ -882,15 +1137,68 @@ local function groundUnder(a: Active): string?
 			if DebrisService.isRegistered(hit) then
 				return "gruz serwera" -- zakotwiczony = uśpiony
 			end
-			if StructuralService.ownerOf(hit) then continue end -- własna konstrukcja: siatka
+			if StructuralService.ownerOf(hit) then
+				local contact = (hb.min:Max(b.min) + hb.max:Min(b.max)) * 0.5
+				if moved >= CFG.LandMinDrop and isStandingStructure(hit, contact) then
+					return "stojąca konstrukcja " .. describeHolder(hit, contact)
+				end
+				-- Trzyma od startu (bez filtra tylko ponad OverlapFilterMax) albo to listwa (M-3): siatka.
+				continue
+			end
 			return hit:GetFullName()
 		end
 	end
 	return nil
 end
 
-local function jam(a: Active, moved: number)
-	local holders = holdersOf(a)
+-- Leży na innej spadającej grupie — w locie (sprawdzanej, odblokowanej, właśnie osiadającej)
+-- albo jeszcze w kolejce (zakotwiczona, czeka na budżet): przyczyna jest pod spodem, ta ruszy,
+-- gdy ruszy tamta (albo osiądzie na niej, gdy tamta osiądzie). Log 28.09: 5:154 leżała na
+-- 5:29 i obie szły do klientów, a każde zaklinowanie przesuwało okno pozostałych o
+-- JamCheckTime — kaskada do 2,6 s wiszenia.
+local function restsOnFalling(contacts: { Contact }): boolean
+	for _, c in ipairs(contacts) do
+		if not isBelow(c.box, c.hitBox, c.o) then continue end
+		local contact = (c.hitBox.min:Max(c.box.min) + c.hitBox.max:Min(c.box.max)) * 0.5
+		if isFallingPiece(c.hit, contact) then
+			return true
+		end
+	end
+	return false
+end
+
+-- Stopień 1: odblokowanie (opis na górze sekcji). Zwraca (spoiny, filtry).
+local function unstick(a: Active, contacts: { Contact }): (number, number)
+	local own = ownSet(a)
+	local joints = cutExternalJoints(a.pieces, own) + cutExternalJoints(a.followers, own)
+	local count = 0
+	for _, c in ipairs(contacts) do
+		if count >= CFG.OverlapFilterMax then break end
+		-- Spadająca grupa (w locie albo w kolejce) pod nią albo na niej: jadą razem.
+		if isBelow(c.box, c.hitBox, c.o) or isAbove(c.box, c.hitBox, c.o) then
+			local contact = (c.hitBox.min:Max(c.box.min) + c.hitBox.max:Min(c.box.max)) * 0.5
+			if isFallingPiece(c.hit, contact) then continue end
+		end
+		local nc = Instance.new("NoCollisionConstraint")
+		nc.Part0 = c.part
+		nc.Part1 = c.hit
+		nc.Parent = c.part
+		table.insert(a.filters, nc)
+		count += 1
+	end
+	local root = a.root :: BasePart
+	-- Pchnięcie w dół budzi bryłę — uśpiona nie zauważy, że zniknęło to, co ją trzymało.
+	root.AssemblyLinearVelocity = Vector3.new(0, -CFG.FallSpeed, 0)
+	a.unstuck = true
+	a.startCF = root.CFrame
+	a.stillSince = nil
+	a.jamCheckAt = os.clock() + CFG.JamCheckTime
+	return joints, count
+end
+
+-- Stopień 2: upadek u klientów.
+local function jam(a: Active, moved: number, holders: string)
+	local mn, mx = groupBox(a)
 	finishFlight(a)
 	local list: { Instance } = {}
 	local function take(p: BasePart)
@@ -917,13 +1225,14 @@ local function jam(a: Active, moved: number)
 	a.rec.state:retire(a.def.chunkIds)
 	a.phase = "Gone"
 	a.jamCheckAt = nil
-	log("%s: grupa %s ZAKLINOWANA (ruch %.2f stud w %.2f s), trzyma: %s — upadek u klientów",
+	flagRubbleNear(mn, mx)
+	log("%s: grupa %s ZAKLINOWANA mimo odblokowania (ruch %.2f stud w %.2f s), trzyma: %s — upadek u klientów",
 		a.rec.id, a.def.groupId, moved, os.clock() - a.releasedAt, holders)
 end
 
--- Sprawdza grupy, którym minął `JamCheckTime` — od najniższej, bo górna mogła leżeć na
--- dolnej. Po każdym zaklinowaniu pozostałe czekające dostają nowe okno: grupa, która leżała
--- na zaklinowanej, dopiero teraz ma dokąd spadać.
+-- Sprawdza grupy, którym minął `JamCheckTime` — od najniższej, bo górna mogła leżeć na dolnej:
+-- dolna odblokowana w tym samym przebiegu dostaje nowe okno, a górna na niej czeka
+-- (`restsOnFalling`) zamiast iść osobno do siatki.
 local function checkJams(now: number)
 	local due: { Active } = {}
 	for _, a in ipairs(flying) do
@@ -947,15 +1256,40 @@ local function checkJams(now: number)
 			continue
 		end
 		-- Nie ruszyła, bo już leży na gruncie (spadła o mniej niż JamMinMove) — osiada.
-		local ground = groundUnder(a)
+		local ground = groundUnder(a, moved)
 		if ground then
 			a.jamCheckAt = nil
 			log("%s: grupa %s wylądowała (ruch %.2f stud) na: %s", a.rec.id, a.def.groupId, moved, ground)
 			settle(a)
 			continue
 		end
-		jam(a, moved)
-		for _, other in ipairs(flying) do
+		local contacts = contactsOf(a)
+		-- MaxFallTime: sufit czekania — łańcuch, który się nie rozwiązuje, idzie dalej siatką.
+		if restsOnFalling(contacts) and now - a.releasedAt < CFG.MaxFallTime then
+			a.jamCheckAt = now + CFG.JamCheckTime
+			a.startCF = cf
+			continue
+		end
+		local holders = holdersOf(a, contacts)
+		if not a.unstuck then
+			local joints, filters = unstick(a, contacts)
+			log("%s: grupa %s ODBLOKOWANA (ruch %.2f stud w %.2f s, spoiny %d, filtry %d), trzymało: %s",
+				a.rec.id, a.def.groupId, moved, now - a.releasedAt, joints, filters, holders)
+			continue
+		end
+		-- Kolizja zaklinowanej zaraz zniknie — nowe okno dostają TYLKO grupy, które jej dotykały
+		-- (leżały na niej albo ją podpierały). Do 29.09 dostawała je każda grupa w locie, także
+		-- w innym budynku: przy kilku kolapsach naraz naprawdę zaklinowana czekała kolejne
+		-- JamCheckTime po każdym cudzym zaklinowaniu (przegląd 29.09, M-6).
+		local touching: { [Active]: boolean } = {}
+		for _, c in ipairs(contacts) do
+			local g = flyingOf[c.hit]
+			if g and g ~= a then
+				touching[g] = true
+			end
+		end
+		jam(a, moved, holders)
+		for other in pairs(touching) do
 			if other.jamCheckAt and other.root and other.root.Parent then
 				other.jamCheckAt = now + CFG.JamCheckTime
 				other.startCF = other.root.CFrame
@@ -965,64 +1299,198 @@ local function checkJams(now: number)
 	end
 end
 
--- Bryła POD graczem to podłoga, po której jedzie, a nie coś, co na niego spada — jazdę na
--- walącym się budynku liczy zwykły fall damage (decyzja Kacpra 26.09; zastępuje decyzję
--- z 25.09 o połowie obrażeń za jazdę). Bez tego strop uderzający o ziemię był
--- „przygnieceniem” jadącego: względem niego leciał w górę z pełną prędkością upadku — do
--- 100 dmg, czyli śmierć po upadku, który sam nic by nie zrobił. Porównujemy ze ŚRODKIEM
--- postaci, nie ze stopami: jadący często leży w ragdollu (zwalił go ten sam wybuch), a wtedy
--- stopy są na wysokości tułowia.
-local function isUnder(p: BasePart, hrp: BasePart): boolean
-	local lp = p.CFrame:PointToObjectSpace(hrp.Position)
-	local h = p.Size * 0.5
-	local closest = p.CFrame:PointToWorldSpace(Vector3.new(
-		math.clamp(lp.X, -h.X, h.X),
-		math.clamp(lp.Y, -h.Y, h.Y),
-		math.clamp(lp.Z, -h.Z, h.Z)
-	))
-	return closest.Y < hrp.Position.Y
+-- ============================================================================
+-- Osiadła bryła bez oparcia (29.09, M-1) i budzenie (M-4)
+-- ============================================================================
+
+-- Budzi osiadłą grupę: znowu fizyka serwera. Jedno miejsce dla budzenia wybuchem (z impulsem)
+-- i budzenia bez oparcia (bez impulsu). Silnik wypycha budzoną bryłę z geometrii, w którą jest
+-- wbita — od 28.09 grupa „spada od razu” przez stojące belki i listwy, więc może osiąść,
+-- przenikając belkę — i bez limitu wystrzeliwał ją jak z procy. Filtr kolizji tu nie pomoże:
+-- pudełka świata obróconego rumowiska nie odróżniają „wbita” od „leży”, a filtr na tym, na
+-- czym leży, puściłby ją przez podłogę. Dlatego przez WakeClampTime przycinamy prędkość w bok
+-- i w górę do nadanej + zapas; w dół bez limitu — spadanie to grawitacja (przegląd 29.09, M-4).
+local function wakeGroup(a: Active, linear: Vector3, angular: Vector3)
+	local mn, mx = groupBox(a)
+	unlistSettled(a)
+	for _, p in ipairs(a.pieces) do
+		if p.Parent then
+			rubbleOf[p] = nil
+			flyingOf[p] = a
+			p.Anchored = false
+		end
+	end
+	for _, f in ipairs(a.followers) do
+		if f.Parent then
+			rubbleOf[f] = nil
+			flyingOf[f] = a
+			f.CanCollide = false
+			f.Massless = true
+			f.Anchored = false
+		end
+	end
+	local root = a.root :: BasePart
+	pcall(function()
+		root:SetNetworkOwner(nil)
+	end)
+	root.AssemblyLinearVelocity = linear
+	root.AssemblyAngularVelocity = angular
+	a.clampUntil = os.clock() + CFG.WakeClampTime
+	a.clampH = Vector3.new(linear.X, 0, linear.Z).Magnitude + CFG.WakeSpeedMargin
+	a.clampUp = math.max(linear.Y, 0) + CFG.WakeSpeedMargin
+	a.clampSpin = angular.Magnitude + CFG.WakeSpinMargin
+	a.retireAt = nil
+	a.held = nil
+	a.phase = "Flying"
+	a.releasedAt = os.clock()
+	-- Obudzone rumowisko leży na ziemi — to, że nie spada, jest prawidłowe, nie zaklinowaniem.
+	a.jamCheckAt = nil
+	a.stillSince = nil
+	used += a.cost
+	table.insert(flying, a)
+	-- To, co leżało na niej, traci oparcie, gdy ruszy.
+	flagRubbleNear(mn, mx)
 end
 
-local function crushCheck(dt: number)
-	if #flying == 0 then return end
-	for _, player in ipairs(Players:GetPlayers()) do
-		if not PlayerService.isAlive(player) then continue end
-		local char = player.Character
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		if not hrp or not hrp:IsA("BasePart") then continue end
-		for _, a in ipairs(flying) do
-			local hit = false
-			for _, p in ipairs(a.pieces) do
-				if not p.Parent then continue end
-				-- Prędkość WZGLĘDEM gracza (test 25.09: jeździec na spadającym stropie dostał
-				-- 59 dmg „przygniecenia” od kawałka lecącego razem z nim — kikut słupa nad jego
-				-- HRP). Gracz jadący z bryłą ma względem niej ~0, ten pod nią — pełną prędkość.
-				local v = p.AssemblyLinearVelocity - hrp.AssemblyLinearVelocity
-				local speed = v.Magnitude
-				if speed < CFG.CrushSpeed then continue end
-				-- Kontakt z zapasem na drogę przebytą między sprawdzeniami (szybka płyta
-				-- przelatuje kilka studów na tick).
-				local d = Fracture.boxSurfaceDistance(Vector3.zero, p.Size, p.CFrame:PointToObjectSpace(hrp.Position))
-				if d > CFG.CrushContact + speed * dt then continue end
-				-- Musi lecieć W gracza (względnie) — nie przygniata to, co się oddala.
-				if v:Dot(hrp.Position - p.Position) <= 0 then continue end
-				if isUnder(p, hrp) then continue end
-				local volumeT = math.clamp(a.volume / CFG.CrushVolumeForMax, 0, 1)
-				local speedT = math.clamp(speed / CFG.CrushSpeedForMax, 0, 1)
-				local dmg = math.max(CFG.CrushMinDamage, CFG.CrushMaxDamage * volumeT * speedT)
-				local attacker = if a.cause then a.cause.attackerUserId else nil
-				if DebrisService.applyCrush(player, dmg, attacker, CFG.CrushMaxDamage) then
-					log("przygniecenie %s: %.0f dmg (grupa %s, %.0f stud/s)", player.Name, dmg, a.def.groupId, speed)
-				end
-				hit = true
-				break
-			end
-			if hit then break end
+-- Limit prędkości budzonych brył (opis przy wakeGroup). Co klatkę — wypchnięcie z geometrii
+-- dzieje się w jednym kroku fizyki, monitor 10 Hz by go nie złapał.
+local function clampWakes(now: number)
+	for _, a in ipairs(flying) do
+		local untilT = a.clampUntil
+		if not untilT then continue end
+		if now >= untilT then
+			a.clampUntil = nil
+			continue
+		end
+		local root = a.root
+		if not root or not root.Parent then continue end
+		local v = root.AssemblyLinearVelocity
+		local h = Vector3.new(v.X, 0, v.Z)
+		local hm = h.Magnitude
+		local limH = a.clampH or CFG.WakeSpeedMargin
+		if hm > limH then
+			h = h * (limH / hm)
+		end
+		local nv = Vector3.new(h.X, math.min(v.Y, a.clampUp or CFG.WakeSpeedMargin), h.Z)
+		if nv ~= v then
+			root.AssemblyLinearVelocity = nv
+		end
+		local w = root.AssemblyAngularVelocity
+		local wm = w.Magnitude
+		local limW = a.clampSpin or CFG.WakeSpinMargin
+		if wm > limW then
+			root.AssemblyAngularVelocity = w * (limW / wm)
 		end
 	end
 end
 
-local function monitor(now: number, dt: number)
+-- Czy osiadła bryła ma na czym leżeć: pod DOLNĄ połową któregoś kawałka (ściana obok to nie
+-- podparcie) jest coś zakotwiczonego z kolizją, co nie leci. Świadomie hojne: listwa i mebel
+-- pod spodem też się liczą, bo fizycznie trzymają (M-3 dotyczy tylko lądowania). Pudełka świata
+-- są otoczką obróconych kawałków, więc możliwa jest pomyłka „brak oparcia” — rozstrzyga ją
+-- fizyka: bryła budzona bez impulsu, która się nie ruszy, jest trzymana (`held` w settle).
+local function hasSupport(a: Active): boolean
+	local own = ownSet(a)
+	for _, list in ipairs({ a.pieces, a.followers }) do
+		for _, p in ipairs(list) do
+			if not p.Parent then continue end
+			local b = Pieces.boxOf(p)
+			local mid = (b.min.Y + b.max.Y) * 0.5
+			for _, hit in ipairs(Workspace:GetPartBoundsInBox(p.CFrame, p.Size + Vector3.one * (CFG.JamProbe * 2))) do
+				if own[hit] then continue end
+				if hit:IsA("Terrain") then
+					return true
+				end
+				if not hit.Anchored or not hit.CanCollide or flyingOf[hit] or isCharacterPart(hit) then continue end
+				local hb = Pieces.boxOf(hit)
+				if hb.max.Y > mid then continue end -- obok albo nad, nie pod
+				local o = hb.max:Min(b.max) - hb.min:Max(b.min)
+				if o.X > 0 and o.Z > 0 then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
+-- Bez oparcia i bez miejsca w budżecie przez MaxQueueWait — upadek u klientów, jak grupa ponad
+-- budżetem: nic nie wisi w powietrzu (kontrakt 15).
+local function dropToClients(a: Active)
+	local mn, mx = groupBox(a)
+	local list: { Instance } = {}
+	for _, l in ipairs({ a.pieces, a.followers }) do
+		for _, p in ipairs(l) do
+			if p.Parent then
+				rubbleOf[p] = nil
+				table.insert(list, p)
+			end
+		end
+	end
+	unlistSettled(a)
+	handOffNow(list, a.center, false)
+	a.rec.state:retire(a.def.chunkIds)
+	a.phase = "Gone"
+	flagRubbleNear(mn, mx)
+	log("%s: grupa %s bez oparcia, brak miejsca w budżecie — upadek u klientów", a.rec.id, a.def.groupId)
+end
+
+local function wakeUnsupported(a: Active, now: number)
+	if a.phase ~= "Settled" or not a.root or not a.root.Parent then return end
+	a.priority = 2
+	if not fits(a) then
+		a.unsupportedSince = a.unsupportedSince or now
+		if now - (a.unsupportedSince :: number) >= CFG.MaxQueueWait then
+			dropToClients(a)
+		else
+			a.recheck = true -- czeka na budżet jak grupa w kolejce
+		end
+		return
+	end
+	a.unsupportedSince = nil
+	a.recheckWakeCF = (a.root :: BasePart).CFrame
+	wakeGroup(a, Vector3.zero, Vector3.zero)
+	log("%s: grupa %s bez oparcia — spada", a.rec.id, a.def.groupId)
+end
+
+-- Najpierw bryły oflagowane zdarzeniem (flagRubbleNear), potem po kolei w tle — łapie też to,
+-- czego żadne zdarzenie nie zgłosi (np. uśpiony gruz DebrisService wycofany budżetem).
+local function recheckSettled(now: number)
+	local n = #settledAll
+	if n == 0 then return end
+	local budget = CFG.RubbleRecheckPerTick
+	local toWake: { Active } = {}
+	local function check(a: Active)
+		budget -= 1
+		a.recheck = nil
+		a.supportCheckedAt = now
+		if not a.root or not a.root.Parent then return end
+		if hasSupport(a) then
+			a.unsupportedSince = nil
+		else
+			table.insert(toWake, a)
+		end
+	end
+	for _, a in ipairs(settledAll) do
+		if budget <= 0 then break end
+		if a.recheck then
+			check(a)
+		end
+	end
+	for _ = 1, n do
+		if budget <= 0 then break end
+		recheckCursor = recheckCursor % n + 1
+		local a = settledAll[recheckCursor]
+		if not a.held and now - (a.supportCheckedAt or 0) >= CFG.RubbleRecheckInterval then
+			check(a)
+		end
+	end
+	for _, a in ipairs(toWake) do
+		wakeUnsupported(a, now)
+	end
+end
+
+local function monitor(now: number)
 	local lava = LavaService.getSurfaceY()
 	checkJams(now)
 	for i = #flying, 1, -1 do
@@ -1048,9 +1516,11 @@ local function monitor(now: number, dt: number)
 		end
 		-- Grupa czekająca na sprawdzenie zaklinowania nie osiada w miejscu — inaczej
 		-- zaklinowana zostałaby zakotwiczona w powietrzu, zanim ktokolwiek to zauważy.
-		if a.jamCheckAt == nil
-			and ((a.stillSince and now - a.stillSince >= CFG.SettleTime) or now - a.releasedAt >= CFG.MaxFallTime) then
-			settle(a)
+		if a.jamCheckAt == nil then
+			local calm = a.stillSince ~= nil and now - (a.stillSince :: number) >= CFG.SettleTime
+			if calm or now - a.releasedAt >= CFG.MaxFallTime then
+				settle(a, not calm)
+			end
 		end
 	end
 	for i = #settledTemp, 1, -1 do
@@ -1062,7 +1532,7 @@ local function monitor(now: number, dt: number)
 			destroyGroup(a)
 		end
 	end
-	crushCheck(dt)
+	recheckSettled(now)
 end
 
 -- ============================================================================
@@ -1110,11 +1580,12 @@ local function step()
 		end
 	end
 
+	clampWakes(now)
+
 	local period = 1 / CFG.MonitorHz
 	if now - lastMonitor >= period then
-		local dt = if lastMonitor > 0 then now - lastMonitor else period
 		lastMonitor = now
-		monitor(now, dt)
+		monitor(now)
 	end
 end
 
@@ -1141,45 +1612,42 @@ function CollapseService.wakeRubble(part: BasePart, center: Vector3, radius: num
 	if not fits(a) then
 		return false
 	end
-	for _, p in ipairs(a.pieces) do
-		if p.Parent then
-			rubbleOf[p] = nil
-			flyingOf[p] = a
-			p.Anchored = false
-		end
-	end
-	for _, f in ipairs(a.followers) do
-		if f.Parent then
-			rubbleOf[f] = nil
-			flyingOf[f] = a
-			f.CanCollide = false
-			f.Massless = true
-			f.Anchored = false
-		end
-	end
 	local root = a.root :: BasePart
-	pcall(function()
-		root:SetNetworkOwner(nil)
-	end)
 	local d = Fracture.boxSurfaceDistance(Vector3.zero, root.Size, root.CFrame:PointToObjectSpace(center))
 	-- Mniejszy odrzut niż dla gruzu (decyzja Kacpra 25.09): pełny impuls wyrzucał leżącą bryłę
-	-- 72 stud/s na 45 studów i zabijał przygnieceniem („umieram i nie wiem od czego”).
+	-- 72 stud/s na 45 studów („umieram i nie wiem od czego”).
 	local linear, angular = Shockwave.velocity(root.Position, root.Size, center, d, radius, impulse * CFG.WakeImpulseFactor, minT, Random.new())
-	root.AssemblyLinearVelocity = linear
-	root.AssemblyAngularVelocity = angular
-	local i = table.find(settledTemp, a)
-	if i then
-		table.remove(settledTemp, i)
-	end
-	a.retireAt = nil
-	a.phase = "Flying"
-	a.releasedAt = os.clock()
-	-- Obudzone rumowisko leży na ziemi — to, że nie spada, jest prawidłowe, nie zaklinowaniem.
-	a.jamCheckAt = nil
-	a.stillSince = nil
-	used += a.cost
-	table.insert(flying, a)
+	a.recheckWakeCF = nil
+	wakeGroup(a, linear, angular)
 	return true
+end
+
+-- Bryła W LOCIE trafiona kolejnym wybuchem (M-2, decyzja Kacpra 29.09): odrzut ×WakeImpulseFactor
+-- jak obudzone rumowisko, liczony z KORZENIA (największego kawałka — nie z trafionego kikuta)
+-- i DODANY do prędkości: spadające piętro dalej spada, tylko lekko popchnięte. Do 29.09 szła
+-- przez zwykłe odpychanie DestructionService, które USTAWIAŁO prędkość całej spawanej bryły
+-- z rozmiaru trafionego kawałka — mały kikut dawał pełny impuls i piętro wylatywało.
+-- Raz na bryłę na wybuch.
+function CollapseService.pushFlying(parts: { BasePart }, center: Vector3, radius: number, impulse: number, minT: number)
+	local done: { [Active]: boolean } = {}
+	for _, part in ipairs(parts) do
+		local a = flyingOf[part]
+		if not a or done[a] or a.phase ~= "Flying" then continue end
+		done[a] = true
+		local root = a.root
+		if not root or not root.Parent then continue end
+		local d = Fracture.boxSurfaceDistance(Vector3.zero, root.Size, root.CFrame:PointToObjectSpace(center))
+		local linear, angular = Shockwave.velocity(root.Position, root.Size, center, d, radius, impulse * CFG.WakeImpulseFactor, minT, Random.new())
+		root.AssemblyLinearVelocity += linear
+		root.AssemblyAngularVelocity += angular
+	end
+end
+
+-- Wybuch w tym miejscu — osiadłe bryły w zasięgu sprawdzą oparcie (M-1): dziura w stropie,
+-- zbudzony gruz albo mebel spod spodu nie zgłaszają się tu same.
+function CollapseService.noteBlast(center: Vector3, radius: number)
+	local r = Vector3.one * radius
+	flagRubbleNear(center - r, center + r)
 end
 
 -- ============================================================================
@@ -1222,13 +1690,13 @@ local function reweld(a: Active)
 			rubbleOf[f] = nil
 		end
 		handOffNow(followers, a.center, false)
-		local i = table.find(settledTemp, a)
-		if i then
-			table.remove(settledTemp, i)
-		end
+		unlistSettled(a)
 		a.rec.state:retire(a.def.chunkIds)
 		a.root = nil
 		a.phase = "Gone"
+		if a.restMin and a.restMax then
+			flagRubbleNear(a.restMin, a.restMax) -- to, co leżało na niej, traci oparcie
+		end
 		return
 	end
 	table.sort(pieces, function(x, y)
@@ -1302,6 +1770,9 @@ function CollapseService.cutRubble(part: BasePart, center: Vector3, holeRadius: 
 		part.CFrame = cf * CFrame.new(rem[reuse].offset)
 	end
 	reweld(a)
+	if a.phase == "Settled" then
+		a.restMin, a.restMax = groupBox(a)
+	end
 	return payload, a.root
 end
 
@@ -1310,6 +1781,8 @@ local function clearAll()
 	table.clear(queue)
 	table.clear(flying)
 	table.clear(settledTemp)
+	table.clear(settledAll)
+	recheckCursor = 0
 	table.clear(rubbleOf)
 	table.clear(flyingOf)
 	used = 0

@@ -442,7 +442,7 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 
 	-- Rate limit — anti-spam ThrowBomb (BEZ tego auto-re-equip + fast click = 10 bomb/s exploit).
 	local now = os.clock()
-	if now - (lastThrowAt[player] or 0) < Config.RateLimits.BombThrow then
+	if now - (lastThrowAt[player] or 0) < Config.RateLimits.BombThrow * Config.RateLimits.ServerTolerance then
 		return false, "cooldown"
 	end
 
@@ -452,9 +452,12 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 		return false, "not_equipped"
 	end
 
-	-- Walidacja direction (z klienta)
+	-- Walidacja direction (z klienta). `mag ~= mag` łapie NaN: porównania z NaN są zawsze
+	-- fałszem, więc samo `< 0.01 or > 1000` go przepuszczało — a wektor NaN wchodził w CFrame
+	-- pocisku i w odległości do wszystkich graczy (przegląd 29.09, A-4).
 	if typeof(direction) ~= "Vector3" then return false, "invalid_direction" end
-	if direction.Magnitude < 0.01 or direction.Magnitude > 1000 then
+	local mag = direction.Magnitude
+	if mag ~= mag or mag < 0.01 or mag > 1000 then
 		return false, "invalid_direction"
 	end
 	local dir = direction.Unit
@@ -628,7 +631,7 @@ end
 
 local function onEquipItem(player: Player, itemId: any)
 	local now = os.clock()
-	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem then return end
+	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem * Config.RateLimits.ServerTolerance then return end
 	lastEquipAt[player] = now
 
 	-- Dispatch po itemId. W przyszłości: shield, bridge_builder, etc.
@@ -644,7 +647,7 @@ end
 
 local function onUnequipItem(player: Player)
 	local now = os.clock()
-	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem then return end
+	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem * Config.RateLimits.ServerTolerance then return end
 	lastEquipAt[player] = now
 	BombService.unequip(player)
 end

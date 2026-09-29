@@ -91,7 +91,16 @@ function AppearanceService.get(player: Player): Appearance
 	end
 
 	local data = PlayerDataService.get(player)
-	local stored = data and data.appearance
+	if not data then
+		-- Dane jeszcze się nie wczytały (spawn przed końcem wczytania — PlayerService czeka
+		-- na nie przed pierwszym spawnem, więc to tylko przypadek po limicie czasu). Losujemy
+		-- na TO jedno życie, bez zapamiętania: do 29.09 losowy zestaw lądował w `cached`
+		-- i przykrywał zapisany wygląd na całą sesję, a zapis się nie udawał — gracz miał
+		-- nową postać przy każdym wejściu (przegląd 29.09, A-1). DataStore niedostępny
+		-- (Studio bez API) tu nie trafia: wtedy są domyślne dane w pamięci, cache działa.
+		return sanitize(nil)
+	end
+	local stored = data.appearance
 	local appearance = sanitize(stored)
 	cached[player] = appearance
 

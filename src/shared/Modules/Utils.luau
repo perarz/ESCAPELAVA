@@ -84,8 +84,9 @@ end
 
 -- Rozmiar assetu = bounding box modelu (w przestrzeni jego pivota). Wynik cache'owany:
 -- to stała, a `GetBoundingBox` na kilkunastu partach wołane co klatkę przy ghoście byłoby
--- czystym marnotrawstwem. Cache trzyma też "pudło" (false), żeby nie szukać w kółko.
-local assetSizeCache: { [string]: Vector3 | boolean } = {}
+-- czystym marnotrawstwem. Pudła NIE są cache'owane (patrz assetSize) — samo FindFirstChild
+-- co klatkę kosztuje grosze.
+local assetSizeCache: { [string]: Vector3 } = {}
 
 -- Kotwiczy part, który się ruszał, ZERUJĄC mu prędkość. Zakotwiczony part ZACHOWUJE
 -- AssemblyLinearVelocity i AssemblyAngularVelocity (zmierzone 2026-09-25: po 0,5 s dalej
@@ -105,8 +106,8 @@ end
 
 function Utils.assetSize(name: string): Vector3?
 	local cached = assetSizeCache[name]
-	if cached ~= nil then
-		return if typeof(cached) == "Vector3" then cached else nil
+	if cached then
+		return cached
 	end
 	local inst = ReplicatedStorage:FindFirstChild(name)
 	local size: Vector3? = nil
@@ -116,7 +117,12 @@ function Utils.assetSize(name: string): Vector3?
 	elseif inst and inst:IsA("BasePart") then
 		size = inst.Size
 	end
-	assetSizeCache[name] = size or false
+	-- Cache'ujemy TYLKO trafienie. Nieznalezienie zapamiętane na zawsze (`false`) zostawało
+	-- u klienta, który zapytał, zanim asset się zreplikował — ghost mostu liczył wtedy do
+	-- końca sesji z wymiarów awaryjnych, inaczej niż serwer (przegląd 29.09, B-17).
+	if size then
+		assetSizeCache[name] = size
+	end
 	return size
 end
 

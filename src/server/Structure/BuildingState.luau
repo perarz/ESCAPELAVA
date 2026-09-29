@@ -252,7 +252,10 @@ function BuildingState.applyHole(self: BuildingState, partIndex: number, hmin: V
 	for _, id in ipairs(ids) do
 		local rt = self.rt[id]
 		if not ALIVE[rt.state] then continue end
-		if self:severs(self.chunks[id], hmin, hmax) and self:transition(id, ALIVE, "Destroyed") then
+		-- Permanentny (StructPermanent / Locked) „nigdy nie spada” — przecięty dalej nosi, jak
+		-- w applyStructuralDamage, które go pomija. Bez tego dziura przez cały przekrój robiła
+		-- z niego Destroyed i solver przestawał go liczyć za korzeń podparcia (przegląd 29.09, M-12).
+		if not self.chunks[id].permanent and self:severs(self.chunks[id], hmin, hmax) and self:transition(id, ALIVE, "Destroyed") then
 			rt.reason = "Severed"
 			rt.cause = cause
 			table.insert(self.logDestroyed, id)

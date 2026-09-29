@@ -188,7 +188,7 @@ local function handleFireGrapple(player: Player, targetPos: any)
 	-- 3. Cooldown. Zużywa się na PRÓBIE, nie na sukcesie — inaczej spam kliknięć w niebo
 	--    kosztuje serwer raycast przy każdym kliknięciu.
 	local now = os.clock()
-	if now - (lastFireAt[player] or 0) < Config.RateLimits.Grapple then return end
+	if now - (lastFireAt[player] or 0) < Config.RateLimits.Grapple * Config.RateLimits.ServerTolerance then return end
 	lastFireAt[player] = now
 
 	-- 4. Ma czym strzelać.
@@ -250,7 +250,7 @@ end
 local function onEquipItem(player: Player, itemId: any)
 	if itemId ~= ITEM_ID then return end
 	local now = os.clock()
-	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem then return end
+	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem * Config.RateLimits.ServerTolerance then return end
 	lastEquipAt[player] = now
 
 	if not PlayerService.isAlive(player) then return end
@@ -261,7 +261,7 @@ end
 
 local function onUnequipItem(player: Player)
 	local now = os.clock()
-	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem then return end
+	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem * Config.RateLimits.ServerTolerance then return end
 	lastEquipAt[player] = now
 	removeGrappleTool(player)
 end

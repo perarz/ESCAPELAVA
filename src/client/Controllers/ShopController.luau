@@ -116,19 +116,34 @@ end
 -- Kamera
 -- ============================================================================
 
+-- Trwający przejazd kamery między itemami. Trzymany, żeby zamknięcie sklepu mogło go
+-- przerwać — inaczej przez resztę tweena pisał Camera.CFrame i szarpał kadr już po
+-- oddaniu kamery graczowi (przegląd 29.09, B-20).
+local activeTween: Tween? = nil
+
+local function stopCameraTween()
+	if activeTween then
+		activeTween:Cancel()
+		activeTween = nil
+	end
+end
+
 local function focusCamera(instant: boolean)
 	local cam = Workspace.CurrentCamera
 	local e = entries[index]
 	if not cam or not e then return end
 	local goal = e.cf
+	stopCameraTween()
 	if instant then
 		cam.CFrame = goal
 	else
-		TweenService:Create(
+		local tween = TweenService:Create(
 			cam,
 			TweenInfo.new(CFG.CameraTweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 			{ CFrame = goal }
-		):Play()
+		)
+		activeTween = tween
+		tween:Play()
 	end
 end
 
@@ -281,6 +296,7 @@ local function closeShop()
 	isOpen = false
 	if ui then ui.Enabled = false end
 	setFrozen(false)
+	stopCameraTween()
 	local cam = Workspace.CurrentCamera
 	if cam then
 		cam.CameraType = savedCamType or Enum.CameraType.Custom

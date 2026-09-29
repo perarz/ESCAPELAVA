@@ -24,6 +24,7 @@ local KillService = require(script.Parent.KillService)
 -- Spawn idzie przez AppearanceService, nie przez `player:LoadCharacter()` — wszyscy mają
 -- wyglądać jak postacie z tej gry, a nie przynosić własne avatary (decyzja 2026-09-21).
 local AppearanceService = require(script.Parent.AppearanceService)
+local PlayerDataService = require(script.Parent.PlayerDataService)
 
 local PlayerService = {}
 
@@ -40,6 +41,11 @@ local respawnPending: { [Player]: {} } = {}
 -- ginie w lobby tuż przed startem rundy → timer ładuje go do lobby, a start rundy w tej
 -- samej chwili na mapę; gdyby wygrało lobby, stałby w lobby jako „żywy w rundzie”.
 local spawnBusy: { [Player]: boolean } = {}
+-- Dołączający, którzy czekają na swoje dane przed PIERWSZYM spawnem (decyzja Kacpra 29.09:
+-- wygląd od razu z zapisu). Start rundy i powrót do lobby ich pomijają: bez tego start rundy
+-- ładowałby ich na mapę bez danych, a spawn do lobby po wczytaniu wyrywałby ich z mapy —
+-- „żywi w rundzie” stojący w lobby, runda bez końca. Dołączenie w trakcie = widz w lobby.
+local joining: { [Player]: boolean } = {}
 local initialized = false
 local warnedNoLobby = false
 local warnedNoSpawns = false
@@ -318,6 +324,7 @@ local function sendSurvivorsToLobby()
 	-- śmierć ostatniego gracza (runda kończy się od razu) przenosiła jego ciało do lobby.
 	local target = getLobbyTargetPosition()
 	for _, p in ipairs(Players:GetPlayers()) do
+		if joining[p] then continue end -- pierwszy spawn zrobi onPlayerAdded, po wczytaniu danych
 		local char = p.Character
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -349,7 +356,13 @@ local function sendEveryoneToRound()
 	-- Start rundy ładuje postać KAŻDEMU, więc czekające timery śmierci są nieaktualne —
 	-- bez tego ktoś, kto zginął w lobby chwilę przed startem, wróciłby z mapy do lobby.
 	respawnPending = {}
-	local players = Players:GetPlayers()
+	-- Bez dołączających (patrz `joining`) — ci dostaną spawn w lobby jako widzowie.
+	local players: { Player } = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		if not joining[player] then
+			table.insert(players, player)
+		end
+	end
 	for _, player in ipairs(players) do
 		aliveSet[player] = true
 	end
@@ -401,7 +414,17 @@ local function onPlayerAdded(player: Player)
 		hookHumanoid(player, character)
 	end)
 
+	-- Pierwszy spawn CZEKA na dane (wygląd z zapisu — przegląd 29.09, A-1). Gracz jest w tym
+	-- czasie za ekranem ładowania. Po limicie spawnujemy i tak (wygląd losowy na to jedno
+	-- życie); wyrzucony po nieudanym wczytaniu po prostu tu wychodzi.
+	joining[player] = true
+	PlayerDataService.waitForData(player, Config.PlayerData.SpawnDataWaitMax)
+	joining[player] = nil
+	if not player.Parent then return end
+
 	-- Fresh join idzie do lobby niezależnie od stanu (w trakcie rundy = spectator w lobby).
+	-- Bez yieldu między zdjęciem `joining` a zajęciem `spawnBusy` w sendToLobby — start rundy
+	-- nie może się wcisnąć pomiędzy.
 	sendToLobby(player)
 end
 
@@ -409,6 +432,7 @@ local function onPlayerRemoving(player: Player)
 	aliveSet[player] = nil
 	respawnPending[player] = nil
 	spawnBusy[player] = nil
+	joining[player] = nil
 	disconnectDied(player)
 end
 
@@ -425,8 +449,9 @@ function PlayerService.init()
 
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(onPlayerRemoving)
+	-- task.spawn: onPlayerAdded czeka na dane gracza i nie może blokować init serwera.
 	for _, p in ipairs(Players:GetPlayers()) do
-		onPlayerAdded(p)
+		task.spawn(onPlayerAdded, p)
 	end
 
 	GameLoopService.StateChanged:Connect(function(newState: string)

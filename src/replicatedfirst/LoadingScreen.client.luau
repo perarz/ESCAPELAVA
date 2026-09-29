@@ -276,6 +276,32 @@ end
 
 -- ---------------------------------------------------------------------------
 
+-- Zejście ekranu. Jedno miejsce i jeden raz — woła je zwykły przebieg albo strażnik niżej.
+local finished = false
+local function finish()
+	if finished then return end
+	finished = true
+	setProgress(1, "Gotowe")
+	local info = TweenInfo.new(FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	for _, obj in ipairs(screen.fadeTargets) do
+		if obj.BackgroundTransparency < 1 then
+			TweenService:Create(obj, info, { BackgroundTransparency = 1 }):Play()
+		end
+		if obj:IsA("TextLabel") then
+			TweenService:Create(obj, info, { TextTransparency = 1 }):Play()
+		elseif obj:IsA("ImageLabel") then
+			TweenService:Create(obj, info, { ImageTransparency = 1 }):Play()
+		end
+	end
+	task.wait(FADE_TIME)
+	screen.gui:Destroy()
+end
+
+-- STRAŻNIK HARD_DEADLINE: etapy sprawdzają `deadline` tylko MIĘDZY swoimi krokami, a
+-- `game.Loaded:Wait()` i pojedyncze `PreloadAsync` potrafią wisieć bez limitu — wtedy czarny
+-- ekran zostawał na zawsze, wbrew zasadzie z nagłówka (przegląd 29.09, B-27).
+task.delay(math.max(deadline - os.clock(), 0), finish)
+
 task.spawn(function()
 	-- 1) Podstawowa replikacja
 	setProgress(0.04, "Łączenie...")
@@ -302,20 +328,7 @@ task.spawn(function()
 		RunService.RenderStepped:Wait()
 	end
 	task.wait(SETTLE_TIME)
-	setProgress(1, "Gotowe")
 
-	-- 5) Zejście
-	local info = TweenInfo.new(FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	for _, obj in ipairs(screen.fadeTargets) do
-		if obj.BackgroundTransparency < 1 then
-			TweenService:Create(obj, info, { BackgroundTransparency = 1 }):Play()
-		end
-		if obj:IsA("TextLabel") then
-			TweenService:Create(obj, info, { TextTransparency = 1 }):Play()
-		elseif obj:IsA("ImageLabel") then
-			TweenService:Create(obj, info, { ImageTransparency = 1 }):Play()
-		end
-	end
-	task.wait(FADE_TIME)
-	screen.gui:Destroy()
+	-- 5) Zejście (no-op, jeśli strażnik zdjął ekran wcześniej)
+	finish()
 end)

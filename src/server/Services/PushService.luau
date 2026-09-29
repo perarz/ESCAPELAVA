@@ -70,7 +70,7 @@ local function onPush(pusher: Player)
 
 	-- Cooldown — START na próbie, nie sukcesie (anti-spam F)
 	local now = os.clock()
-	if now - (lastPushAt[pusher] or 0) < Config.RateLimits.Push then return end
+	if now - (lastPushAt[pusher] or 0) < Config.RateLimits.Push * Config.RateLimits.ServerTolerance then return end
 	lastPushAt[pusher] = now
 
 	local pusherHRP = Utils.getRoot(pusher)

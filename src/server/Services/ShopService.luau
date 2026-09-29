@@ -16,9 +16,13 @@
 --   3. gracz ma kasę
 --   4. atomowo: give → spend (z undo gdy spend padnie)
 --
--- Rate limit celowo brak — spam zakupów nie jest exploitem (CashService.spend i
--- ItemService.give są atomic per gracz). Gracz może klikać KUP ile chce.
+-- Rate limit tylko na SPAM remote'a, nie na klikanie: spam zakupów nie jest exploitem
+-- ekonomii (CashService.spend i ItemService.give są atomic per gracz), więc gracz dalej
+-- klika KUP ile chce — `RateLimits.BuyItemPerSecond` jest ponad ludzkie tempo. Przegląd
+-- 29.09 (A-10): bez sufitu pętla exploitera zamieniała każdą prośbę w linię logu i odesłany
+-- ShopResult. Ponad limit prośba przepada PO CICHU — odpowiedź byłaby tym samym spamem.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -194,7 +198,27 @@ local function buy(player: Player, itemId: any): (boolean, string?)
 	return true, nil
 end
 
+-- Okno jednosekundowe per gracz (patrz nagłówek). Tabela okna jest używana ponownie —
+-- zero alokacji na zakup.
+local buyWindow: { [Player]: { start: number, count: number } } = {}
+
+local function allowBuy(player: Player): boolean
+	local now = os.clock()
+	local w = buyWindow[player]
+	if not w then
+		buyWindow[player] = { start = now, count = 1 }
+		return true
+	end
+	if now - w.start >= 1 then
+		w.start, w.count = now, 1
+		return true
+	end
+	w.count += 1
+	return w.count <= Config.RateLimits.BuyItemPerSecond
+end
+
 local function onBuyItem(player: Player, itemId: any)
+	if not allowBuy(player) then return end
 	local ok, reason = buy(player, itemId)
 	log(player, tostring(itemId), ok, reason)
 	Remotes.ShopResult:FireClient(player, ok, tostring(itemId), reason)
@@ -206,6 +230,9 @@ function ShopService.init()
 	initialized = true
 
 	Remotes.BuyItem.OnServerEvent:Connect(onBuyItem)
+	Players.PlayerRemoving:Connect(function(player: Player)
+		buyWindow[player] = nil
+	end)
 
 	local npc = findNpc()
 	if npc then

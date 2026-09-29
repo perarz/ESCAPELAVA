@@ -314,6 +314,20 @@ local function structureDust(position: Vector3, magnitude: number, collapse: boo
 	dust:Emit(scaled(collapse and math.floor(40 + 40 * magnitude) or 14))
 end
 
+-- Okno jednosekundowe na obłoki kolapsu (opis przy onStructureFX).
+local collapseDustWindow = 0
+local collapseDustCount = 0
+
+local function allowCollapseDust(): boolean
+	local now = os.clock()
+	if now - collapseDustWindow >= 1 then
+		collapseDustWindow = now
+		collapseDustCount = 0
+	end
+	collapseDustCount += 1
+	return collapseDustCount <= FX.CollapseDustPerSecond
+end
+
 local function onStructureFX(kind: any, position: any, magnitude: any)
 	if typeof(kind) ~= "string" or typeof(position) ~= "Vector3" then return end
 	local mag = typeof(magnitude) == "number" and math.clamp(magnitude, 0, 1) or 0.5
@@ -322,7 +336,15 @@ local function onStructureFX(kind: any, position: any, magnitude: any)
 	local distance = camera and (camera.CFrame.Position - position).Magnitude or 0
 
 	if kind == "collapse" then
-		structureDust(position, mag, true)
+		-- Serwer wysyła to przy starcie KAŻDEJ grupy kolapsu (budynek = kilkadziesiąt grup
+		-- w kilku klatkach), do wszystkich graczy na mapie. Bez bramki każdy klient, także
+		-- telefon po drugiej stronie miasta, emitował 40-80 cząsteczek na grupę — ~1500-3000
+		-- naraz (przegląd 29.09, B-6). Daleko: sam dźwięk, jak przy zwykłym wybuchu; blisko:
+		-- najwyżej `CollapseDustPerSecond` obłoków — przy kaskadzie i tak zlewają się w jeden.
+		local farDistance = math.min(250, QualityController.profile().FXDistance + 60)
+		if distance <= farDistance and allowCollapseDust() then
+			structureDust(position, mag, true)
+		end
 		playSoundAt(FX.CollapseSoundId, position, 1, 400)
 		local t = 1 - math.clamp(distance / FX.CollapseShakeDistance, 0, 1)
 		if t > 0 then
