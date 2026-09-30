@@ -371,3 +371,7 @@ Każdy pomysł "a może dodamy..." → odpowiedź brzmi: **po launchu, nie teraz
 - Nagrody: przetrwanie 100$, kill 25$, kasa z mapy 10$/szt. (Daily skasowane 12.09 —
   do zrobienia od nowa.)
 - Start gracza: 100$ na dzień dobry.
+
+## Stan na 2026-09-30
+
+Przegląd kodu 29.09 i naprawy w paczkach — wszystko czeka na test Kacpra w Play (`docs/TESTY.md`). Co zostało do wypuszczenia gry: `docs/DO_RELEASE.md`. Decyzje: destrukcja zostaje na prawdziwej fizyce, gruz nie rani; loadout 3 itemy na rundę; anty-cheat cofa gracza; na telefon przyciski dotykowe.
