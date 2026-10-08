@@ -105,17 +105,19 @@ local function randomUnit(rng: Random): Vector3
 	return Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-1, 1), rng:NextNumber(-1, 1))
 end
 
--- Lokalny gruz budynku jest CIEMNOSZARY (decyzja Kacpra 25.09) — nie ma kolizji, więc kolor
--- mówi graczowi „przez to przejdziesz, na tym nie staniesz”. Lekki rozrzut jasności, żeby
--- sterta nie wyglądała jak jeden plastikowy klocek.
+-- Lokalny gruz budynku jest SZARY (decyzja Kacpra 25.09) — nie ma kolizji, więc kolor
+-- mówi graczowi „przez to przejdziesz, na tym nie staniesz”. Odcień losowany z listy
+-- (07.10: „różne odcienie szarego, a nie jeden”) + lekki rozrzut jasności, żeby sterta
+-- nie wyglądała jak jeden plastikowy klocek.
 local function debrisColor(rng: Random): Color3
-	local base = FX.LocalDebrisColor
+	local palette = FX.LocalDebrisColors
+	local base = palette[rng:NextInteger(1, #palette)]
 	local k = 1 + rng:NextNumber(-FX.LocalDebrisColorJitter, FX.LocalDebrisColorJitter)
 	return Color3.new(math.clamp(base.R * k, 0, 1), math.clamp(base.G * k, 0, 1), math.clamp(base.B * k, 0, 1))
 end
 
 -- Kawałek gruzu budynku (odłamek dziury albo posiekana bryła): box albo klin, lekki shrink
--- i obrót (siatka nie może czytać się jak siatka), ciemnoszary, z materiałem i wariantem
+-- i obrót (siatka nie może czytać się jak siatka), szary (odcień z listy), z materiałem i wariantem
 -- źródła — mapa stoi na Plastic + „Studs” (hard rule 15). Jedno miejsce dla obu dróg.
 local function makeChunk(rng: Random, cf: CFrame, size: Vector3, mat: any, var: any, tr: any): BasePart
 	local part: BasePart

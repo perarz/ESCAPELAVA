@@ -9,6 +9,8 @@
 --     dzieli part na pasy, kolaps odcina go po granicy chunków, bomba wycina odcinek listwy)
 --   * OPARCIE LISTEW (26.09): listwa zostaje, póki dotyka czegoś stojącego — pass
 --     `takeUnsupportedStrips` po każdej zmianie budynku oddaje te, które straciły ostatnie
+--     oparcie. Od 30.09 ta sama reguła dla KIKUTÓW (pas konstrukcji nad albo pod dziurą,
+--     której chunk jest już zniszczony).
 -- Reszta mapy zostaje na v3 — DestructionService pyta `ownerOf`, zanim zdecyduje, którą
 -- ścieżką idzie part.
 --
@@ -54,6 +56,11 @@ export type Rec = {
 	stripLinks: { [number]: { number } },
 	-- Listwy bez oparcia już w NIETKNIĘTYM budynku (tak je postawiono) — pass ich nie zrzuca.
 	designFloating: { [number]: boolean },
+	-- Kikuty (30.09): part konstrukcji → party, których może dotykać jego kikut (on sam — pień
+	-- tego samego parta, sąsiedzi z interfejsów, listwy przez linki zwrotne). Grunt pod partem
+	-- = obszary jego styków z GROUND.
+	stubLinks: { [number]: { number } },
+	groundFaces: { [number]: { Pieces.Box } },
 	min: Vector3, -- prostopadłościan budynku (szybki filtr wybuchu)
 	max: Vector3,
 	source: string, -- "baked" | "live"
@@ -73,6 +80,7 @@ local rng = Random.new()
 -- ============================================================================
 
 local STRIP_PAD = CFG.ContactPadding
+local NONE: { any } = table.freeze({})
 
 -- Ta sama definicja styku co w bake'u (`Core.intersect`: szczelina do 2 × luz). Własna, ciaśniejsza
 -- wersja (≤ 1 × luz) gubiła styki, które bake zapisał w TrimLinks — test 26.09: podkłady torów
@@ -86,8 +94,22 @@ end
 -- trzyma się szyny, szyna stropu). Styk sprawdzamy na pudełkach kawałków, nie partów: dziura
 -- albo wycięty odcinek mógł zabrać akurat miejsce styku. Pełny pass na OrangeBuilding
 -- (193 listwy, 583 styki) = 0,15 ms (pomiar 26.09), więc liczymy zawsze cały budynek.
+--
+-- KIKUTY (30.09, test Kacpra w OrangeKebab — „kawałek ściany przy dachu i na nim trzyma się
+-- dach”): ta sama reguła dla kawałków konstrukcji, których chunk jest już zniszczony. Dziura
+-- przebija filarek na wylot → solver uznaje chunk za Destroyed, a pas nad dziurą zostaje
+-- zakotwiczony. Do 30.09 kikut spadał tylko wtedy, gdy obok ruszała grupa kolapsu
+-- (`CollapseService.takePieces` zabiera kikuty stykające się z grupą). Pas nad filarkiem
+-- SKRUSZYŁ się zamiast spaść — kruszenie to inna ścieżka — więc kikuty zostały w powietrzu
+-- na zawsze, a spadający dach osiadł na nich jako platforma. Pytanie „czy coś go zabrało?”
+-- łatało jedną ścieżkę; „czy ma się na czym oprzeć?” łapie każdą naraz.
+-- Kikut nie jest też oparciem dla listwy: narożny słupek kebaba wisiał na takich kikutach,
+-- a one — dzięki niemu — na sobie nawzajem. Oparcie kikuta: stojący kawałek konstrukcji (także
+-- pień tego samego parta — kikut wiszący pod stojącym stropem zostaje, decyzja z 25.09), grunt
+-- pod jego chunkiem albo listwa/kikut, które same mają oparcie.
 local function unsupportedStrips(rec: Rec): { StripPiece }
 	local STRUCTURAL = Core.STRUCTURAL
+	local st = rec.state
 	local live: { [number]: { BasePart } } = {}
 	local function piecesOf(index: number): { BasePart }
 		local list = live[index]
@@ -107,33 +129,96 @@ local function unsupportedStrips(rec: Rec): { StripPiece }
 		return b
 	end
 
+	-- Kikut = zakotwiczony kawałek konstrukcji, który nie leży w ŻADNYM żywym chunku swojego
+	-- parta. Kruszenie i start grupy odcinają swoje kawałki po granicy chunka i je zwalniają,
+	-- więc zostaje tu wyłącznie to, co po dziurze przecinającej chunk na wylot (Severed).
+	local minOverlap = CFG.Collapse.MinPieceSize
+	local stub: { [BasePart]: boolean } = {}
+	local stubsOf: { [number]: { BasePart } } = {}
+	local damagedParts: { [number]: boolean } = {}
+	for id, c in ipairs(st.chunks) do
+		if not st:isAlive(id) then
+			damagedParts[c.part] = true
+		end
+	end
+	for index in pairs(damagedParts) do
+		local list: { BasePart } = {}
+		for _, piece in ipairs(piecesOf(index)) do
+			if not piece.Anchored then continue end
+			local b = boxOf(piece)
+			local inAlive = false
+			for _, cid in ipairs(st.partChunks[index] or NONE) do
+				local c = st.chunks[cid]
+				if st:isAlive(cid) and Pieces.intersect(b, { min = c.min, max = c.max }, minOverlap) then
+					inAlive = true
+					break
+				end
+			end
+			if not inAlive then
+				stub[piece] = true
+				table.insert(list, piece)
+			end
+		end
+		if #list > 0 then
+			stubsOf[index] = list
+		end
+	end
+
+	-- Czy któryś ze stojących kawałków konstrukcji partów `links` dotyka pudełka `b`.
+	local function touchesStanding(b: Pieces.Box, links: { number }, self: BasePart?): boolean
+		for _, other in ipairs(links) do
+			if not STRUCTURAL[rec.parts[other].kind] then continue end
+			for _, q in ipairs(piecesOf(other)) do
+				if q ~= self and q.Anchored and not stub[q] and touches(b, boxOf(q)) then
+					return true
+				end
+			end
+		end
+		return false
+	end
+
 	local supported: { [BasePart]: boolean } = {}
 	local queue: { StripPiece } = {}
 	for index, links in pairs(rec.stripLinks) do
 		for _, piece in ipairs(piecesOf(index)) do
-			if not piece.Anchored then continue end
-			for _, other in ipairs(links) do
-				if not STRUCTURAL[rec.parts[other].kind] then continue end
-				for _, q in ipairs(piecesOf(other)) do
-					if q.Anchored and touches(boxOf(piece), boxOf(q)) then
-						supported[piece] = true
-						break
-					end
-				end
-				if supported[piece] then break end
-			end
-			if supported[piece] then
+			if piece.Anchored and touchesStanding(boxOf(piece), links, nil) then
+				supported[piece] = true
 				table.insert(queue, { index = index, piece = piece })
 			end
 		end
+	end
+	for index, list in pairs(stubsOf) do
+		for _, piece in ipairs(list) do
+			local b = boxOf(piece)
+			local ok = false
+			for _, g in ipairs(rec.groundFaces[index] or NONE) do
+				if touches(b, g) then
+					ok = true
+					break
+				end
+			end
+			if ok or touchesStanding(b, rec.stubLinks[index] or NONE, piece) then
+				supported[piece] = true
+				table.insert(queue, { index = index, piece = piece })
+			end
+		end
+	end
+
+	-- Dalej przez styki listwa↔listwa, listwa↔kikut i kikut↔kikut. Z parta konstrukcji idziemy
+	-- tylko do jego kikutów — stojące kawałki są korzeniami, nie ogniwami łańcucha.
+	local function looseOf(index: number): { BasePart }
+		if STRUCTURAL[rec.parts[index].kind] then
+			return stubsOf[index] or NONE
+		end
+		return piecesOf(index)
 	end
 	local qi = 1
 	while qi <= #queue do
 		local cur = queue[qi]
 		qi += 1
-		for _, other in ipairs(rec.stripLinks[cur.index]) do
-			if STRUCTURAL[rec.parts[other].kind] then continue end
-			for _, q in ipairs(piecesOf(other)) do
+		local links = if STRUCTURAL[rec.parts[cur.index].kind] then rec.stubLinks[cur.index] else rec.stripLinks[cur.index]
+		for _, other in ipairs(links or NONE) do
+			for _, q in ipairs(looseOf(other)) do
 				if not supported[q] and q.Anchored and touches(boxOf(cur.piece), boxOf(q)) then
 					supported[q] = true
 					table.insert(queue, { index = other, piece = q })
@@ -145,6 +230,13 @@ local function unsupportedStrips(rec: Rec): { StripPiece }
 	local out: { StripPiece } = {}
 	for index in pairs(rec.stripLinks) do
 		for _, piece in ipairs(piecesOf(index)) do
+			if not supported[piece] then
+				table.insert(out, { index = index, piece = piece })
+			end
+		end
+	end
+	for index, list in pairs(stubsOf) do
+		for _, piece in ipairs(list) do
 			if not supported[piece] then
 				table.insert(out, { index = index, piece = piece })
 			end
@@ -339,6 +431,8 @@ function StructuralService.rebuild()
 			pieces = {},
 			stripLinks = {},
 			designFloating = {},
+			stubLinks = {},
+			groundFaces = {},
 			min = Vector3.one * math.huge,
 			max = -Vector3.one * math.huge,
 			source = source,
@@ -362,6 +456,47 @@ function StructuralService.rebuild()
 			end
 		end
 		local guests = if typeof(own) == "table" and own.Guests and map then addGuests(rec, map, own.Guests) else 0
+		-- Sąsiedzi kikutów — PO gościach: linki zwrotne listew biorą się z `stripLinks`, więc
+		-- obejmują też tory, które doczepiają się tylko w stronę budynku.
+		local function link(a: number, b: number)
+			local list = rec.stubLinks[a]
+			if not list then
+				list = {}
+				rec.stubLinks[a] = list
+			end
+			if not table.find(list, b) then
+				table.insert(list, b)
+			end
+		end
+		for _, p in ipairs(rec.parts) do
+			if Core.STRUCTURAL[p.kind] then
+				link(p.index, p.index)
+			end
+		end
+		for _, f in ipairs(data.Interfaces) do
+			local to = data.Chunks[f.to].part
+			if f.from == Core.GROUND then
+				local faces = rec.groundFaces[to]
+				if not faces then
+					faces = {}
+					rec.groundFaces[to] = faces
+				end
+				table.insert(faces, { min = f.lo, max = f.hi })
+			else
+				local from = data.Chunks[f.from].part
+				if from ~= to then
+					link(from, to)
+					link(to, from)
+				end
+			end
+		end
+		for strip, links in pairs(rec.stripLinks) do
+			for _, q in ipairs(links) do
+				if Core.STRUCTURAL[rec.parts[q].kind] then
+					link(q, strip)
+				end
+			end
+		end
 		-- Stan „przed” dla passu podparcia listew: to, co wisi już w projekcie, zostaje (także
 		-- gość, który budynku nie dotyka — np. filar toru stojący w obrysie na gruncie).
 		local floating = 0
@@ -456,9 +591,10 @@ function StructuralService.releaseInstance(inst: Instance)
 	end
 end
 
--- Zwalnia z budynku i zwraca kawałki listew, które straciły OSTATNIE oparcie (wołający
--- oddaje je klientom albo zabiera z grupą kolapsu). Wołają: DestructionService po wybuchu,
--- CollapseService po kruszeniu i przy starcie grupy.
+-- Zwalnia z budynku i zwraca kawałki listew — i od 30.09 kikuty — które straciły OSTATNIE
+-- oparcie (wołający oddaje je klientom albo zabiera z grupą kolapsu). Wołają: DestructionService
+-- po wybuchu, CollapseService po kruszeniu i przy starcie grupy — czyli każda ścieżka, która
+-- może zabrać kikutowi to, na czym wisiał.
 function StructuralService.takeUnsupportedStrips(rec: Rec): { StripPiece }
 	local out: { StripPiece } = {}
 	for _, u in ipairs(unsupportedStrips(rec)) do

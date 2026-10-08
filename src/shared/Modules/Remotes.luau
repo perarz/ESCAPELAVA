@@ -35,6 +35,8 @@ local REMOTE_NAMES = {
 	"RoundWon",           -- FireAllClients: (winners: {Player}, rewardPerPlayer: number) — banner "NAME WON $X"
 	"PlayerKilled",       -- FireAllClients: (killer: Player, victim: Player, weapon: string, reward: number) — killfeed
 	"AliveChanged",       -- FireClient: (isAlive: boolean) — server-side aliveSet zmiana (round spawn=true, death=false)
+	                      --   `true` idzie PO teleporcie na mapę (07.10) — RoundTransitionController
+	                      --   zdejmuje na nim ciemne przejście
 	"BombHit",            -- FireClient: (intensity: number 0..1) — trafiony wybuchem: screen shake + FOV punch
 	"BlastFX",            -- FireAllClients: (blast: {
 	                      --     center: Vector3, radius: number, impulse: number, minT: number,

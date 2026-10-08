@@ -1,7 +1,7 @@
 --!strict
 -- BridgeService.luau
 -- Server-authoritative budowanie mostu. Klient w build mode wybiera position+rotationY
--- myszą i klika LMB → BuildBridge Remote → server validate + consume + spawn anchored Part.
+-- myszą i klika LMB → BuildBridge Remote → server validate + consume + spawn mostu z fizyką.
 --
 -- Flow:
 --   1. Klient klika hotbar slot z bridge_builder → HotbarController fires EquipItem("bridge_builder")
@@ -14,8 +14,13 @@
 --   7. UnequipItem → BridgeService.onUnequip → fire BridgeBuildMode(false)
 --
 -- Most:
---   - Model `ReplicatedStorage.<def.worldModel>` (dziś "Bridge", 12 desek), wszystkie party
---     ANCHORED — most to konstrukcja, nie gruz. Brak modelu = prosty Part z ItemDefinitions.
+--   - Model `ReplicatedStorage.<def.worldModel>` (dziś "Bridge", 12 desek). Brak modelu = prosty
+--     Part z ItemDefinitions.
+--   - FIZYKA OD POSTAWIENIA (decyzja Kacpra 01.10; do tego dnia most był zakotwiczoną
+--     „konstrukcją”): deski spawane w jedną bryłę, która leży na tym, na czym ją położono.
+--     Działa tylko oparta o coś końcami; bomba odrzuca ją w całości (DestructionService pcha
+--     niezakotwiczone bryły — jedna prędkość na bryłę). Świadome skutki zaakceptowane przez
+--     Kacpra: na lawie (bez kolizji) wpada na dno, wysunięta nad przepaść się przechyla.
 --   - WYMIARY BIERZE SIĘ Z MODELU (`ItemDefinitions.worldSize`), nie z liczb w definicji:
 --     asset Kacpra jest źródłem prawdy, a klient liczy ghost tą samą funkcją.
 --   - W Workspace.ActiveBridges folder (osobno od Map, żeby MapService go nie tknął)
@@ -26,10 +31,9 @@
 -- budowaniem steruje BridgeController (LMB przez UserInputService), więc Tool.Activated
 -- celowo nie jest podpięty.
 --
--- DECYZJA DESIGNOWA "bomba niszczy most" jest nadal aktualna, ale od 2026-08-11 nie ma
--- jej czym wykonać — destrukcja otoczenia została usunięta i idzie do napisania od nowa.
--- Nowy system wybuchów MUSI omijać ActiveBridges przy budowaniu listy chronionych rzeczy,
--- inaczej sabotaż PvP po cichu zniknie z gry (patrz też Locked=false przy spawnie mostu).
+-- SABOTAŻ PvP: bomba odrzuca most (od 01.10 — wcześniej go łamała). ActiveBridges NIE może
+-- trafić na listę chronionych rzeczy w `Destructible`, inaczej sabotaż po cichu zniknie
+-- z gry (patrz też Locked=false przy spawnie mostu).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -41,6 +45,7 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 
 local ItemService = require(script.Parent.ItemService)
+local LavaService = require(script.Parent.LavaService)
 local PlayerService = require(script.Parent.PlayerService)
 local GameLoopService = require(script.Parent.GameLoopService)
 
@@ -91,8 +96,8 @@ local function isValidNumber(n: any): boolean
 end
 
 -- Właściwości wymuszane na KAŻDEJ desce mostu.
---   Anchored — most to konstrukcja. Nieanchorowany part DestructionService traktuje jak
---     gruz (dostaje impuls zamiast pękać) i jeszcze warnuje o błędzie kontraktu mapy.
+--   Anchored — tylko na czas ustawiania: `makePhysical` spawa deski i odkotwicza je dopiero,
+--     gdy stoją na miejscu (spaw zapamiętuje układ z chwili utworzenia).
 --   Locked=false — `Locked` to w tym projekcie konwencja „nie ruszaj tego" (tak chronimy
 --     Baseplate i lawę). Gdyby Kacper kliknął Lock na modelu w Studio, most stałby się
 --     niezniszczalny i sabotaż PvP zniknąłby po cichu. Wymuszamy przy każdym spawnie.
@@ -100,6 +105,60 @@ local function applyBridgeProperties(part: BasePart)
 	part.Anchored = true
 	part.CanCollide = true
 	part.Locked = false
+end
+
+local function isCharacterPart(part: BasePart): boolean
+	local model = part:FindFirstAncestorOfClass("Model")
+	return model ~= nil and model:FindFirstChildOfClass("Humanoid") ~= nil
+end
+
+-- Ustawiony most → jedna bryła fizyczna. Zwraca korzeń (największa deska). Deska, która przy
+-- postawieniu utkwiła w murku czy gzymsie dachu, dostaje NoCollisionConstraint z tym, w czym
+-- utkwiła — inaczej silnik wypycha bryłę „wybuchowo” i most wylatuje w powietrze (ta sama
+-- lekcja co grupy kolapsu, test 25.09). Z postaciami NIGDY — gracz przeleciałby przez most
+-- na zawsze. Z terenem też nie: to JEDEN part na całą mapę, most przeleciałby przez świat.
+-- Woła się PO wstawieniu do Workspace, póki deski są zakotwiczone: `GetPartsInPart` sprawdza
+-- prawdziwy kształt. Zapytanie po pudełku obrysu łapałoby przekrzywiony dach, na którym most
+-- LEŻY (obrys obróconego parta wystaje ponad jego powierzchnię) — most przeleciałby przez dach.
+local function makePhysical(bridge: Instance): BasePart
+	local parts: { BasePart } = {}
+	if bridge:IsA("BasePart") then
+		table.insert(parts, bridge)
+	end
+	for _, d in ipairs(bridge:GetDescendants()) do
+		if d:IsA("BasePart") then
+			table.insert(parts, d)
+		end
+	end
+	local root: BasePart = if bridge:IsA("BasePart") then bridge else (Utils.largestPart(bridge) or parts[1])
+
+	local inset = Vector3.one * (Config.Bridge.SpawnOverlapInset * 2)
+	local overlap = OverlapParams.new()
+	overlap.FilterType = Enum.RaycastFilterType.Exclude
+	overlap.FilterDescendantsInstances = { bridge }
+	overlap.RespectCanCollide = true
+	for _, p in ipairs(parts) do
+		-- Deska zwężona na czas zapytania (w tej samej klatce — replikacja widzi tylko wynik),
+		-- żeby leżenie NA dachu nie liczyło się jako utknięcie.
+		local full = p.Size
+		p.Size = (full - inset):Max(Vector3.one * 0.05)
+		local hits = Workspace:GetPartsInPart(p, overlap)
+		p.Size = full
+		for _, hit in ipairs(hits) do
+			if not hit:IsA("Terrain") and not isCharacterPart(hit) then
+				local nc = Instance.new("NoCollisionConstraint")
+				nc.Part0 = p
+				nc.Part1 = hit
+				nc.Parent = p
+			end
+		end
+	end
+
+	-- Spawy, potem odkotwiczenie (kolejność opisana przy Utils.weldModel). Deski stoją już
+	-- w Workspace, ale zakotwiczone, więc nie ma klatki, w której byłyby luźne.
+	Utils.weldModel(bridge, root)
+	root.Anchored = false -- weldModel odkotwicza potomków; most-Part (bez modelu) to sam korzeń
+	return root
 end
 
 local function makeBridge(position: Vector3, rotationY: number, def: any): Instance
@@ -275,6 +334,15 @@ local function handleBuildBridge(player: Player, anchorPos: any, rotationY: any)
 		return  -- nie exit — klient widzi czerwony ghost i wie że za daleko
 	end
 
+	-- Na lawie (01.10): most z fizyką utonąłby w niej od razu, a gracz straciłby item za nic.
+	-- Ten sam próg co ghost w BridgeController — PRZED consume.
+	local dims = ItemDefinitions.worldSize(ITEM_ID) or Vector3.new(def.width, def.thickness, def.length)
+	if (anchorPos :: Vector3).Y - dims.Y * 0.5 <= LavaService.getSurfaceY() + Config.Bridge.LavaMargin then
+		Remotes.BridgeResult:FireClient(player, false, "on_lava")
+		log(player, "odrzucony", "na lawie")
+		return
+	end
+
 	-- Atomic consume (item gone PRZED spawn → race-safe)
 	if not ItemService.consume(player, ITEM_ID, 1) then
 		Remotes.BridgeResult:FireClient(player, false, "consume_failed")
@@ -287,14 +355,23 @@ local function handleBuildBridge(player: Player, anchorPos: any, rotationY: any)
 	-- Anchor → centrum (musi być spójne z BridgeController.anchorToCenter). Długość bierze
 	-- się z MODELU przez wspólne ItemDefinitions.worldSize — gdyby serwer liczył z liczb
 	-- w definicji, a klient z modelu, most stawałby gdzie indziej niż pokazywał ghost.
-	local dims = ItemDefinitions.worldSize(ITEM_ID) or Vector3.new(def.width, def.thickness, def.length)
+	-- (`dims` policzone wyżej, przy sprawdzaniu lawy.)
 	local rad = math.rad(rotationY :: number)
 	local forward = Vector3.new(math.sin(rad), 0, math.cos(rad))
 	local centerPos = (anchorPos :: Vector3) + forward * (dims.Z * 0.5)
 
-	-- Spawn fizyczny most
+	-- Spawn mostu: ustawiony i zakotwiczony → do Workspace → bryła fizyczna (kolejność
+	-- wymagana przez `makePhysical`).
 	local bridge = makeBridge(centerPos, rotationY :: number, def)
 	bridge.Parent = getOrCreateActiveFolder()
+	local root = makePhysical(bridge)
+	-- Fizyka na SERWERZE na stałe. Silnik oddaje niezakotwiczoną bryłę najbliższemu graczowi,
+	-- a bryła z kolizją należąca do klienta = exploit (przesunąć most pod siebie nad lawą;
+	-- to samo pilnuje CollapseService dla spadających pięter). Koszt: przy lagu chodzenie po
+	-- moście, który akurat się rusza, może lekko drżeć.
+	pcall(function()
+		root:SetNetworkOwner(nil)
+	end)
 
 	Remotes.BridgeResult:FireClient(player, true, nil)
 	log(player, "built", ("anchor=%s rotY=%d°"):format(tostring(anchorPos), math.floor(rotationY)))

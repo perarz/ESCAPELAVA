@@ -5,86 +5,58 @@
     "Lighting": {
       "$properties": {
         "Ambient": [
-          0.1176,
-          0.1176,
-          0.149
+          0.34509803921568627,
+          0.22745098039215686,
+          0.20392156862745098
         ],
-        "Brightness": 2.6,
+        "Brightness": 3,
         "ColorShift_Bottom": [
-          0.6588,
-          0.7451,
-          0.8627
+          0.27450980392156865,
+          0.27450980392156865,
+          0.27450980392156865
         ],
         "ColorShift_Top": [
-          1.0,
-          0.9333,
-          0.8039
+          0.27450980392156865,
+          0.27450980392156865,
+          0.27450980392156865
         ],
-        "EnvironmentDiffuseScale": 0.6,
-        "EnvironmentSpecularScale": 0.2,
+        "EnvironmentDiffuseScale": 0.965,
+        "EnvironmentSpecularScale": 0.081,
         "ExposureCompensation": 0,
         "FogColor": [
-          0.7765,
-          0.8392,
-          0.9098
+          0.7529411764705882,
+          0.7529411764705882,
+          0.7529411764705882
         ],
-        "GeographicLatitude": 60.0,
+        "GeographicLatitude": 0,
         "GlobalShadows": true,
         "OutdoorAmbient": [
-          0.4,
-          0.4549,
-          0.549
+          0.5058823529411764,
+          0.3568627450980392,
+          0.26666666666666666
         ],
         "Outlines": false,
         "PrioritizeLightingQuality": true,
-        "ShadowSoftness": 0.08,
+        "ShadowSoftness": 0,
         "Tags": {
           "SharedString": ""
         },
-        "Technology": "ShadowMap",
-        "TimeOfDay": "15:00:00",
-        "FogStart": 260,
-        "FogEnd": 1200
-      },
-      "Atmosphere": {
-        "$className": "Atmosphere",
-        "$properties": {
-          "Density": 0.1,
-          "Haze": 0.4,
-          "Glare": 0.08,
-          "Color": [
-            0.7804,
-            0.8392,
-            0.902
-          ],
-          "Decay": [
-            0.4157,
-            0.4392,
-            0.4902
-          ],
-          "Offset": 0
-        }
-      },
-      "Bloom": {
-        "$className": "BloomEffect",
-        "$properties": {
-          "Enabled": true,
-          "Intensity": 0.55,
-          "Size": 18,
-          "Threshold": 1.35
-        }
+        "TimeOfDay": "16:42:00",
+        "FogStart": 0,
+        "FogEnd": 100000,
+        "LightingStyle": "Realistic"
       },
       "ColorCorrection": {
         "$className": "ColorCorrectionEffect",
         "$properties": {
           "Enabled": true,
-          "Brightness": -0.02,
-          "Contrast": 0.2,
-          "Saturation": 0.22,
+          "Brightness": 0,
+          "Contrast": 0,
+          "Saturation": 0.4,
           "TintColor": [
-            1,
-            1,
-            1
+            0.9215686274509803,
+            0.9215686274509803,
+            0.9215686274509803
           ]
         }
       },
@@ -92,7 +64,15 @@
         "$className": "SunRaysEffect",
         "$properties": {
           "Enabled": true,
-          "Intensity": 0.1
+          "Intensity": 0.483,
+          "Spread": 1
+        }
+      },
+      "Blur": {
+        "$className": "BlurEffect",
+        "$properties": {
+          "Enabled": true,
+          "Size": 1
         }
       }
     },
@@ -268,7 +248,7 @@
         },
         "SignalBehavior": "Deferred",
         "StreamOutBehavior": "Opportunistic",
-        "StreamingEnabled": true,
+        "StreamingEnabled": false,
         "StreamingIntegrityMode": "PauseOutsideLoadedArea",
         "Tags": {
           "SharedString": ""

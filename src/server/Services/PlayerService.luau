@@ -373,7 +373,7 @@ local function sendEveryoneToRound()
 	-- wychodzący w tej samej klatce) przerywał CAŁĄ pętlę: reszta zostawała w aliveSet
 	-- jako żywa, ale nigdy nie lądowała na mapie — runda nie mogła skończyć się wcześniej,
 	-- bo licznik żywych nigdy nie schodził do zera.
-	local spawned: { { char: Model, pos: Vector3 } } = {}
+	local spawned: { { player: Player, char: Model, pos: Vector3 } } = {}
 	for i, player in ipairs(players) do
 		local pos = pool[((i - 1) % #pool) + 1]
 		-- Spawn do lobby rozpoczęty tuż przed startem rundy (timer śmierci, dołączenie) musi
@@ -386,8 +386,7 @@ local function sendEveryoneToRound()
 		end)
 		local char = player.Character
 		if ok and char then
-			table.insert(spawned, { char = char, pos = pos })
-			Remotes.AliveChanged:FireClient(player, true)
+			table.insert(spawned, { player = player, char = char, pos = pos })
 		else
 			if not ok then
 				warn(("[PlayerService] LoadCharacter %s nie powiódł się: %s"):format(player.Name, tostring(err)))
@@ -402,6 +401,10 @@ local function sendEveryoneToRound()
 	for _, entry in ipairs(spawned) do
 		if entry.char.Parent then
 			entry.char:PivotTo(CFrame.new(entry.pos))
+			-- PO teleporcie (07.10): klient traktuje to jako „stoisz na mapie” i dopiero
+			-- wtedy zdejmuje ciemne przejście (RoundTransitionController). Wysłane przed
+			-- PivotTo przychodziło, gdy postać stała jeszcze w lobby.
+			Remotes.AliveChanged:FireClient(entry.player, true)
 		end
 	end
 	for _, player in ipairs(players) do

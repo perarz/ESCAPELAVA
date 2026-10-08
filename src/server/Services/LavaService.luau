@@ -136,8 +136,9 @@ local function spawnDeathPoof(position: Vector3)
 end
 
 -- Odległość od HumanoidRootPart do stóp w R15 — żeby gracz ginął gdy zanurzy się
--- po kostki, a nie dopiero gdy lawa sięgnie mu bioder.
-local FEET_OFFSET = 2.5
+-- po kostki, a nie dopiero gdy lawa sięgnie mu bioder. W Config (01.10), bo ten sam próg
+-- czyta klient dla oporu gęstej lawy.
+local FEET_OFFSET = Config.Lava.FeetOffset
 local KILL_CHECK_HZ = 10
 
 -- Zabijanie przez POZYCJĘ, nie przez Touched.

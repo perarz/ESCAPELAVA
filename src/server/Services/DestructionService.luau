@@ -109,9 +109,9 @@ export type BlastStats = {
 }
 
 -- Attribute na partach mapy: pozostałe HP strukturalne (brak = pełne HP kategorii).
-local HP_ATTR = "DestrHP"
+local HP_ATTR = Config.Destruction.DamageAttributes.HP
 -- Attribute: oryginalny kolor sprzed przyciemnienia (feedback obrażeń).
-local ORIG_COLOR_ATTR = "DestrOrigColor"
+local ORIG_COLOR_ATTR = Config.Destruction.DamageAttributes.OrigColor
 
 -- HRP → stopy. ⚠️ Ta sama liczba żyje w FallDamageService (HRP_TO_FEET) i LavaService
 -- (FEET_OFFSET) — kandydat do Config, dopóki są trzy kopie.

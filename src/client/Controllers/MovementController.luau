@@ -55,6 +55,18 @@ local exhausted: boolean = false              -- stamina spadła do 0 → blokad
 local lastSprintActiveTime: number = 0       -- ostatni moment AKTYWNEGO sprintu (drain) — dla RegenDelay
 local currentWalkSpeed: number = CFG.WalkSpeed -- aktualnie zaaplikowany (do lerp)
 local currentFOV: number = CFG.BaseFOV         -- aktualny FOV kamery (do lerp)
+-- Mnożniki prędkości od innych systemów, każdy pod swoim kluczem (01.10: gęsta lawa —
+-- LavaSwimController; potem itemy typu energy drink). WalkSpeed pisze dalej TYLKO ten
+-- kontroler — dwa miejsca piszące tę samą liczbę co klatkę walczyłyby ze sobą.
+local speedFactors: { [string]: number } = {}
+
+local function speedFactor(): number
+	local f = 1
+	for _, v in pairs(speedFactors) do
+		f *= v
+	end
+	return f
+end
 
 -- Head tracking (Etap 5) — per-player joint cache + aim state.
 type AimState = {
@@ -260,6 +272,11 @@ local function computeShakeOffset(): Vector3
 		(math.random() * 2 - 1) * mag,
 		(math.random() * 2 - 1) * mag
 	)
+end
+
+-- Public API: mnożnik prędkości chodu i sprintu pod kluczem `key`; nil zdejmuje mnożnik.
+function MovementController.setSpeedFactor(key: string, factor: number?)
+	speedFactors[key] = factor
 end
 
 function MovementController.screenShake(intensity: number, duration: number)
@@ -541,7 +558,7 @@ local function updateLoop(dt: number)
 
 	-- WalkSpeed lerp (framerate-independent). alpha = dt/lerpTime z clampem.
 	-- Snap do target gdy bardzo blisko (uniknięcie infinitesimal residuum).
-	local targetSpeed = activeSprint and CFG.SprintSpeed or CFG.WalkSpeed
+	local targetSpeed = (activeSprint and CFG.SprintSpeed or CFG.WalkSpeed) * speedFactor()
 	local alpha = math.clamp(dt / CFG.SpeedLerpTime, 0, 1)
 	currentWalkSpeed = currentWalkSpeed + (targetSpeed - currentWalkSpeed) * alpha
 	if math.abs(currentWalkSpeed - targetSpeed) < 0.05 then

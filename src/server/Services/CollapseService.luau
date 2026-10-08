@@ -537,7 +537,7 @@ end
 
 -- Osłabiony element ciemnieje (bez tego osłabianie jest niewidzialne i „2. bomba go
 -- przecięła” wygląda jak losowość). Kolor przez atrybut oryginału — jak v3.
-local ORIG_COLOR_ATTR = "DestrOrigColor"
+local ORIG_COLOR_ATTR = Config.Destruction.DamageAttributes.OrigColor
 
 local function darken(rec: Rec, chunkIds: { number })
 	local hpByKind = Config.Structure.Damage.HP
@@ -876,6 +876,14 @@ local function degrade(a: Active)
 		end
 	end
 	handOffNow(pieces, a.center, false)
+	-- Rekwizyty na tym piętrze — jak przy starcie lotu (`launch`). Test Kacpra 30.09: skrzynie,
+	-- paczki i palety z górnych pięter GreenBuildingu wisiały po zawaleniu całego budynku —
+	-- 14 z 25 grup kolapsu poszło tędy, a tu tego wywołania nie było. PO `handOffNow`: oddane
+	-- kawałki są już w drodze do klientów, więc przestają być oparciem dla dużych dekoracji
+	-- (w `launch` to samo daje odkotwiczenie przed wywołaniem).
+	if deps then
+		deps.dropResting(pieces, a.center)
+	end
 	a.rec.state:retire(a.def.chunkIds)
 	a.phase = "Gone"
 	flagRubbleNear(a.def.min, a.def.max)
@@ -1429,6 +1437,11 @@ local function dropToClients(a: Active)
 	end
 	unlistSettled(a)
 	handOffNow(list, a.center, false)
+	-- Rzeczy, które wylądowały na leżącej bryle (np. mebel odepchnięty bombą kotwiczy się tam,
+	-- gdzie stanie) — ta sama luka co w `degrade` (30.09).
+	if deps then
+		deps.dropResting(list :: { any }, a.center)
+	end
 	a.rec.state:retire(a.def.chunkIds)
 	a.phase = "Gone"
 	flagRubbleNear(mn, mx)

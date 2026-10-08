@@ -23,7 +23,7 @@
 - 🧨 **SYSTEM DESTRUKCJI — CAŁY DO NAPRAWY (decyzja Kacpra 2026-09-23).** Po teście na telefonach z kolegami (lagi przy 4 bombach, przenikanie przez podłogę, znikające wieszaki) tego samego wieczoru powstała **v3** (`docs/DESTRUCTION_PLAN.md` → „v3”: serwer trzyma stan gry, drobny gruz i meble animuje klient bez kolizji, tryby grafiki Ziemniak/Pełny) — **nieprzetestowana w Play**. Kacper zapowiedział, że naprawy wymaga CAŁA destrukcja: start od jego listy usterek + testu v3, potem plan. Znane otwarte punkty: STATUS w CLAUDE.md (🧨).
 - ⏳ (historia) **SYSTEM DESTRUKCJI v2 — WSZYSTKIE 5 ETAPÓW ZAIMPLEMENTOWANE** (`docs/DESTRUCTION_PLAN.md`), etapy 2-5 **CZEKAJĄ NA TEST W PLAY**. ① rdzeń (przetestowany OK) → ② kategorie + occlusion + pass podparcia v2 (kolumna, kierunkowy — fix na "wysadziłem dół i reszta wisi") → ③ fall-fracture + crush damage → ④ kolaps sekcji po filarach + creak → ⑤ 5 slotów audio + throttle dźwięków (ślady opalenia ZROBIONE I SKASOWANE 2026-08-12 — raycast w dół kładł plamę kilkadziesiąt studów pod wybuchem w powietrzu; nie wracać bez pomysłu na wybuchy nie przy ziemi). **Zostaje: assety dźwiękowe Kacpra** (5 pól w `Config.Destruction.FX`, wpięcie gotowe) **i balans po testach pod obciążeniem**. Kontrakt mapy: panele zamiast kafli 6×6, tag `Pillar` na filary, szyby Material Glass, budynek = folder, wiszące platformy → `Locked`/`Map.Locked`.
 - 🧩 **WIZJA KACPRA NA DALSZY CIĄG (ustalona 2026-09-12, jeszcze NIE zaimplementowana):**
-  - **Loadout: hotbar 3 sloty + ekwipunek** — gracz posiada dowolnie dużo typów itemów, ale **equipuje maks 3 z docelowych 6**. Cel: wymusić wybór (mobilność vs ofensywa vs utility) zamiast brania samej mobilności; C(6,3)=20 kombinacji. Wymaga: nowego pola w danych gracza (wybrany loadout), UI ekwipunku, zmiany `HotbarController` (dziś pokazuje pierwsze N posiadanych typów).
+  - **Loadout: hotbar 3 sloty + ekwipunek** — gracz posiada dowolnie dużo typów itemów, ale **equipuje maks 3 z docelowych 6**. Cel: wymusić wybór (mobilność vs ofensywa vs utility) zamiast brania samej mobilności; C(6,3)=20 kombinacji. Wymaga: nowego pola w danych gracza (wybrany loadout), UI ekwipunku, zmiany `HotbarController` (dziś pokazuje pierwsze N posiadanych typów). ➜ **PLAN GOTOWY 30.09 — „PLAN: LOADOUT” na końcu tego pliku** (czeka na decyzję: gdzie mieszka wybór).
   - **Drugie stoisko — SKINY** (osobny NPC): wchodzisz, kamera przesuwa się na Twoją postać w "przebieralni", przewijasz skiny, na dole KUP. ⚠️ To NIE jest "drugi sklep" tylko **nowy system**: posiadanie skinów w DataStore + zakładanie na postać przy respawnie + assety Kacpra. Robić DOPIERO po loadoucie.
   - **Daily Rewards od nowa jako UI** (stare skasowane — patrz STATUS).
   - **Docelowo 6 itemów — WYBRANE (odczytane z wystawy w Studio 2026-09-22): bomba, most, hak ✅, RPG, sticky bomb, energy drink.** Zostają RPG, sticky bomb i energy drink. Lista propozycji z 2026-09-16 poniżej zostaje jako zapas. Pełna dziesiątka: **hak** (przyciąga do ściany/dachu), **lotnia** (szybowanie — kontra na push i knockback), **trampolina** (stawiana, działa też dla wrogów), **mina proximity**, **sticky bomb z detonatorem** (klei się też do gracza), **kontrolowana rozbiórka** (ładunek na filar → `StructureService` zrzuca piętro; najmocniejszy moment na TikToka), **stawiana ściana** (jedyny item wprost grający z istniejącym occlusion ×0.45), **zastygacz** (chwilowa skorupa na lawie = wyspa ratunkowa), **granat grawitacyjny** (wciąga; kill liczy się przez 5-sekundowe okno `KillService`), **zamiana miejsc** (teleport-swap z wrogiem — przewaga pozycyjna zamiast obrażeniowej).
@@ -354,3 +354,57 @@
 - ❌ Day 6 dokończyć: eventy (spadające kule, wiatr), więcej polish, particle/sound.
 - ❌ Day 7: closed beta, test, launch, TikToki.
 - ❌ **Skala kilkuset active** — audyt kodu zrobiony (2026-08-11), zostaje test POD OBCIĄŻENIEM: BindToClose z 20 graczami, realne zużycie budżetu DataStore. Koszt fizyki wybuchów wypada z listy do czasu, aż powstanie nowy system — wtedy wraca jako pierwsza rzecz do zmierzenia.
+
+---
+
+## PLAN: LOADOUT — 3 itemy na rundę (napisany 30.09, kod PO teście destrukcji)
+
+**Co to znaczy dla gry**: dziś pasek itemów sam się przestawia — masz bombę i most, bomby się kończą, most przeskakuje na klawisz 1. W środku ucieczki przed lawą naciskasz „2" i nie dzieje się nic albo wychodzi nie ten item. Po tej zmianie **Twoje trzy itemy siedzą na klawiszach 1-2-3 i nigdy się nie ruszają** — nawet gdy skończy Ci się amunicja (slot zostaje wyszarzony). Przy okazji to jest oś balansu: masz sześć itemów, na rundę bierzesz trzy, więc musisz wybrać między mobilnością a ofensywą.
+
+### ✅ DECYZJA KACPRA (30.09): loadout mieszka w EKWIPUNKU
+Osobny panel „Ekwipunek", nie zakładka w sklepie i nie trzecie stoisko. Widzisz w nim wszystko, co posiadasz, i wybierasz trzy rzeczy na rundę. **Dobra strona tej decyzji**: nie dokładamy graczowi wycieczki do trzeciego NPC w 30-sekundowej przerwie — ekwipunek otwierasz, gdzie stoisz. **To odblokowuje robotę buildera** (patrz wyżej: to była jedyna rzecz, która mogła kazać mu coś przerabiać — stoisko loadoutu NIE powstaje).
+
+**Otwieranie**: przycisk w HUD **oraz** klawisz `I`.
+*Dlaczego `I`, a nie `E` czy `Tab`*: `E` to domyślny klawisz `ProximityPrompt`, czyli kolidowałby ze sklepem, przy którym gracz stoi w lobby; `Tab` należy do wbudowanej listy graczy. Zajęte są już 1-2-3 (hotbar), `F` (push), `R` (obrót mostu), `Shift` (sprint), `Q` (wyjście ze sklepu), `G` (dev).
+
+**W trakcie rundy panel się otwiera, ale tylko do podglądu** — zmiana loadoutu działa wyłącznie w lobby (uzasadnienie w zasadach niżej). Zamiast blokować otwieranie, pokazujemy komunikat: łatwiej zrozumieć „nie teraz" niż przycisk, który nie reaguje.
+
+### 🎨 KONTRAKT NAZW DLA STUDIO (do postawienia przez Kacpra)
+```
+StarterGui.HUD.InventoryButton      (TextButton — otwiera panel)
+StarterGui.Inventory                (ScreenGui, ⚠️ ResetOnSpawn = FALSE)
+  └── Panel                         (Frame)
+      ├── LoadoutSlots              (Frame)
+      │   └── Slot1, Slot2, Slot3   (TextButton)
+      │       ├── ItemName          (TextLabel)
+      │       └── Count             (TextLabel — "x3")
+      ├── OwnedList                 (ScrollingFrame — lista posiadanych)
+      │   └── ItemTemplate          (TextButton, Visible = false — wzór wiersza)
+      │       ├── ItemName          (TextLabel)
+      │       ├── Count             (TextLabel)
+      │       └── SelectStroke      (UIStroke, Thickness = 0)
+      ├── StatusLabel               (TextLabel — "loadout zmieniasz tylko w lobby")
+      └── CloseButton               (TextButton)
+```
+⚠️ **`ResetOnSpawn = false` jest obowiązkowe** (hard rule 10). Domyślne `true` odświeża ScreenGui przy każdym `LoadCharacter`, czyli na starcie KAŻDEJ rundy gracz traci listenery z poprzedniej instancji panelu — dokładnie ten błąd zjadł już HUD w tym projekcie.
+Kod znosi brak każdego elementu (jak `HotbarController` znosi brak `Slot3`): panel bez `OwnedList` po prostu nie pokaże listy, zamiast wywalić klienta.
+
+### Zasady (te same przy każdej opcji)
+- **Trzy sloty, stałe.** Klawisze 1-2-3 to Twoje trzy wybrane itemy. Slot zostaje na miejscu przy zero sztuk — wyszarzony, „x0". Koniec przeskakiwania.
+- **Masz mniej niż 3 typy?** Loadout to po prostu to, co masz. Nowy gracz nie widzi pustego ekranu.
+- **Kupujesz nowy item, a masz wolny slot** → wskakuje sam. Nowy gracz nigdy nie musi wchodzić w loadout, żeby zagrać.
+- **Kupujesz, a wszystkie 3 zajęte** → item leży w ekwipunku, z komunikatem „masz już 3 itemy — zmień loadout". Nie podmieniamy nic za gracza.
+- **Zmiana tylko w lobby.** W trakcie rundy panel otwiera się do podglądu, ale wybór jest zablokowany — inaczej „3 z 6" nic nie znaczy, bo każdy nosiłby wszystko i podmieniał na bieżąco. Serwer to sprawdza (nie tylko UI).
+- **Loadout się zapisuje** — wracasz na serwer ze swoim układem.
+
+### Co robi kod (*dla Claude'a*)
+1. **Dane gracza**: nowe pole `loadout = { itemId, itemId, itemId }` w `PlayerDataService`. Celowo BRAK w defaultach (ta sama konwencja co `appearance` i `settings`): nieobecne = „jeszcze nie wybrano" → serwis wypełnia pierwszymi posiadanymi z `ItemDefinitions.shopOrder`. Stare zapisy wchodzą tą samą ścieżką, bez migracji.
+2. **Nowy serwis `LoadoutService`** — jedyny właściciel tego stanu (zasada single source of truth): waliduje wybór (istniejący itemId, bez duplikatów, maks 3, tylko w `LOBBY`), zapisuje, replikuje. Rate limit jak przy `BuyItem`.
+3. **🔴 Serwer musi pilnować equipa.** Dziś `EquipItem` sprawdza tylko, czy gracz ma item w inventory. Bez zmiany oszust equipuje wszystkie 6 i cały sens loadoutu pada. Warunek: `itemId` musi być w loadoucie gracza.
+4. **`HotbarController`**: `rebuildSlotMapping` przestaje upychać „pierwsze N posiadanych" (linie 44-56) i czyta loadout. Sloty 4-5 przestają być używane — ale kod ma zostać na N slotów, bo `Slot3` w HUD jeszcze nie istnieje (patrz `docs/DO_RELEASE.md`).
+5. **Kontrakt**: `Remotes.luau` `+ "SetLoadout"` (klient→serwer, `FireServer({itemId})`) i `+ "LoadoutChanged"` (serwer→klient). Wysyłka loadoutu wchodzi do handshake'u z paczki 3.
+5b. **Nowy `InventoryController`** — panel z kontraktu wyżej, klawisz `I`, przycisk w HUD. Listenery podpięte w części synchronicznej (zasada z paczki 3), szukanie UI w `task.spawn`.
+6. **Zależność**: paczka 3 (start klienta) powinna wejść PIERWSZA — inaczej dokładamy czwarty stan, który na wolnym telefonie może nie dojechać.
+
+### Kolejność
+Najpierw skończona destrukcja, potem paczka 3, potem loadout, potem brakujące itemy (RPG, sticky bomb, energy drink). **Loadout przed itemami** — bo przy sześciu itemach i dzisiejszym upychaniu slotów pasek staje się nieużywalny, a każdy nowy item pogarsza problem.

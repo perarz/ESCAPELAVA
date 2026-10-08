@@ -658,3 +658,33 @@ obrażenia od upadku poprawne · duże elementy zostają platformami · drobny g
 i Pełny = ta sama kolizja · 5 wybuchów w 3 s bez niekontrolowanego wzrostu fizyki · 2 klientów widzi
 ten sam wynik · spóźniony klient dostaje aktualny stan · nietknięty budynek nigdy sam nie spada ·
 produkcja bez czerwonych chunków.
+
+---
+
+## Kikuty bez oparcia (30.09) — NIEPRZETESTOWANE
+
+**Zgłoszenie Kacpra (test w Play)**: „w kebabie zawsze zostają jakieś lewitujące elementy ściany” → dopytane: „kawałek ściany przy dachu i na nim trzyma się dach”.
+
+**Zmierzone na żywym serwerze** (OrangeKebab po 5 bombach, Play Kacpra, tylko odczyt): trzy górne końcówki filarków między oknami (5×1,9×1 na Y 20, każda dokładnie w miejscu swojego filarka) bez niczego pod spodem i z boku; górna część narożnego słupka (listwa 2×4,8×2) przyczepiona tylko do nich; spadnięta płyta sufitu 19×19 osiadła NA jednej z nich jako platforma. W logu zero zaklinowań — to nie fizyka.
+
+**Przyczyna**: dziura przebija filarek na wylot → chunk `Destroyed` (Severed), pas nad dziurą zostaje zakotwiczony. Kikut spadał tylko w `CollapseService.takePieces`, czyli gdy obok ruszała grupa kolapsu. Pas nad filarkiem się SKRUSZYŁ (inna ścieżka) → kikut nie miał kto zabrać. Do tego pass listew liczył każdy zakotwiczony kawałek konstrukcji jako oparcie, także kikut — narożny słupek i kikuty trzymały się nawzajem.
+
+**Decyzja Kacpra**: kikut bez oparcia ma spaść. Wariant: „zostaje, póki dotyka czegoś stojącego” — ta sama reguła co listwy (26.09), więc pień na podłodze i kikut wiszący pod stojącym stropem zostają (decyzja 25.09 bez zmian).
+
+**Zmiana** (`StructuralService.unsupportedStrips`, jedno miejsce — wybuch, kruszenie i start grupy wołają je już dziś): kikut = zakotwiczony kawałek konstrukcji, który nie leży w żadnym żywym chunku swojego parta. Oparcie kikuta: stojący kawałek konstrukcji (także pień tego samego parta), styk z gruntem jego chunka, albo listwa/kikut, które same mają oparcie. Kikut NIE jest oparciem dla listwy. Sąsiedzi kikutów (`stubLinks`: interfejsy + linki zwrotne listew, także torów) i grunt (`groundFaces`) liczone przy budowie budynku.
+
+**Odłożone decyzją Kacpra („najpierw kikuty, dach potem”)**: w pierwszej sesji 3/4 dachu kebaba stały na JEDNYM panelu 1×15×5 w rogu — `MaxSpan.Slab` 24 przy dachu 2×2 chunki po ~19 = jeden panel trzyma trzy ćwiartki. Reguła skaluje się z rozmiarem chunka, nie budynku, więc małe budynki obrywają najbardziej. Do sprawdzenia po teście kikutów; kandydat: `OrangeKebab = { MaxSpan = { Slab = … } }`.
+
+**Test**: kebab jak w zgłoszeniu (bomby w parter przy filarkach między oknami) → po skruszeniu pasa nad oknem górne końcówki filarków i narożny słupek spadają; spadający dach nie zatrzymuje się w powietrzu. Kontrola: pień filarka/słupa stojący na podłodze zostaje.
+
+## Rekwizyty na piętrze ponad budżetem (30.09) — NIEPRZETESTOWANE
+
+**Zgłoszenie Kacpra**: „zielony budynek wysoki — pudła zostają po osunięciu całego budynku”.
+
+**Z logu tej sesji**: 9. bomba → kolaps #6 = 25 grup, **14 „ponad budżet — upadek u klientów”** (wszystkie P2, czyli górne piętra daleko od gracza). Skrzynie (`Crates`), paczki i palety GreenBuildingu stoją WYŁĄCZNIE na Y 71-94 — na tych piętrach.
+
+**Przyczyna**: start lotu (`CollapseService.launch`) woła `deps.dropResting` („drobnica i meble na tym, co spada — do klientów”), a grupa ponad budżetem (`degrade`) nie. To samo w `dropToClients` (osiadła bryła bez oparcia i bez budżetu — mogło na niej wylądować coś później, np. mebel odepchnięty bombą).
+
+**Zmiana**: `dropResting` w obu, PO `handOffNow` — oddane kawałki są już w `pendingParts`, więc nie liczą się jako oparcie dla dużych dekoracji (w `launch` to samo daje odkotwiczenie).
+
+**Test**: GreenBuilding — zwal cały budynek (seria w parter) → na górnych piętrach nie zostają w powietrzu skrzynie, paczki ani palety.

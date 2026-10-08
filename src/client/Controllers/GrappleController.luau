@@ -351,6 +351,11 @@ local function hookCharacter(char: Model)
 	end
 end
 
+-- Lot hakiem trwa (LadderController nie przyciąga wtedy do drabiny — lot sam ustawia prędkość).
+function GrappleController.isFlying(): boolean
+	return flight ~= nil
+end
+
 function GrappleController.init()
 	if localPlayer.Character then
 		hookCharacter(localPlayer.Character)

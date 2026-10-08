@@ -113,7 +113,7 @@ Config.Lava = {
 	-- (`FX.MinSurfaceY`), więc przy nierosnącej lawie nie było jej jak zobaczyć.
 	Enabled = true,
 	StartY = -5,
-	MaxY = 0,
+	MaxY = 250,
 	-- DESIGN: szybka i dynamiczna gra. Runda ~80s total, nie 5+ minut.
 	--
 	-- ⚠️ WYDŁUŻONE DO 10 MINUT NA TESTY (2026-08-12, prośba Kacpra) — długa runda daje
@@ -156,6 +156,10 @@ Config.Lava = {
 		-- nie ze sztywnego DPS — dzięki temu zmiana maksymalnego HP nie rozjeżdża balansu.
 		SecondsToKill = 7,
 	},
+	-- Od HumanoidRootPart do stóp (R15). „W lawie” = stopy pod taflą — ten sam próg dla obrażeń
+	-- (LavaService) i dla oporu gęstej lawy (LavaSwimController), żeby nie bolało bez oporu
+	-- ani nie było oporu bez bólu.
+	FeetOffset = 2.5,
 
 	Part = {
 		SizeXZ = 600,
@@ -163,6 +167,37 @@ Config.Lava = {
 		Color = Color3.fromRGB(255, 80, 0),
 		Material = Enum.Material.Neon,
 		Transparency = 0.1,
+	},
+	-- GĘSTA LAWA (decyzja Kacpra 01.10: „zapada się powoli, da się wypłynąć”). Do tego dnia
+	-- lawa nie miała żadnego oporu: gracz leciał na dno (ulicę pod taflą) i z głębokiej lawy
+	-- nie było wyjścia, bo skok nie sięgał powierzchni. Ruch liczy klient (postać jest jego
+	-- w fizyce) — LavaSwimController; obrażenia bez zmian (`Damage`), upadek do lawy nie rani
+	-- (FallDamageService). Głębokość = ile STÓP jest pod taflą.
+	Swim = {
+		Enabled = true,
+		FullDepth = 3,       -- stud: od tej głębokości stóp opór jest pełny (≈ po pas)
+		Damping = 10,        -- 1/s: jak szybko lawa wyhamowuje do docelowej prędkości (wpadnięcie z dachu = kilka studów zanurzenia)
+		SinkSpeed = 3,       -- stud/s: powolne opadanie, gdy nic nie robisz
+		SwimUpSpeed = 7,     -- stud/s: wznoszenie przy trzymanym skoku (musi być > SinkSpeed)
+		SpeedFactor = 0.45,  -- mnożnik chodu/sprintu przy pełnym zanurzeniu („jak w miodzie”)
+		-- Wyjście: przy powierzchni trzymany skok wybija z lawy jak zwykły skok, żeby dało się
+		-- wejść na brzeg (krawędź dachu, gruz). Niżej niż wysokość zwykłego skoku (7,2) —
+		-- z lawy wychodzi się trudniej niż z ziemi.
+		ExitDepth = 1.5,     -- stud: stopy najwyżej tyle pod taflą = można wyskoczyć
+		ExitJumpHeight = 6,  -- stud
+		ExitCooldown = 0.6,  -- s między wyskokami
+	},
+	-- Widok spod tafli (LavaSwimController): kamera pod powierzchnią = gęsto i pomarańczowo,
+	-- nic nie widać na wylot (zgłoszenie Kacpra 01.10: „wpadniesz i przezroczysto”). Same
+	-- efekty postprocesu w Lighting (jak `HeatEffect`), bez żadnego UI.
+	Submerged = {
+		Enabled = true,
+		Tint = Color3.fromRGB(255, 120, 40),
+		Brightness = 0.15,
+		Contrast = -0.3,
+		Saturation = 0.4,
+		Blur = 24,           -- rozmycie (BlurEffect.Size) — to ono zabiera szczegóły
+		LerpSpeed = 12,      -- szybkość wejścia/wyjścia efektu (1-exp(-k·dt))
 	},
 	-- Klient-side "żar" gdy gracz jest nisko nad lawą (LavaHeatController):
 	-- ColorCorrection tint narasta im bliżej powierzchni lawy. Czysty feedback zagrożenia.
@@ -400,6 +435,44 @@ Config.Spawn = {
 	FallbackRoundPosition = Vector3.new(0, 10, 0),
 }
 
+-- Odbudowa mapy po rundzie (MapService, 07.10). Do tej pory po KAŻDEJ rundzie kasowane
+-- i stawiane od nowa było całe miasto (25,6 tys. partów): każdy klient dostawał całą
+-- mapę jeszcze raz, a silnik przeliczał jej cienie i oświetlenie od zera. Teraz mapa
+-- dzieli się na JEDNOSTKI (dziecko każdego folderu z listy niżej = jeden budynek albo
+-- jedna grupa dekoracji) i odbudowywane są tylko te, których odcisk się zmienił.
+Config.Map = {
+	-- Ścieżki od `Workspace.Map`, przez nazwy dzieci. KAŻDE dziecko wskazanego folderu
+	-- to osobna jednostka. Wszystko inne pod `Workspace.Map` (poza `Locked`) też jest
+	-- jednostką — w całości.
+	RestoreGroups = {
+		{ "Map", "Map", "Buildings" },
+		{ "Map", "Map", "OutsideDecorations" },
+	},
+	-- Odcisk to sumy (w liczbach podwójnej precyzji) pozycji, rozmiarów, osi i kolorów
+	-- partów — różnica poniżej tej wartości to szum kolejności sumowania w świeżym klonie,
+	-- nie zniszczenie. Najmniejsza widoczna zmiana (1/255 koloru) jest ~40× większa.
+	RestoreTolerance = 1e-4,
+}
+
+-- Ciemne przejście przy teleporcie na mapę (RoundTransitionController, 07.10). Zgłoszenie
+-- Kacpra: po teleporcie z lobby budynki są, ale cienie i oświetlenie dochodzą 10-20 s.
+-- Ekran ściemnia się pod koniec odliczania i rozjaśnia, gdy gracz stoi już na mapie, a
+-- silnik miał chwilę na zbudowanie oświetlenia wokół kamery (świat renderuje się POD
+-- zasłoną, więc ten czas nie idzie na marne).
+Config.RoundTransition = {
+	FadeInTime = 0.35,      -- ściemnianie pod koniec odliczania
+	FadeOutTime = 0.5,      -- rozjaśnianie na mapie
+	-- Ile trzymać ciemno PO tym, jak gracz stoi na mapie — czas dla oświetlenia i cieni.
+	-- Gałka do strojenia w Play: jeśli cienie dalej doskakują, podnieść; każda sekunda
+	-- zabiera sekundę z fazy Spawn lawy.
+	SettleTime = 1.2,
+	-- Sygnał „stoisz na mapie” (Remotes.AliveChanged true) nie przyszedł — gracz nie jest
+	-- w tej rundzie (np. dołączył w trakcie odliczania). Zdejmujemy zasłonę.
+	SpawnSignalTimeout = 2.5,
+	-- Twardy sufit całej zasłony: ciemny ekran, który wisi, jest gorszy od doskakujących cieni.
+	MaxHold = 5,
+}
+
 Config.Cash = {
 	-- Każda zebrana paczka cash daje Value$. Kacper zatwierdził 10$/pickup.
 	Value = 10,
@@ -489,7 +562,15 @@ Config.Bridge = {
 	-- Kolory ghost preview (klient-side podgląd przed kliknięciem LMB).
 	GhostColorOK = Color3.fromRGB(100, 220, 120),       -- zielony — w zasięgu, można budować
 	GhostColorBad = Color3.fromRGB(220, 80, 80),        -- czerwony — za daleko lub invalid
-	GhostTransparency = 0.5,
+	-- ⚠️ 0 = NIEPRZEZROCZYSTY, CELOWO (zgłoszenie Kacpra 08.10: „gdy w tle lawa, ghosta nie ma,
+	-- a na tle budynku jest”). Wierzchnia warstwa lawy (`LavaSurface`, przezroczystość 0,55 —
+	-- prześwit świecącego `LavaMid`) i półprzezroczysty ghost to DWIE przezroczyste rzeczy;
+	-- silnik sortuje je po odległości środka, a środek tafli 512×457 bywa bliżej kamery niż
+	-- ghost — lawa rysowała się na wierzchu i `Highlight` tego nie ratował. Nieprzezroczysty
+	-- ghost idzie w zwykłym przebiegu z głębią, więc lawa za nim nie ma jak go zakryć.
+	-- Decyzja Kacpra: nieprzezroczysty ghost zamiast nieprzezroczystej lawy (lawa traciłaby
+	-- prześwit). Wartość > 0 wraca do starego błędu.
+	GhostTransparency = 0,
 
 	-- ⚠️ GHOST MUSI MIEĆ `Highlight` — BEZ NIEGO ZNIKA NAD LAWĄ (zgłoszenie 2026-09-21:
 	-- „lawa w tle działa jak maska i nie widać zielonego ghosta").
@@ -497,9 +578,12 @@ Config.Bridge = {
 	-- z `Transparency > 0` trafia do KOLEJKI PRZEZROCZYSTEJ, a Roblox sortuje ją po
 	-- odległości OBIEKTU. Warstwy lawy są przezroczyste (0.35 / 0.55) i wielkie
 	-- (512×457), więc sortują się niestabilnie względem małego ghosta i potrafią zostać
-	-- narysowane PO nim — czyli zamalować go. Nie da się tego wygrać dobieraniem
-	-- `GhostTransparency`, bo problem jest w kolejności rysowania, nie w wartości.
-	-- `Highlight` renderuje się POZA tą kolejką, więc jest odporny z definicji.
+	-- narysowane PO nim — czyli zamalować go. Żadna wartość `GhostTransparency` > 0 tego
+	-- nie wygra, bo problem jest w kolejności rysowania; wygrywa tylko 0 (ghost wychodzi
+	-- z kolejki przezroczystej — patrz `GhostTransparency` wyżej, 08.10).
+	-- 🔴 Założenie z 21.09, że `Highlight` „renderuje się poza tą kolejką, więc jest odporny
+	-- z definicji”, okazało się w grze NIEPRAWDZIWE (Kacper 08.10: na tle lawy ghosta dalej
+	-- nie widać). Highlight zostaje dla konturu, ale nie on trzyma widoczność.
 	-- ⚠️ LAWA JAKO PODŁOGA DLA KURSORA (zgłoszenie 2026-09-21: „ghost nie działa powyżej 9Y").
 	-- Warstwy lawy mają wymuszone `CanQuery = false` (rosnąca tafla nie może łapać
 	-- raycastów — patrz `LavaService.forceLavaProperties`), więc promień celowania
@@ -523,6 +607,16 @@ Config.Bridge = {
 	-- z definicji itemu. Normalnie most bierze wygląd I WYMIARY z modelu Kacpra.
 	DefaultMaterial = Enum.Material.Wood,
 	DefaultColor = Color3.fromRGB(115, 80, 50),
+	-- Most to FIZYKA od postawienia (decyzja Kacpra 01.10). Deska, która przy postawieniu
+	-- utkwiła w murku albo gzymsie dachu, nie zderza się z nim (inaczej silnik wypycha bryłę
+	-- „wybuchowo” — ta sama lekcja co grupy kolapsu 25.09). Pudło deski zwężone o tyle z każdej
+	-- strony, żeby leżenie NA dachu nie liczyło się jako utknięcie.
+	SpawnOverlapInset = 0.1,
+	-- Most, którego spód jest najwyżej tyle nad taflą lawy, jest „na lawie” — z fizyką od razu
+	-- by w niej utonął (lawa nie ma kolizji), więc ghost jest czerwony, a serwer odrzuca budowę
+	-- PRZED zabraniem itemu (decyzja Kacpra 01.10). Zapas pokrywa falowanie tafli i to, ile
+	-- lawa urośnie, zanim prośba dojdzie do serwera — klient i serwer liczą tym samym progiem.
+	LavaMargin = 1,
 }
 
 Config.Movement = {
@@ -725,6 +819,30 @@ Config.FallDamage = {
 	-- nic"). Sonda liczy teraz PRZEBYTĄ DROGĘ, a „jedno lądowanie = jedna kara" wynika
 	-- ze struktury przejścia lot→ziemia, nie z licznika czasu.
 	Debug = false,            -- print przy każdym raniącym upadku (przydatne przy strojeniu liczb)
+}
+
+-- DRABINY (08.10) — niższa prędkość potrzebna do złapania drabiny (LadderController). Zgłoszenie
+-- Kacpra: „bez sprintu jestem za wolny, żeby się złapać”. Wspinanie robi silnik Robloxa; przy
+-- chodzie 12 często nie łapie, przy sprincie łapie — więc tuż przed drabiną, idąc w jej stronę,
+-- prędkość w stronę drabiny jest dobijana do sprintu. Drabina = party z tagiem `Tag`
+-- (skrypt LADDERS_TAG.luau). ⛔ Własny tryb drabiny (trzymanie, W/S) odrzucony 08.10.
+Config.Ladder = {
+	Tag = "Ladder",
+	-- Jak daleko PRZED płaszczyzną szczebli zaczyna działać (od środka postaci, w studach).
+	ReachDistance = 3,
+	-- Ile studów poza końcem szczebla w bok jeszcze działa (podejście ukosem).
+	LateralMargin = 1.5,
+	-- Maksymalny kąt między kierunkiem ruchu a drabiną. Idąc RÓWNOLEGLE do ściany nie działa.
+	IntentAngle = 70,
+	-- Prędkość w stronę drabiny, do której dobijamy. Sprint łapał — więc tyle samo.
+	GrabSpeed = Config.Movement.SprintSpeed,
+
+	-- SERWER (FallDamageService): gracz tak blisko szczebli, poruszający się pionowo nie
+	-- szybciej niż `MaxClimbSpeed`, stoi „jak na ziemi” — licznik upadku liczy się od nowa.
+	-- Bez tego zejście po drabinie z dachu kończyło się obrażeniami za całą wysokość (promień
+	-- w dół przelatuje obok szczebli).
+	OnLadderDistance = 2.5,
+	MaxClimbSpeed = 16,
 }
 
 Config.Push = {
@@ -995,6 +1113,14 @@ Config.Destruction = {
 	-- = 338 emiterów replikowanych do każdego gracza. Pył robi klient w ExplosionFX.)
 	DamageFeedback = {
 		DarkenMax = 0.45,   -- max przyciemnienie koloru przy ~100% zniszczenia
+	},
+	-- Atrybuty, które wybuch zostawia na partach mapy. Jedno źródło nazw dla
+	-- DestructionService, CollapseService i MapService (07.10: odbudowa po rundzie
+	-- odbudowuje tylko naruszone jednostki — ranny part bez zmiany kształtu poznaje
+	-- właśnie po tych atrybutach; ciemny part ciemniejący do ciemnego nie zmienia koloru).
+	DamageAttributes = {
+		HP = "DestrHP",                -- pozostałe HP strukturalne (brak = pełne HP kategorii)
+		OrigColor = "DestrOrigColor",  -- kolor sprzed przyciemnienia
 	},
 
 	-- ===== DROBNICA vs KONSTRUKCJA (v3, 2026-09-23) =====
@@ -1436,8 +1562,18 @@ Config.Destruction = {
 		-- szary, że to widać, że debris”). Gruz u gracza nie ma kolizji — kolor mówi „przez
 		-- to przejdziesz, na tym nie staniesz”. Dotyczy gruzu z BUDOWY (kawałki dziur,
 		-- posiekane bryły, odłamki); meble i szkło zostają w swoich kolorach.
-		LocalDebrisColor = Color3.fromRGB(62, 62, 66),
-		LocalDebrisColorJitter = 0.1, -- ± jasność na kawałek — jednolity kolor wyglądałby jak plastik
+		-- Kilka ODCIENI szarego zamiast jednego (Kacper 07.10: „daj różne odcienie szarego, a nie
+		-- jeden”) — każdy kawałek losuje odcień z listy, potem lekki rozrzut jasności. Od ciemnego
+		-- grafitu do średniej szarości, z odrobiną ciepła/chłodu (beton, popiół, cegła w pyle),
+		-- ale dalej na tyle ciemno, żeby gruz odróżniał się od mapy.
+		LocalDebrisColors = {
+			Color3.fromRGB(44, 44, 47), -- grafit
+			Color3.fromRGB(58, 58, 62), -- ciemny szary (dawny jedyny kolor)
+			Color3.fromRGB(72, 70, 68), -- ciepły szary (beton)
+			Color3.fromRGB(86, 87, 90), -- chłodny szary
+			Color3.fromRGB(102, 100, 97), -- jasny popiół
+		},
+		LocalDebrisColorJitter = 0.06, -- ± jasność na kawałek w obrębie odcienia
 		-- Pojedynczy przekazany part budynku dłuższy niż tyle jest SIEKANY na kawałki wielkości
 		-- odłamków dziury (Fracture.TargetChunkSize), zamiast lecieć jednym klocem (Kacper
 		-- 25.09: „skoro i tak nie ma kolizji, to go posiekaj, a nie że takie duże kloce
@@ -1776,8 +1912,13 @@ table.freeze(Config.PlayerData)
 table.freeze(Config.UI)
 -- Spawn ma Vector3 fields — freeze tylko po:
 table.freeze(Config.Spawn)
+table.freeze(Config.Map.RestoreGroups)
+table.freeze(Config.Map)
+table.freeze(Config.RoundTransition)
 table.freeze(Config.Lava.Part)
 table.freeze(Config.Lava.HeatEffect)
+table.freeze(Config.Lava.Swim)
+table.freeze(Config.Lava.Submerged)
 table.freeze(Config.Lava.Surface.LayerMultipliers)
 table.freeze(Config.Lava.Wobble)
 table.freeze(Config.Lava.FX)
@@ -1796,6 +1937,7 @@ table.freeze(Config.Movement.Camera.RotationSmoothing)
 table.freeze(Config.Movement.Camera.HitReaction)
 table.freeze(Config.Movement.Camera)
 table.freeze(Config.Movement)
+table.freeze(Config.Ladder)
 table.freeze(Config.Push)
 table.freeze(Config.RateLimits)
 table.freeze(Config.AntiCheat)
@@ -1809,6 +1951,7 @@ table.freeze(Config.Destruction.Categories)
 table.freeze(Config.Destruction.Small)
 table.freeze(Config.Destruction.Props)
 table.freeze(Config.Destruction.DamageFeedback)
+table.freeze(Config.Destruction.DamageAttributes)
 table.freeze(Config.Destruction.Occlusion)
 table.freeze(Config.Destruction.Support)
 table.freeze(Config.Destruction.Impact)

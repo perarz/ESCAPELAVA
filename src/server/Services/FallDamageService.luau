@@ -44,13 +44,16 @@ local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local Ladders = require(ReplicatedStorage.Shared.Modules.Ladders)
 local GameLoopService = require(script.Parent.GameLoopService)
 local PlayerService = require(script.Parent.PlayerService)
 local RagdollService = require(script.Parent.RagdollService)
+local LavaService = require(script.Parent.LavaService)
 
 local FallDamageService = {}
 
 local CFG = Config.FallDamage
+local LADDER = Config.Ladder
 
 -- Odległość HumanoidRootPart → stopy w R15. Ta sama stała co `FEET_OFFSET`
 -- w LavaService, dostrojona do tego samego riga. Spadek mierzymy STOPAMI, bo gracz
@@ -187,8 +190,11 @@ end
 -- rośnie wtedy RAZEM z graczem i w końcu przebija próg, mimo że lot jest w drugą stronę
 -- (zgłoszenie „jak się wspinam, to mi się ragdoll włącza"). Dlatego prognoza to tylko
 -- jeden z trzech warunków; dwa pozostałe potwierdzają, że gracz realnie opada.
-local function shouldRagdollMidair(track: Track, hrp: BasePart, feetY: number, groundY: number?): boolean
+local function shouldRagdollMidair(track: Track, hrp: BasePart, feetY: number, groundY: number?, lavaY: number): boolean
 	if track.ragdollFired or not groundY then return false end
+	-- Grunt pod lawą = lądowanie w lawie, które nie rani (gęsta lawa, 01.10). Promień przelatuje
+	-- przez taflę na dno, więc bez tego skok do lawy z dachu przewracał już w locie.
+	if groundY < lavaY then return false end
 	if track.airTime < CFG.PreRagdollMinAirTime then return false end
 	if track.peakY - feetY < CFG.PreRagdollMinDrop then return false end
 	if math.max(0, -hrp.AssemblyLinearVelocity.Y) < CFG.PreRagdollMinSpeed then return false end
@@ -198,6 +204,7 @@ local function shouldRagdollMidair(track: Track, hrp: BasePart, feetY: number, g
 end
 
 local function tick(dt: number)
+	local lavaY = LavaService.getSurfaceY()
 	for _, player in ipairs(PlayerService.getAliveList()) do
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -219,6 +226,35 @@ local function tick(dt: number)
 				ragdollFired = false,
 			}
 			tracks[player] = track
+		end
+
+		-- W LAWIE jak w wodzie (gęsta lawa, decyzja Kacpra 01.10): lawa wyhamowuje upadek, więc
+		-- nic, co zaczęło się nad nią, nie kończy się obrażeniami — licznik upadku zaczyna się
+		-- od nowa, póki stopy są w lawie. Bez tego gracz powoli opadający na ulicę pod taflą
+		-- dostawał „upadek z dachu na ulicę”, bo promień do gruntu przelatuje przez lawę.
+		if feetY < lavaY then
+			track.airborne = false
+			track.airTime = 0
+			track.peakY = feetY
+			track.ragdollFired = false
+			track.lastHrpY = hrpY
+			continue
+		end
+
+		-- NA DRABINIE jak na gruncie (08.10, razem z przyciąganiem do drabiny): promień w dół
+		-- przelatuje obok szczebli, więc zejście po drabinie z dachu kończyło się „upadkiem”
+		-- za całą wysokość, a złapanie drabiny w locie nic by nie dawało. Warunek prędkości
+		-- pionowej: kto leci obok drabiny szybciej niż się po niej wspina, dalej spada.
+		if math.abs(hrp.AssemblyLinearVelocity.Y) <= LADDER.MaxClimbSpeed then
+			local rung = Ladders.nearestRung(hrp.Position, feetY, hrpY + HRP_TO_FEET, LADDER.OnLadderDistance + 2)
+			if rung and rung.front <= LADDER.OnLadderDistance then
+				track.airborne = false
+				track.airTime = 0
+				track.peakY = feetY
+				track.ragdollFired = false
+				track.lastHrpY = hrpY
+				continue
+			end
 		end
 
 		local groundY, landed = probe(char, hrp, track)
@@ -254,7 +290,7 @@ local function tick(dt: number)
 			end
 
 			local suppressed = (midairRagdollSuppressedUntil[player] or 0) > os.clock()
-			if hum.Health > 0 and not suppressed and shouldRagdollMidair(track, hrp, feetY, groundY) then
+			if hum.Health > 0 and not suppressed and shouldRagdollMidair(track, hrp, feetY, groundY, lavaY) then
 				track.ragdollFired = true
 				RagdollService.knock(player, RagdollService.dampHorizontal(hrp.AssemblyLinearVelocity, CFG.RagdollTumble))
 				-- Bezpiecznik na wypadek, gdyby gracz nigdy nie wylądował (lawa, przepaść).

@@ -22,7 +22,7 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 - [ ] **Panel ustawień** (tryb grafiki Ziemniak / Pełny).
   *dla Claude'a:* kontrakt w `docs/STUDIO_CONTRACT.md` → „Ustawienia”.
 - [ ] **Przyciski dotykowe na telefon** — wygląd przycisków sprint / push / most (logikę podłącza Claude).
-- [ ] **Okno wyboru loadoutu** (gdy zdecydujesz, gdzie ma być — patrz LOADOUT).
+- [ ] **Panel „Ekwipunek"** — tu wybierasz 3 itemy na rundę (decyzja 30.09). Kontrakt nazw i pułapka `ResetOnSpawn` w `docs/ROADMAP.md` → „PLAN: LOADOUT”. Stoisko loadoutu NIE powstaje.
 - [ ] **5 dźwięków destrukcji**: wybuch, szkło, uderzenie, trzask, zawalenie — podaj id.
   *dla Claude'a:* `Config.Destruction.FX`.
 - [ ] **Kill feed i baner zwycięzcy** — dziś zrobione w kodzie; do przeniesienia do Studio? (decyzja)
@@ -43,10 +43,10 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 
 ## 🎒 LOADOUT I WIĘCEJ ITEMÓW
 
-- [ ] **LOADOUT** — masz dużo itemów, na rundę bierzesz 3. Klawisze 1-3 = Twoje 3 itemy, nic się nie przesuwa.
-  - 🎨 decyzja: gdzie wybierasz (przy NPC sklepu / osobne stoisko / w HUD)
-  - 💻 plan i kod, 🎨 okno w Studio
-  *dla Claude'a:* `docs/ROADMAP.md` → „Loadout”; nowe pole w danych gracza + `HotbarController`.
+- [ ] **LOADOUT** — masz dużo itemów, na rundę bierzesz 3. Klawisze 1-3 = Twoje 3 itemy, nic się nie przesuwa. **Plan gotowy, decyzja podjęta 30.09: wybór mieszka w EKWIPUNKU** (nie w sklepie, nie na osobnym stoisku).
+  - 🎨 panel „Ekwipunek" w Studio — kontrakt nazw w planie, ⚠️ `ResetOnSpawn = false`
+  - 💻 kod (pole w danych gracza, `LoadoutService`, `InventoryController`, blokada equipa po stronie serwera)
+  *dla Claude'a:* `docs/ROADMAP.md` → „PLAN: LOADOUT” (koniec pliku). Wchodzi PO paczce 3.
 - [ ] **RPG** 💻 (model już stoi na wystawie)
 - [ ] **STICKY BOMB** 💻 (model już stoi)
 - [ ] **ENERGY DRINK** 💻 (model już stoi)
@@ -59,15 +59,15 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 ## 📱 TELEFON
 
 - [ ] 💻 Logika przycisków sprint / push / most (wygląd: UI wyżej)
-- [ ] 💻 Start gry na wolnym telefonie — dziś może pokazać „0$”, pusty hotbar albo „LOBBY” w trakcie rundy.
-  *dla Claude'a:* paczka 3 (handshake zamiast `task.delay(1)`, nieblokujący start kontrolerów).
+- [ ] 💻 Start gry na wolnym telefonie — dziś może pokazać „0$”, pusty hotbar albo „LOBBY” w trakcie rundy. **Plan gotowy 30.09.**
+  *dla Claude'a:* paczka 3 — `docs/REVIEW_2026-09-29.md` → „Plan paczki 3”.
 
 ---
 
 ## 🛡️ ANTY-CHEAT I BEZPIECZEŃSTWO 💻
 
-- [ ] Łapać teleport i lot w górę → cofnięcie gracza na ostatnią dobrą pozycję (Twoja decyzja).
-  *dla Claude'a:* paczka 6, A-3 / B-13 / A-24.
+- [ ] Łapać teleport i lot w górę → **cofnięcie na ostatnią dobrą pozycję, po kilku razach zabicie, potem kick** (decyzje 30.09). Lot w górę karany dopiero po ~1 s. **Plan gotowy, zero otwartych pytań.**
+  *dla Claude'a:* paczka 6, A-3 / B-13 / A-24 — `docs/REVIEW_2026-09-29.md` → „Plan paczki 6”.
 - [ ] Jedno sprawdzanie danych od graczy dla wszystkich akcji (dziś 3 różne wersje).
 - [ ] Uprawnienia dev po UserId, nie po nicku (🎨 podaj swój UserId).
 
@@ -92,7 +92,6 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 
 ## ❓ DECYZJE DO PODJĘCIA 🎨
 
-- [ ] Gdzie wybór loadoutu
 - [ ] Balans lawy na koniec rundy — po teście z prawdziwymi graczami
 - [ ] 25$ za zabójstwo bez limitu — dwa konta mogą się farmić. OK?
 - [ ] Nazwa fazy lawy na ekranie (Easy / Mid / Hard / Endgame) — tak czy nie?

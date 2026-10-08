@@ -41,7 +41,7 @@ local rotationY = 0
 local ghost: Instance? = nil
 local ghostParts: { BasePart } = {}
 local ghostPivotOffset = CFrame.identity
-local ghostInRange: boolean? = nil
+local ghostValid: boolean? = nil -- można tu budować (zasięg i nie na lawie)
 -- Sylwetka rysowana poza kolejką przezroczystości — jedyne, czego lawa nie zamaluje.
 local ghostHighlight: Highlight? = nil
 local renderConn: RBXScriptConnection? = nil
@@ -120,7 +120,7 @@ local function makeGhost(def: any): Instance
 		ghostHighlight = hl
 	end
 
-	ghostInRange = nil
+	ghostValid = nil
 	return inst
 end
 
@@ -136,10 +136,10 @@ end
 
 -- Kolor przestawiamy TYLKO na zboczu stanu. Ustawianie go co klatkę to kilkanaście
 -- zapisów property na klatkę za coś, co zmienia się raz na kilka sekund.
-local function setGhostInRange(inRange: boolean)
-	if ghostInRange == inRange then return end
-	ghostInRange = inRange
-	local color = if inRange then Config.Bridge.GhostColorOK else Config.Bridge.GhostColorBad
+local function setGhostValid(valid: boolean)
+	if ghostValid == valid then return end
+	ghostValid = valid
+	local color = if valid then Config.Bridge.GhostColorOK else Config.Bridge.GhostColorBad
 	for _, p in ipairs(ghostParts) do
 		p.Color = color
 	end
@@ -159,21 +159,8 @@ local function getHRP(): BasePart?
 	return nil
 end
 
--- Wierzch stosu lawy, albo nil gdy lawy nie ma. Czytane ZA KAŻDYM RAZEM, bo tafla rośnie
--- i faluje co klatkę — zapamiętana wartość rozjechałaby się w kilka sekund.
--- (Warstw są dwie-trzy, więc to kilka porównań, nie pętla po mapie.)
-local function lavaTopY(): number?
-	local folder = Workspace:FindFirstChild("Lava")
-	if not folder then return nil end
-	local top: number? = nil
-	for _, p in ipairs(folder:GetChildren()) do
-		if p:IsA("BasePart") then
-			local t = p.Position.Y + p.Size.Y * 0.5
-			if not top or t > top then top = t end
-		end
-	end
-	return top
-end
+-- Wierzch stosu lawy, albo nil gdy lawy nie ma (wspólne z LavaSwimController — Utils).
+local lavaTopY = Utils.lavaSurfaceY
 
 local function computeAnchorPosition(dims: Vector3): (Vector3, boolean)
 	-- Raycast z kamery przez mouse position. Filter: character, ghost, ActiveCash.
@@ -247,21 +234,38 @@ local function isInRange(pos: Vector3, def: any): boolean
 	return (pos - hrp.Position).Magnitude <= def.maxBuildDistance
 end
 
-local function initialRotationFromCamera(): number
+-- Spód mostu na poziomie lawy (01.10): most ma fizykę od postawienia, a lawa nie ma kolizji,
+-- więc utonąłby od razu. Ten sam próg sprawdza serwer przed zabraniem itemu.
+local function isOnLava(anchorPos: Vector3, dims: Vector3): boolean
+	local top = lavaTopY()
+	return top ~= nil and anchorPos.Y - dims.Y * 0.5 <= top + Config.Bridge.LavaMargin
+end
+
+local function canBuildAt(anchorPos: Vector3, dims: Vector3, def: any): boolean
+	return isInRange(anchorPos, def) and not isOnLava(anchorPos, dims)
+end
+
+local function initialRotationFromCamera(snap: number): number
 	-- Most domyślnie rozciąga się w stronę gdzie patrzy kamera (gracz nie musi obracać R
 	-- żeby dostać sensowny początkowy kąt). Projekcja look na płaszczyznę XZ → atan2.
+	-- ZAOKRĄGLONE do kroku R (zgłoszenie Kacpra 08.10: „zależnie od kierunku patrzenia most
+	-- jest obrócony o kilka stopni”) — kąt prosto z kamery dawał np. 37° albo 93°, więc most
+	-- stał krzywo względem ulic i dachów, a R obracało od tego krzywego kąta.
 	local cam = Workspace.CurrentCamera
 	if not cam then return 0 end
 	local look = cam.CFrame.LookVector
 	local hx, hz = look.X, look.Z
 	if hx * hx + hz * hz < 1e-4 then return 0 end  -- kamera prawie pionowo
-	return math.deg(math.atan2(hx, hz))
+	local deg = math.deg(math.atan2(hx, hz))
+	if snap > 0 then
+		deg = math.floor(deg / snap + 0.5) * snap
+	end
+	return deg % 360
 end
 
 local function enterBuildMode()
 	if active then return end
 	active = true
-	rotationY = initialRotationFromCamera()
 
 	local def = getDef()
 	if not def then
@@ -269,6 +273,7 @@ local function enterBuildMode()
 		active = false
 		return
 	end
+	rotationY = initialRotationFromCamera(def.rotateSnapDegrees or 0)
 
 	local dims = getDims(def)
 
@@ -282,8 +287,8 @@ local function enterBuildMode()
 		local centerPos = anchorToCenter(anchorPos, rotationY, dims)
 		setGhostCFrame(CFrame.new(centerPos) * CFrame.Angles(0, math.rad(rotationY), 0))
 		-- Visual feedback: distance check liczony od anchor (= miejsca gdzie gracz "kładzie"),
-		-- nie od centrum mostu. Inaczej długi most byłby zawsze "za daleko".
-		setGhostInRange(isInRange(anchorPos, def))
+		-- nie od centrum mostu. Inaczej długi most byłby zawsze "za daleko". Do tego lawa.
+		setGhostValid(canBuildAt(anchorPos, dims, def))
 	end)
 
 	-- InputBegan: R rotate, LMB confirm. Filter gameProcessed (HUD klikalny przez Roblox).
@@ -299,8 +304,8 @@ local function enterBuildMode()
 			task.delay(0.15, function() clickDebounce = false end)
 
 			local anchorPos, _hit = computeAnchorPosition(dims)
-			if not isInRange(anchorPos, def) then
-				-- Klient wie że za daleko — nie spammujemy server. Visual już czerwony.
+			if not canBuildAt(anchorPos, dims, def) then
+				-- Za daleko albo na lawie — nie spammujemy serwera. Ghost już czerwony.
 				return
 			end
 			local now = os.clock()
@@ -323,7 +328,7 @@ local function exitBuildMode()
 	-- Highlight jest dzieckiem ghosta, więc zginął razem z nim — zerujemy tylko referencję.
 	ghostHighlight = nil
 	table.clear(ghostParts)
-	ghostInRange = nil
+	ghostValid = nil
 end
 
 function BridgeController.init()

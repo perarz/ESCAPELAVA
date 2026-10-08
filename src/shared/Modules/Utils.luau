@@ -177,4 +177,20 @@ function Utils.weldModel(model: Instance, primary: BasePart)
 	end
 end
 
+-- Wierzch stosu lawy (najwyższa warstwa w `Workspace.Lava`) albo nil, gdy lawy nie ma. Dla
+-- klienta — serwer ma `LavaService.getSurfaceY`. Czytane za każdym razem, bo tafla rośnie
+-- i faluje co klatkę; warstw jest dwie-trzy, więc to kilka porównań.
+function Utils.lavaSurfaceY(): number?
+	local folder = workspace:FindFirstChild("Lava")
+	if not folder then return nil end
+	local top: number? = nil
+	for _, p in ipairs(folder:GetChildren()) do
+		if p:IsA("BasePart") then
+			local t = p.Position.Y + p.Size.Y * 0.5
+			if not top or t > top then top = t end
+		end
+	end
+	return top
+end
+
 return Utils
