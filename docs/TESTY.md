@@ -8,35 +8,59 @@ Jak coś wisi w powietrzu — **nie zatrzymuj Play**, napisz Claude'owi: przeska
 
 ---
 
-## 🆕 NAJPIERW — ZMIANY Z 30.09-01.10
+## 🆕 NAJPIERW — ZMIANY Z 30.09-08.10
 
-### 🌋 Gęsta lawa
-- [ ] Skok z dachu do głębokiej lawy → nie lecisz na dno, tylko wpadasz kilka studów i powoli opadasz
-- [ ] W lawie ruszasz się wyraźnie wolniej (jak w miodzie)
-- [ ] Trzymasz skok → powoli płyniesz w górę
-- [ ] Przy powierzchni trzymany skok wybija z lawy
-- [ ] Da się dopłynąć do brzegu (dach, gruz) i wyjść
-- [ ] Kamera pod powierzchnią → ekran pomarańczowy i rozmyty, nie widać ulicy na dnie
-- [ ] Opadniesz na dno pod lawą → **zero** obrażeń od upadku i brak wywrotki w locie
-- [ ] W lawie dalej boli (~7 s do śmierci z pełnym życiem)
+> **10.10:** potwierdzone ✅ gęsta lawa, mosty + ghost, jeden profil grafiki, drabiny. Eksplozje „raczej git, nie na 100%” — zostają do stałego testu T1-T7 niżej.
 
-### 🌉 Mosty
-- [ ] Celujesz w lawę → podgląd czerwony, klik nic nie robi, most nie znika z ekwipunku
-- [ ] Most między dwoma dachami leży i da się po nim przejść
-- [ ] Most wysunięty nad przepaść przechyla się i spada
-- [ ] Most postawiony na dachu przez murek/gzyms NIE wylatuje w powietrze
-- [ ] Bomba odrzuca cały most w jednym kawałku (nie rozpada się na deski)
+### 🌋 Gęsta lawa — ✅ Kacper 10.10: „gęsta lawa git”
+- [x] Skok z dachu do głębokiej lawy → nie lecisz na dno, tylko wpadasz kilka studów i powoli opadasz
+- [x] W lawie ruszasz się wyraźnie wolniej (jak w miodzie)
+- [x] Trzymasz skok → powoli płyniesz w górę
+- [x] Przy powierzchni trzymany skok wybija z lawy
+- [x] Da się dopłynąć do brzegu (dach, gruz) i wyjść
+- [x] Kamera pod powierzchnią → ekran pomarańczowy i rozmyty, nie widać ulicy na dnie
+- [x] Opadniesz na dno pod lawą → **zero** obrażeń od upadku i brak wywrotki w locie
+- [x] W lawie dalej boli (~7 s do śmierci z pełnym życiem)
 
-### 🌉 Ghost mostu (08.10)
-- [ ] Celuj mostem w lawę (lawa w tle) → ghost WIDAĆ (pełny, zielony/czerwony, bez prześwitu)
-- [ ] Wejdź w budowanie, patrząc ukosem na ulicę → most stoi równo z ulicą (kąt co 45°), R obraca co 45°
-- [ ] Postawiony most stoi dokładnie tam i tak, jak pokazywał ghost
+### 🌉 Mosty — ✅ Kacper 10.10: „mosty git”
+- [x] Celujesz w lawę → podgląd czerwony, klik nic nie robi, most nie znika z ekwipunku
+- [x] Most między dwoma dachami leży i da się po nim przejść
+- [x] Most wysunięty nad przepaść przechyla się i spada
+- [x] Most postawiony na dachu przez murek/gzyms NIE wylatuje w powietrze
+- [x] Bomba odrzuca cały most w jednym kawałku (nie rozpada się na deski)
 
-### 🪜 Drabiny (08.10, v3 — tylko łatwiejsze łapanie, reszta jak w zwykłym Robloxie)
-- [ ] Zwykły chód (bez sprintu) prosto na drabinę → łapie
-- [ ] Podejście lekko ukosem → łapie
-- [ ] Na górze wyjdź na dach → NIE pcha z powrotem na krawędź
-- [ ] Zejście po drabinie z góry na ziemię → zero obrażeń od upadku
+### 🎨 Jeden profil grafiki (08.10) — ✅ Kacper 10.10: „jeden profil grafiki działa” (telefon niesprawdzony)
+- [x] Gra startuje bez błędów (nie ma już trybów Ziemniak/Pełny ani klawisza G)
+- [x] Wybuch: gruz i cząsteczki „pośrodku” — więcej niż dawny Ziemniak, mniej niż Pełny; meble się rozsypują; gruz leży ~10 s
+- [ ] Na telefonie (jeśli możesz) kilka bomb naraz nie zacina
+
+### 🧱 Twarde ruiny (08.10)
+- [ ] Zawal kawałek budynku → część (~1/4) małych brył i fragmentów zostaje do końca rundy, twarda, w swoim kształcie — da się na nich stanąć
+- [ ] Reszta dalej znika / jest gruzem bez kolizji; serwer nie laguje bardziej niż wcześniej
+- [ ] Wklej z Output linie `[Collapse] … twarda ruina` i `kruszenie … małych twardych N`
+
+### 💡 Latarnie i sygnalizatory (08.10)
+- [ ] Bomba tuż przy latarni / sygnalizatorze → rozpada się na kawałki, nic nie wisi
+- [ ] Bomba kilka studów dalej → przewraca się w całości (nie zostaje pół słupa ani sama głowica w powietrzu)
+
+### ⏱️ Wyjście z Play w Studio (08.10)
+- [ ] Stop → Studio odwiesza się w ~1-2 s, nie po 25-30 s; w Output `BindToClose done po X s` z małym X
+- [ ] Jeśli dalej wisi: wklej linię `BindToClose: limit … minął — …` (mówi, co trzyma)
+
+### 🚪 Drzwi (08.10)
+- [ ] Zawal ścianę/strop przy drzwiach w PupleHotel i SandBuilding → drzwi spadają, nie wiszą
+- [ ] Przez drzwi dalej da się przejść
+
+### 🌉 Ghost mostu (08.10) — ✅ Kacper 10.10: „mosty git”
+- [x] Celuj mostem w lawę (lawa w tle) → ghost WIDAĆ (pełny, zielony/czerwony, bez prześwitu)
+- [x] Wejdź w budowanie, patrząc ukosem na ulicę → most stoi równo z ulicą (kąt co 45°), R obraca co 45°
+- [x] Postawiony most stoi dokładnie tam i tak, jak pokazywał ghost
+
+### 🪜 Drabiny (08.10, v3 — tylko łatwiejsze łapanie, reszta jak w zwykłym Robloxie) — ✅ Kacper 10.10: „drabiny sprawdzone”
+- [x] Zwykły chód (bez sprintu) prosto na drabinę → łapie
+- [x] Podejście lekko ukosem → łapie
+- [x] Na górze wyjdź na dach → NIE pcha z powrotem na krawędź
+- [x] Zejście po drabinie z góry na ziemię → zero obrażeń od upadku
 
 ### 🌆 Ładowanie mapy i przejście (07.10)
 - [ ] Wejście do gry: ekran ładowania może trwać dłużej (cała mapa) — ile sekund? Na telefonie też

@@ -58,6 +58,16 @@ local subscribers: { (string, Player, any, any) -> () } = {}
 -- Zapisy do DataStore w toku (także final save z PlayerRemoving i zwolnienie locka) —
 -- BindToClose czeka, aż spadnie do zera (przegląd 29.09, A-6).
 local pendingWrites = 0
+-- KOŃCOWY ZAPIS = JEDEN na gracza (08.10, zgłoszenie Kacpra: „wychodzę z Play i mija 30 s,
+-- zanim Studio się odwiesi”). Przy zamykaniu ten sam gracz był zapisywany DWA razy pod rząd:
+-- przez BindToClose i przez PlayerRemoving (Studio usuwa gracza w trakcie zamykania), a czasem
+-- jeszcze przez auto-zapis. Roblox kolejkuje drugi zapis tego samego klucza w ciągu ~6 s,
+-- a w trakcie zamykania taki zapis wisi aż do limitu — BindToClose czekał na niego pełne
+-- `CloseWaitMax` (log: zapis po 0,7 s, „done” po 25 s). Teraz drugi wywołujący CZEKA na
+-- pierwszy końcowy zapis, zamiast pisać od nowa. "running" | "done"; nil = jeszcze nie było.
+local finalSaveState: { [Player]: string } = {}
+-- Od startu BindToClose auto-zapis nie dokłada zapisów — końcowy zapis każdego i tak idzie.
+local closing = false
 
 -- Session lock przy ŁADOWANIU. Sam lock przy zapisie nie wystarczy: jeśli load bezwarunkowo
 -- przejmie klucz, poprzedni serwer (gracz przeskoczył serwery / szybki rejoin) trafi przy
@@ -77,9 +87,8 @@ local function defaultData(): any
 		-- Celowo BRAK w defaultach: nieobecne pole = „jeszcze nie losowano", i to jest
 		-- sygnał dla AppearanceService, żeby wylosować zestaw przy pierwszym wejściu.
 		-- Stare save'y sprzed 2026-09-21 wchodzą tą samą ścieżką, bez migracji.
-		-- settings — ustawienia gracza { graphics = "Potato" | "Full" } (SettingsService,
-		-- 2026-09-23). Też celowo BRAK w defaultach: nieobecne = tryb grafiki dobierany
-		-- automatycznie po urządzeniu, dopóki gracz sam nie wybierze.
+		-- (settings.graphics — wybór trybu grafiki 23.09-08.10; tryby usunięte 08.10, jeden profil
+		-- dla wszystkich. Stare zapisy mogą mieć to pole — nikt go już nie czyta.)
 		_sessionId = nil,        -- ustawiamy po load — wykryjemy "fork" gdy ktoś zacznie w innym serwerze
 		_savedAt = 0,
 	}
@@ -223,7 +232,7 @@ local function loadPlayer(player: Player)
 	print(("[PlayerData] loaded %s cash=%d items=%d"):format(player.Name, data.cash or 0, (function() local n=0 for _ in pairs(data.inventory or {}) do n+=1 end return n end)()))
 end
 
-local function savePlayer(player: Player, isClosing: boolean?): boolean
+local function writePlayer(player: Player, isClosing: boolean?): boolean
 	if loadFailed[player] then
 		warn(("[PlayerData] save SKIP %s — load failował, nie nadpisuję DataStore defaultem"):format(player.Name))
 		return false
@@ -294,6 +303,29 @@ local function savePlayer(player: Player, isClosing: boolean?): boolean
 	return false
 end
 
+-- Wejście do zapisu. Końcowy zapis (wyjście gracza / zamknięcie serwera) idzie RAZ — patrz
+-- `finalSaveState`; nieudany można ponowić (stan wraca do nil).
+local function savePlayer(player: Player, isClosing: boolean?): boolean
+	if not isClosing then
+		if closing then return false end
+		return writePlayer(player, false)
+	end
+	local state = finalSaveState[player]
+	if state == "done" then
+		return true
+	end
+	if state == "running" then
+		while finalSaveState[player] == "running" do
+			task.wait(0.05)
+		end
+		return finalSaveState[player] == "done"
+	end
+	finalSaveState[player] = "running"
+	local ok = writePlayer(player, true)
+	finalSaveState[player] = if ok then "done" else nil
+	return ok
+end
+
 function PlayerDataService.get(player: Player): any
 	return cache[player]
 end
@@ -341,6 +373,7 @@ local function onPlayerRemoving(player: Player)
 	saveInFlight[player] = nil
 	loadFailed[player] = nil
 	lockIdOf[player] = nil
+	finalSaveState[player] = nil
 end
 
 local function autoSaveLoop()
@@ -391,6 +424,7 @@ function PlayerDataService.init()
 	-- (final save czeka najpierw na trwający auto-zapis i dopiero potem liczy się w
 	-- `pendingWrites` — sam licznik chwilowo spadałby do zera) i `pendingWrites` = 0.
 	game:BindToClose(function()
+		closing = true
 		print("[PlayerData] BindToClose — saving all players")
 		local threads: { thread } = {}
 		for p in pairs(cache) do
@@ -404,10 +438,24 @@ function PlayerDataService.init()
 			return false
 		end
 		local deadline = os.clock() + PD.CloseWaitMax
+		local started = os.clock()
 		while busy() and os.clock() < deadline do
 			task.wait(0.1)
 		end
-		print(("[PlayerData] BindToClose done (zapisów w toku: %d)"):format(pendingWrites))
+		if busy() then
+			-- Diagnostyka: co trzyma zamknięcie, gdyby wiszenie wróciło (lekcja 11 — log, nie zgadywanie).
+			local alive = 0
+			for _, t in ipairs(threads) do
+				if coroutine.status(t) ~= "dead" then alive += 1 end
+			end
+			local inFlight = {}
+			for p, f in pairs(saveInFlight) do
+				if f then table.insert(inFlight, p.Name) end
+			end
+			warn(("[PlayerData] BindToClose: limit %d s minął — zapisów w toku %d, wątków końcowego zapisu żywych %d, w locie: %s"):format(
+				PD.CloseWaitMax, pendingWrites, alive, if #inFlight > 0 then table.concat(inFlight, ", ") else "—"))
+		end
+		print(("[PlayerData] BindToClose done po %.1f s (zapisów w toku: %d)"):format(os.clock() - started, pendingWrites))
 	end)
 end
 

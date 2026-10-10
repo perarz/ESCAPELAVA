@@ -18,7 +18,6 @@ local GameLoopService = require(script.Services.GameLoopService)
 local CashService = require(script.Services.CashService)
 local ItemService = require(script.Services.ItemService)
 local ShopService = require(script.Services.ShopService)
-local SettingsService = require(script.Services.SettingsService)
 local DebrisService = require(script.Services.DebrisService)
 local PropService = require(script.Services.PropService)
 local CarService = require(script.Services.CarService)
@@ -50,9 +49,6 @@ local DevService = require(script.Services.DevService)
 PlayerDataService.init()
 CashService.init()
 ItemService.init()
--- Subskrybent "loaded" jak Cash/Item — musi być przed pierwszym PlayerAdded, inaczej
--- zapisany tryb grafiki gracza nie dojedzie do klienta (atrybut ustawiany po wczytaniu).
-SettingsService.init()
 -- Debris → Structural → Destruction → Collapse → Bomb. DESTRUCTION_PLAN.md (v3 + „v4”).
 -- Debris pierwszy (rejestr gruzu, collision group, pętla usypiania). Structural (v4) buduje
 -- budynki z `Config.Structure.Buildings` przy starcie i na każdym COUNTDOWN — przed

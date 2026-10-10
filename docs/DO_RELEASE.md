@@ -19,8 +19,6 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
   *dla Claude'a:* skopiować `HUD.Hotbar.Slot2` → `Slot3`.
 - [ ] **Kamera przy haku w sklepie** — postawić marker obok modelu haka.
   *dla Claude'a:* `WeaponShopScene.ShopCameras`, kod sam go znajdzie.
-- [ ] **Panel ustawień** (tryb grafiki Ziemniak / Pełny).
-  *dla Claude'a:* kontrakt w `docs/STUDIO_CONTRACT.md` → „Ustawienia”.
 - [ ] **Przyciski dotykowe na telefon** — wygląd przycisków sprint / push / most (logikę podłącza Claude).
 - [ ] **Panel „Ekwipunek"** — tu wybierasz 3 itemy na rundę (decyzja 30.09). Kontrakt nazw i pułapka `ResetOnSpawn` w `docs/ROADMAP.md` → „PLAN: LOADOUT”. Stoisko loadoutu NIE powstaje.
 - [ ] **5 dźwięków destrukcji**: wybuch, szkło, uderzenie, trzask, zawalenie — podaj id.

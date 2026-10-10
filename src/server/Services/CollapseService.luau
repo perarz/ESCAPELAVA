@@ -81,6 +81,7 @@ type Active = {
 	jamCheckAt: number?, -- kiedy sprawdzić, czy nie zaklinowana; nil = nie sprawdzać
 	stillSince: number?,
 	retireAt: number?,
+	keep: boolean?, -- mała, ale zostaje do końca rundy (twarde ruiny, 08.10); nil = jeszcze nie losowane
 	fragment: boolean?, -- fragment kruszenia (28.09): jedna bryła bez chunków, wylatuje od wybuchu
 	unstuck: boolean?, -- siatka zaklinowania: stopień 1 (odblokowanie) już był (28.09)
 	-- Osiadła: czy ma na czym leżeć (29.09, M-1)
@@ -475,6 +476,7 @@ local function crumble(rec: Rec, chunkId: number, cause: Cause?)
 	local toClients: { Instance } = {}
 	local toLaunch: { Active } = {}
 	local reserved = 0
+	local solidKept = 0
 	local fragments: { BasePart } = {}
 	for _, piece in ipairs(table.clone(StructuralService.piecesOf(rec, c.part))) do
 		local pb = Pieces.boxOf(piece)
@@ -496,9 +498,20 @@ local function crumble(rec: Rec, chunkId: number, cause: Cause?)
 			Pieces.setBox(piece, keep[1])
 		end
 		fragments[#fragments + 1] = fragment
-		local frag = if Pieces.volume(inter) >= CFG.FragmentMinVolume then newFragment(rec, fragment, cause) else nil
+		-- Duży fragment zawsze fizyką; mały — z szansą SolidFragmentChance (twarde ruiny, 08.10),
+		-- i wtedy zostaje do końca rundy. Bez miejsca w budżecie oba idą do graczy jak dotąd.
+		local vol = Pieces.volume(inter)
+		local solidSmall = vol < CFG.FragmentMinVolume and vol >= CFG.SolidFragmentMinVolume
+			and rng:NextNumber() < CFG.SolidFragmentChance
+		local frag = if vol >= CFG.FragmentMinVolume or solidSmall then newFragment(rec, fragment, cause) else nil
+		if frag and solidSmall then
+			frag.keep = true
+		end
 		if frag and fits(frag, reserved) then
 			reserved += frag.cost
+			if frag.keep then
+				solidKept += 1
+			end
 			table.insert(toLaunch, frag)
 		else
 			table.insert(toClients, fragment)
@@ -516,8 +529,8 @@ local function crumble(rec: Rec, chunkId: number, cause: Cause?)
 		launchFragment(frag, center)
 	end
 	if #toLaunch + #toClients > 0 then
-		log("%s: kruszenie ch%d — fragmentów fizyką %d, u klientów %d (budżet %d/%d)",
-			rec.id, chunkId, #toLaunch, #toClients, used, CFG.MaxCost)
+		log("%s: kruszenie ch%d — fragmentów fizyką %d (w tym małych twardych %d), u klientów %d (budżet %d/%d)",
+			rec.id, chunkId, #toLaunch, solidKept, #toClients, used, CFG.MaxCost)
 	end
 	flagRubbleNear(c.min, c.max)
 	-- Listwy i szyby, które przez to kruszenie straciły OSTATNIE oparcie, spadają (test 24.09:
@@ -961,13 +974,16 @@ local function settle(a: Active, forced: boolean?)
 	if not table.find(settledAll, a) then
 		table.insert(settledAll, a)
 	end
-	if a.volume < CFG.SmallRubbleVolume then
+	if a.volume < CFG.SmallRubbleVolume and a.keep == nil then
+		a.keep = rng:NextNumber() < CFG.KeepSmallRubbleChance
+	end
+	if a.volume < CFG.SmallRubbleVolume and not a.keep then
 		a.retireAt = os.clock() + CFG.SmallRubbleLifetime
 		table.insert(settledTemp, a)
 	end
 	if not a.fragment then -- fragmenty: podsumowanie jest w logu kruszenia
 		log("%s: grupa %s osiadła po %.1f s (%s)", a.rec.id, a.def.groupId, os.clock() - a.releasedAt,
-			if a.retireAt then "mała — zniknie" else "platforma do końca rundy")
+			if a.retireAt then "mała — zniknie" elseif a.keep then "mała — twarda ruina do końca rundy" else "platforma do końca rundy")
 	end
 end
 

@@ -177,11 +177,18 @@ end
 -- Jednostka-rekwizyt dla parta: najwyższy kwalifikujący się Model pod folderem dekoracji,
 -- albo sam part (gdy mieści się w MaxSize). nil = to nie rekwizyt (poza dekoracjami albo za
 -- duży — dywan 63×63, płot 53 — taki zostaje przy zwykłych regułach).
+-- Folder rekwizytów = FOLDER o nazwie z `Props.Folders`. Sama nazwa nie wystarcza (08.10):
+-- każdy sygnalizator to Model o nazwie „TrafficLights” w folderze „TrafficLights” — po samej
+-- nazwie model był brany za folder i rekwizytem stawał się każdy jego part osobno.
+local function isPropFolder(node: Instance): boolean
+	return PROPS.Folders[node.Name] == true and node:IsA("Folder")
+end
+
 function Destructible.propOf(part: BasePart, ctx: Context): Instance?
 	local node = part.Parent
 	local inProps = false
 	while node and node ~= Workspace and node ~= ctx.map do
-		if PROPS.Folders[node.Name] then
+		if isPropFolder(node) then
 			inProps = true
 			break
 		end
@@ -192,7 +199,7 @@ function Destructible.propOf(part: BasePart, ctx: Context): Instance?
 	end
 	local best: Instance? = nil
 	node = part.Parent
-	while node and not PROPS.Folders[node.Name] do
+	while node and not isPropFolder(node) do
 		if node:IsA("Model") then
 			if propQualifies(node, ctx) then
 				best = node
@@ -220,7 +227,7 @@ function Destructible.propCategory(unit: Instance): string?
 	local node: Instance? = unit
 	local vaporize = false
 	while node and node ~= Workspace do
-		if PROPS.Folders[node.Name] then
+		if isPropFolder(node) then
 			return if vaporize then "vaporize" else "furniture"
 		end
 		if PROPS.Vaporize[node.Name] then

@@ -2,7 +2,7 @@
 
 > Dokument dla asystenta pomagającego w organizacji pracy (TODO, planowanie, decyzje).
 > Celowo bez szczegółów kodu — od logiki gry jest Claude Code w repo.
-> Stan na: 2026-09-26.
+> Stan na: 2026-10-08.
 
 ---
 
@@ -54,10 +54,10 @@ Zasady współpracy:
   jako platformy, a kto stoi za ścianą, dostaje słabiej. **Od 23.09 (v3, czeka na test)**:
   drobny gruz i meble (wieszaki, krzesła, skrzynie) padają już tylko „u gracza” — cały mebel
   przewraca się i rozsypuje, leży chwilę i gaśnie; ranią i służą za platformy tylko duże
-  płyty. Do tego **dwa tryby grafiki**: Ziemniak (telefon — mniej gruzu, szybko znika)
-  i Pełny (mocny PC — pobojowisko zostaje ~20 s); wybór w ustawieniach, zapisywany.
-  Gruz „u gracza” nie ma kolizji — przechodzi się przez niego, więc tryb zmienia wyłącznie
-  obraz, a gracze z różnymi ustawieniami grają dokładnie w tę samą grę.
+  płyty. Grafika: **jeden profil dla wszystkich** (od 08.10 — wcześniej dwa tryby, Ziemniak
+  i Pełny, usunięte decyzją Kacpra; profil to środek obu, gruz leży ~10 s).
+  Gruz „u gracza” nie ma kolizji — przechodzi się przez niego, więc ilość gruzu zmienia
+  wyłącznie obraz, a wszyscy grają dokładnie w tę samą grę.
   **Od 24.09 pomarańczowy budynek działa na nowej destrukcji (v4, czeka na ponowny test)**:
   bomba wycina w ścianie czy stropie prostokątną dziurę, kolejne bomby w tę samą konstrukcję
   osłabiają ją, aż się skruszy, a gdy część budynku straci podparcie — spada naprawdę, grupami,
@@ -205,7 +205,7 @@ Zasady współpracy:
 
 ## TODO (priorytety)
 
-**Najpierw — TEST NOWEJ DESTRUKCJI w grze (stan 28.09).** Całe miasto jest na nowej destrukcji; do sprawdzenia w Play: zawalanie wszystkich 10 budynków, tory, rekwizyty, auta, spadające TV/deski, kawałki skruszonych ścian i czy bryły dalej „wiszą i znikają” (lista testu: `docs/DESTRUCTION_PLAN.md`, sekcje z 26-28.09). Potem z destrukcji zostaje: sprzątanie starego systemu poza budynkami, dźwięki (5 id od Kacpra) i zapis „mapy konstrukcji” w placu przed launchem. Opis niżej jest historią z 24-25.09.
+**Stan 08.10: Kacper TESTUJE w Play** (lista `docs/TESTY.md`) i zgłasza na bieżąco — poprawki z 08.10 opisane w „Stan na 2026-10-08” na końcu. Zostaje: stały test destrukcji T1-T7 dwa razy pod rząd (zamrożenie destrukcji), potem loadout, start klienta, anty-cheat, nowe itemy, telefon. **Wcześniej — TEST NOWEJ DESTRUKCJI w grze (stan 28.09).** Całe miasto jest na nowej destrukcji; do sprawdzenia w Play: zawalanie wszystkich 10 budynków, tory, rekwizyty, auta, spadające TV/deski, kawałki skruszonych ścian i czy bryły dalej „wiszą i znikają” (lista testu: `docs/DESTRUCTION_PLAN.md`, sekcje z 26-28.09). Potem z destrukcji zostaje: sprzątanie starego systemu poza budynkami, dźwięki (5 id od Kacpra) i zapis „mapy konstrukcji” w placu przed launchem. Opis niżej jest historią z 24-25.09.
 
 **Historia 24-25.09 — NOWA DESTRUKCJA (v4): pomarańczowy budynek już w grze, czeka na ponowny test.**
 Stan na 25.09: zbudowane „mapa konstrukcji” pomarańczowego budynku, dziury, osłabianie i kolaps
@@ -237,9 +237,8 @@ Znalezione w logu i odłożone: zaczep hakiem pod własne nogi zużywa sztukę z
 produkcji strata 40$ za misklik). (Szum w logu wybuchów — naprawiony w v3.)
 
 **Do postawienia w Studio (Twoja strona):** trzeci slot w pasku (hak jest niewidoczny),
-marker kamery obok haka na wystawie (dziś kadr liczy się automatycznie), **panel ustawień
-z wyborem trybu grafiki** (nazwy w `docs/STUDIO_CONTRACT.md` → „Ustawienia”; do tego czasu
-tryb dobiera się sam: telefon → Ziemniak, PC → Pełny).
+marker kamery obok haka na wystawie (dziś kadr liczy się automatycznie). (Panel ustawień
+grafiki odpadł 08.10 — jeden profil dla wszystkich.)
 
 **A. Wizja ustalona 12.09 — kolejny duży blok pracy:**
 - **Ekwipunek i loadout**: hotbar skrócony do **3 slotów**, a gracz wybiera 3 itemy
@@ -374,10 +373,20 @@ Każdy pomysł "a może dodamy..." → odpowiedź brzmi: **po launchu, nie teraz
 - Lawa: 0.6 → 1.2 → 2.0 → 3.0 stud/s. Kontakt z lawą zabija po 7 s (nie od razu).
   ⚠️ Obecnie testowo: runda 240 s i lawa 3× wolniej — do cofnięcia przed launchem.
 - Bomba 50$ (odpalenie 2.5s, zasięg rażenia graczy 22, niszczenie terenu 24, szyby 35),
-  most 100$, **hak 40$ (zasięg 70)**, push F co 4s.
+  most 100$ (od 08.10 dłuższy: 16 studów), **hak 40$ (zasięg 70)**, push F co 4s.
 - Nagrody: przetrwanie 100$, kill 25$, kasa z mapy 10$/szt. (Daily skasowane 12.09 —
   do zrobienia od nowa.)
 - Start gracza: 100$ na dzień dobry.
+
+## Stan na 2026-10-08
+
+Kacper zaczął test w Play (`docs/TESTY.md`). Zrobione 07-08.10, wszystko **czeka na sprawdzenie** (poza zmianami w samym placu):
+- **Wejście na mapę**: cała mapa wczytuje się przy wejściu do gry (koniec doładowywania), start rundy z krótkim ciemnym przejściem, żeby cienie zdążyły się zbudować; po rundzie odbudowują się tylko zniszczone budynki (mniej pracy dla serwera i graczy).
+- **Grafika**: jeden profil dla wszystkich, pośrodku dawnych trybów Ziemniak/Pełny (tryby i ich wybór usunięte).
+- **Destrukcja**: ~25% małego rumowiska zostaje twarde do końca rundy (prawdziwe ruiny, po których się chodzi); latarnie padają w całości jak meble; drzwi nie wiszą już w powietrzu po zawaleniu; gruz w kilku odcieniach szarego.
+- **Ruch**: drabinę łatwiej złapać zwykłym chodem (dobijanie prędkości tuż przed szczeblami); zejście po drabinie nie liczy się jako upadek. Dwie bardziej rozbudowane wersje drabiny odrzucone.
+- **Most**: ghost widoczny także na tle lawy (nieprzezroczysty), kąt startowy równo z ulicami (co 45°), most dłuższy o 3 studa.
+- **Mapa (Studio)**: nowe lampy w budynkach i wentylatory przestawione na studsowy wygląd; drabiny oznaczone do przyciągania; drzwi widoczne dla destrukcji.
 
 ## Stan na 2026-09-30
 

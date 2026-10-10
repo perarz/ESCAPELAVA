@@ -9,7 +9,7 @@
 --   * PRZEJĘTE MEBLE I DROBNICA (v3, kopie partów, które serwer
 --     za chwilę skasuje)                                           — Remotes.DebrisFall
 -- Zero replikacji, zero fizyki serwera. ILE tego gracz widzi i jak długo leży, decyduje
--- jego tryb grafiki (QualityController → Config.Graphics.Profiles): telefon nie płaci
+-- profil grafiki (`Config.Graphics.Profile`; do 08.10 dwa tryby, Ziemniak/Pełny): telefon nie płaci
 -- za pobojowisko, które chce widzieć mocny PC.
 --
 -- 🔴 ZASADA NR 1 — LOKALNY GRUZ NIE ISTNIEJE DLA NICZEGO, CO WPŁYWA NA GRĘ (2026-09-23,
@@ -38,7 +38,6 @@ local Destructible = require(ReplicatedStorage.Shared.Modules.Destructible)
 local Fracture = require(ReplicatedStorage.Shared.Modules.Fracture)
 local Shockwave = require(ReplicatedStorage.Shared.Modules.Shockwave)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
-local QualityController = require(script.Parent.QualityController)
 
 local DebrisFXController = {}
 
@@ -47,7 +46,7 @@ local FRAC = Config.Destruction.Fracture
 local SMALL = Config.Destruction.Small
 local PROPS = Config.Destruction.Props
 
-type Profile = QualityController.Profile
+type Profile = typeof(Config.Graphics.Profile)
 
 local FALLBACK_COLOR = Color3.fromRGB(132, 126, 118)
 local FALLBACK_MATERIAL = Enum.Material.Concrete
@@ -398,7 +397,7 @@ end
 
 -- ---- Przewracanie mebli ------------------------------------------------------
 
--- Mebel rozsypuje się na części (tryb Pełny, po przewróceniu albo od razu przy odrzucie).
+-- Mebel rozsypuje się na części (`ShatterFurniture`, po przewróceniu albo od razu przy odrzucie).
 -- Części przejmują czas życia mebla, żeby zgasły razem z resztą.
 local function shatterBody(b: Body, profile: Profile, rng: Random)
 	local model = b.root
@@ -544,7 +543,7 @@ end
 local function stepPool()
 	if #bodies == 0 and #deferred == 0 then return end
 	local now = os.clock()
-	local profile = QualityController.profile()
+	local profile = Config.Graphics.Profile
 	local fade = math.max(FX.FragFadeTime, 0.01)
 
 	stepping = true
@@ -1137,7 +1136,7 @@ local function onDebrisFall(fall: any)
 	local impulse = fall.impulse
 	if typeof(center) ~= "Vector3" or typeof(radius) ~= "number" or typeof(impulse) ~= "number" then return end
 
-	local profile = QualityController.profile()
+	local profile = Config.Graphics.Profile
 	local camPos = cameraPosition()
 	local rng = Random.new()
 	local budget = profile.FallPartsPerBlast
@@ -1214,7 +1213,7 @@ local function onBlastFX(blast: any)
 	local impulse = if typeof(blast.impulse) == "number" then blast.impulse else 0
 	local minT = if typeof(blast.minT) == "number" then blast.minT else 0.1
 
-	local profile = QualityController.profile()
+	local profile = Config.Graphics.Profile
 	local camPos = cameraPosition()
 	-- Ten sam seed na każdym kliencie = identyczny wzór odłamków u wszystkich.
 	local rng = Random.new(seed)
@@ -1261,10 +1260,6 @@ function DebrisFXController.init()
 		if newState ~= "ROUND" then
 			clearAll()
 		end
-	end)
-	-- Przejście na Ziemniaka w trakcie gry: od razu przytnij do nowego sufitu.
-	QualityController.Changed:Connect(function()
-		enforceCap(QualityController.profile())
 	end)
 end
 

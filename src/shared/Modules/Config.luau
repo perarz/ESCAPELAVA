@@ -43,12 +43,9 @@ Config.Dev = {
 	-- robimy właśnie w Studio, więc kolizja jest realna.
 	-- Przy zmianie tych klawiszy sprawdź, czy nie kolidują z: WASD, Space (skok),
 	-- LeftShift (sprint), F (push), 1-5 (hotbar), R (obrót mostu), Q (wyjście ze sklepu),
-	-- E (ProximityPrompt), G (tryb grafiki — niżej).
+	-- E (ProximityPrompt).
 	SkipKey = Enum.KeyCode.K,     -- skip bieżącej fazy/stanu (LOBBY→ROUND w 2 klik)
 	EndRoundKey = Enum.KeyCode.O, -- natychmiastowy koniec rundy (restore mapy, nagrody)
-	-- Przełącznik Ziemniak ↔ Pełny (2026-09-23) — do porównania trybów grafiki, zanim
-	-- stanie panel ustawień. Działa jak kliknięcie w ustawieniach (zapisuje wybór).
-	GraphicsToggleKey = Enum.KeyCode.G,
 }
 
 Config.Game = {
@@ -961,11 +958,6 @@ Config.RateLimits = {
 	-- kliknie KUP 10 razy na sekundę; limit 0,5 s między zakupami usunięto wcześniej, bo
 	-- blokował zwykłe klikanie — nie wracać do niego.
 	BuyItemPerSecond = 10,
-	-- Zmiana trybu grafiki w ustawieniach. Zapis idzie tylko do pamięci serwera (DataStore
-	-- dostaje go przy auto-save / wyjściu), więc limit chroni wyłącznie przed spamem
-	-- remote'a. Kliknięcie w trakcie limitu NIE przepada — serwer zapisze ostatni wybór
-	-- po jego upływie (SettingsService), bo „kliknąłem, a zapisało się poprzednie" wkurza.
-	SetGraphicsMode = 0.25,
 }
 
 -- Anti-cheat: wykrywanie speedhacka/teleportu u żywych graczy w ROUND.
@@ -1220,7 +1212,7 @@ Config.Destruction = {
 	-- niego resztki (scalone w możliwie duże bryły), a KLIENT z tego samego seeda liczy
 	-- kawałki dziury i animuje je lokalnie. Kawałki z dziury nie są już partami serwera
 	-- (to one — do 110 na wybuch — replikowały pozycję do każdego gracza i dławiły łącze).
-	-- Ile kawałków gracz WIDZI, decyduje jego tryb grafiki (`Config.Graphics`).
+	-- Ile kawałków gracz WIDZI, decyduje profil grafiki (`Config.Graphics.Profile`).
 	Fracture = {
 		TargetChunkSize = 3.2,       -- docelowy wymiar kawałka gruzu (stud)
 		MinChunkSize = 1.4,          -- poniżej tego NIE tniemy — drobnica to particle, nie party
@@ -1246,7 +1238,7 @@ Config.Destruction = {
 		ChunkSizeJitter = 0.22,
 		HoleRadiusJitter = 0.15,
 		-- (MaxServerChunksPerBlast 110 USUNIĘTE 2026-09-23 — serwer nie tworzy już kawałków
-		-- dziury; sufit tego, co gracz widzi, to `Graphics.Profiles.*.CutChunksPerBlast`.)
+		-- dziury; sufit tego, co gracz widzi, to `Graphics.Profile.CutChunksPerBlast`.)
 		ChunkRotJitter = 7,          -- ± stopnie obrotu kawałka przy spawnie (łamie siatkę)
 		ChunkShrink = 0.96,          -- lekki shrink kawałków — szczeliny czytają się jako gruz
 		WedgeChance = 0.22,          -- szansa na WedgePart zamiast boxa (poszarpane krawędzie)
@@ -1351,7 +1343,14 @@ Config.Destruction = {
 	-- poszarpane dziury, a drobne części tego samego mebla odpadały osobno.
 	-- Większe od MaxSize (dywany 63×63, płoty 53, drabiny 45) zostają przy cięciu jak dotąd.
 	Props = {
-		Folders = { Decorations = true },
+		-- 08.10: + Lamps (latarnie uliczne, `OutsideDecorations.Lamps`; zgłoszenie Kacpra „latarnie
+		-- wiszą w powietrzu, kłuje w oczy”). Cięte po kawałku jak ściana: bomba wycinała kawałek
+		-- słupa, a góra słupa z wysięgnikiem i kloszem zostawała w powietrzu. Jako MEBEL padają
+		-- w całości. Decyzja Kacpra: TYLKO latarnie (nie sygnalizatory, przystanki, drzewa).
+		-- 08.10 wieczór: + TrafficLights (sygnalizatory, 25 modeli 17,6 studa / 12 partów) — prośba
+		-- Kacpra „to samo z sygnalizacją co z lampami”. Liczy się tylko FOLDER o tej nazwie
+		-- (Destructible.isPropFolder) — modele sygnalizatorów też nazywają się „TrafficLights”.
+		Folders = { Decorations = true, Lamps = true, TrafficLights = true },
 		MaxSize = 24,   -- studów (największy wymiar modelu albo parta)
 		MaxParts = 200,
 		-- (26.09, decyzje Kacpra) Rekwizyty, które w zasięgu DZIURY znikają od razu z obłokiem
@@ -1449,8 +1448,8 @@ Config.Destruction = {
 	-- zero replikacji — dlatego liczby mogą być wysokie.
 	FX = {
 		-- ⚠️ ILE i JAK DŁUGO (liczby odłamków, kawałków, czasy leżenia, sufity) jest od
-		-- 2026-09-23 w `Config.Graphics.Profiles` — zależy od trybu grafiki gracza. Tu
-		-- zostaje tylko KSZTAŁT i ZACHOWANIE, wspólne dla obu trybów.
+		-- 2026-09-23 w `Config.Graphics.Profile` (od 08.10 jeden profil dla wszystkich). Tu
+		-- zostaje tylko KSZTAŁT i ZACHOWANIE.
 		-- (Historia: 150 → 45 odłamków ogólnych 2026-08-12 — przy takiej chmurze NIE BYŁO
 		-- WIDAĆ realnej destrukcji. Efekty mają podkreślać zniszczenie, nie je zasłaniać.)
 		FragMinSize = 0.4,
@@ -1800,6 +1799,18 @@ Config.Structure = {
 		-- jako platformy, małe znikają po kilku sekundach.
 		SmallRubbleVolume = 300,
 		SmallRubbleLifetime = 4,
+		-- TWARDE RUINY (08.10, pomysł Kacpra: „20-30% ruin spada z kolizją w takich kształtach,
+		-- jakie były”). Do tej pory po zawaleniu zostawały tylko duże bryły, a reszta znikała albo
+		-- szła do graczy jako gruz bez kolizji — z budynku robiła się przechodnia kupa.
+		--   * Mała bryła (< SmallRubbleVolume) z tą szansą NIE znika po SmallRubbleLifetime, tylko
+		--     leży do końca rundy (losowane RAZ, przy pierwszym osiadaniu — ponowne osiadanie po
+		--     wybudzeniu nie podbija szansy). Leży zakotwiczona, więc fizyki nie kosztuje.
+		--   * Mały fragment kruszenia (FragmentMinVolume > objętość ≥ SolidFragmentMinVolume) z tą
+		--     szansą spada fizyką serwera jak duży, zamiast u graczy bez kolizji — i zostaje. W tym
+		--     samym budżecie (MaxCost): bez miejsca idzie do graczy jak dotąd.
+		KeepSmallRubbleChance = 0.25,
+		SolidFragmentChance = 0.25,
+		SolidFragmentMinVolume = 8, -- okruchy mniejsze niż ~2×2×2 zawsze u graczy (drgałyby i plątały się pod nogami)
 		LavaCullMargin = 1,
 		-- Filtr kolizji na starcie: pary kawałek grupy ↔ stojąca konstrukcja, które na siebie
 		-- NACHODZĄ (158 par w OrangeBuilding), nie zderzają się — inaczej silnik wypycha
@@ -1836,72 +1847,29 @@ Config.Structure = {
 	},
 }
 
--- ===== TRYB GRAFIKI (2026-09-23) =====
--- Pomysł Kacpra: „ziemniak” — minimum na telefon — i tryb pełny dla tych, co na mocnym
--- PC chcą zobaczyć rozpierdalanie. Ustawienie WYŁĄCZNIE KOSMETYCZNE: serwer robi dla
--- wszystkich dokładnie to samo (te same dziury, te same płyty), tryb decyduje tylko, ile
--- gruzu, kurzu i odłamków KLIENT dorysowuje u siebie. Dzięki temu telefon nie płaci za
--- efekty, które chce widzieć PC, a serwer nie płaci za żadne z nich.
--- Wybór gracza (decyzja Kacpra: „w ustawieniach”) — zapis w DataStore
--- (`data.settings.graphics`, SettingsService), stan przekazywany klientowi atrybutem gracza.
--- Dopóki gracz nic nie wybrał, tryb dobiera się sam (niżej).
+-- ===== GRAFIKA — JEDEN PROFIL (08.10) =====
+-- Do 08.10 były dwa tryby: Ziemniak (telefon) i Pełny (mocny PC), z wyborem w ustawieniach
+-- i zapisem w DataStore. Decyzja Kacpra 08.10: „usuń tryb potato i full, zrób jeden po
+-- środku” — każda liczba to środek między dawnymi trybami; z włączników: meble się
+-- rozsypują (było tylko w Pełnym), gruz NIE rzuca cieni (było tylko w Pełnym).
+-- Ustawienie WYŁĄCZNIE KOSMETYCZNE: serwer robi dla wszystkich dokładnie to samo (te same
+-- dziury, te same płyty) — profil decyduje tylko, ile gruzu, kurzu i odłamków KLIENT
+-- dorysowuje u siebie. Czytają go ExplosionFXController i DebrisFXController.
 Config.Graphics = {
-	AttributeName = "GraphicsMode", -- atrybut na Player: "Potato" | "Full" | brak = automat
-	DefaultTouch = "Potato",   -- telefon/tablet (dotyk bez klawiatury)
-	DefaultConsole = "Potato", -- konsola (10-foot UI) — starsze konsole są słabsze od telefonów
-	DefaultDesktop = "Full",
-	-- Gracz, który w menu Robloxa sam zjechał suwakiem grafiki do tego poziomu lub niżej,
-	-- startuje w Ziemniaku — dał znać, że ma słaby sprzęt.
-	LowQualityLevel = 3,
-
-	-- (Grupy kolizji lokalnego gruzu USUNIĘTE 2026-09-23 — lokalny gruz nie ma kolizji
-	-- w ogóle, patrz `Destruction.FX`. Dzięki temu tryb zmienia wyłącznie obraz.)
-
-	-- KONTRAKT UI (StarterGui — buduje Kacper, kod tylko podpina). Wszystko OPCJONALNE:
-	-- bez tego UI tryb po prostu dobiera się automatycznie. Nazwy szukane rekurencyjnie.
-	UI = {
-		ScreenGui = "Settings",           -- panel ustawień (ResetOnSpawn = false — hard rule 10)
-		OpenButton = "SettingsButton",    -- przycisk w HUD, który otwiera/zamyka panel
-		CloseButton = "Close",            -- przycisk zamykania w panelu
-		PotatoButton = "GraphicsPotato",  -- wybór trybu Ziemniak
-		FullButton = "GraphicsFull",      -- wybór trybu Pełny
-		SelectedMarker = "Selected",      -- dziecko przycisku trybu, widoczne tylko gdy aktywny
-	},
-
-	Profiles = {
-		-- ZIEMNIAK — telefon. Obcięte wszystko, co kosztuje; destrukcja dalej CZYTELNA
-		-- (widać dziurę i to, że meble padają), tylko bez kurzawy i pobojowiska.
-		Potato = {
-			ClientFrags = 10,           -- ogólne odłamki z otoczenia na wybuch
-			CutChunksPerBlast = 16,     -- kawałki z dziur w ścianach/podłogach (największe pierwsze)
-			FallPartsPerBlast = 150,    -- party mebli/dekoracji przejęte od serwera na wybuch
-			ShatterFurniture = false,   -- mebel się przewraca i tak zostaje (jedna animacja, zero fizyki)
-			RubbleLifetime = 3,         -- s leżenia gruzu i mebli (decyzja Kacpra: 3 s)
-			FragLifetime = 2,           -- s życia drobnych odłamków
-			GlassShardScale = 0.35,     -- mnożnik liczby odłamków szkła na taflę
-			GlassShardsPerBlastMax = 40,
-			ParticleScale = 0.5,        -- mnożnik cząsteczek wybuchu (ogień, dym, iskry, pył)
-			MaxLocalParts = 300,        -- sufit WSZYSTKICH lokalnych partów (najstarsze gasną)
-			CastShadows = false,
-			FXDistance = 160,           -- dalej od kamery gruzu nie rysujemy wcale
-			RaysPerFrame = 80,          -- sufit promieni lądowania na klatkę (reszta gruzu czeka klatkę)
-		},
-		-- PEŁNY — mocny PC. Poziom sprzed 2026-09-23 plus pobojowisko, które zostaje.
-		Full = {
-			ClientFrags = 45,
-			CutChunksPerBlast = 110,
-			FallPartsPerBlast = 900,
-			ShatterFurniture = true,    -- przewrócony mebel rozsypuje się na części; blisko bomby — od razu
-			RubbleLifetime = 20,        -- decyzja Kacpra: 20 s
-			FragLifetime = 5,
-			GlassShardScale = 1,
-			GlassShardsPerBlastMax = 150,
-			ParticleScale = 1,
-			MaxLocalParts = 2000,
-			CastShadows = true,
-			FXDistance = 300,
-			RaysPerFrame = 400,
-		},
+	Profile = {
+		ClientFrags = 25,           -- ogólne odłamki z otoczenia na wybuch (było 10 / 45)
+		CutChunksPerBlast = 60,     -- kawałki z dziur w ścianach/podłogach, największe pierwsze (16 / 110)
+		FallPartsPerBlast = 500,    -- party mebli/dekoracji przejęte od serwera na wybuch (150 / 900)
+		ShatterFurniture = true,    -- przewrócony mebel rozsypuje się na części; blisko bomby — od razu
+		RubbleLifetime = 10,        -- s leżenia gruzu i mebli (3 / 20)
+		FragLifetime = 3.5,         -- s życia drobnych odłamków (2 / 5)
+		GlassShardScale = 0.65,     -- mnożnik liczby odłamków szkła na taflę (0,35 / 1)
+		GlassShardsPerBlastMax = 90, -- (40 / 150)
+		ParticleScale = 0.75,       -- mnożnik cząsteczek wybuchu: ogień, dym, iskry, pył (0,5 / 1)
+		MaxLocalParts = 1000,       -- sufit WSZYSTKICH lokalnych partów, najstarsze gasną (300 / 2000)
+		CastShadows = false,        -- gruz bez cieni (decyzja Kacpra 08.10)
+		FXDistance = 230,           -- dalej od kamery gruzu nie rysujemy wcale (160 / 300)
+		RaysPerFrame = 200,         -- sufit promieni lądowania na klatkę, reszta gruzu czeka (80 / 400)
 	},
 }
 
@@ -1960,10 +1928,7 @@ table.freeze(Config.Destruction.Shockwave)
 table.freeze(Config.Destruction.Debris)
 table.freeze(Config.Destruction.FX)
 table.freeze(Config.Destruction)
-table.freeze(Config.Graphics.UI)
-table.freeze(Config.Graphics.Profiles.Potato)
-table.freeze(Config.Graphics.Profiles.Full)
-table.freeze(Config.Graphics.Profiles)
+table.freeze(Config.Graphics.Profile)
 table.freeze(Config.Graphics)
 table.freeze(Config)
 

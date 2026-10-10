@@ -67,10 +67,6 @@ local REMOTE_NAMES = {
 	                      --   odrzut od wybuchu, `drop` — upadek). Liczniki `nLaunch`/`nDrop`
 	                      --   są osobno, bo referencja do parta, którego klient nie ma
 	                      --   (StreamingEnabled), dojeżdża jako nil i robi dziurę w tablicy
-	"SetGraphicsMode",    -- klient→server: FireServer(mode: "Potato" | "Full") — wybór trybu
-	                      --   grafiki w ustawieniach. Serwer tylko ZAPISUJE (DataStore) i odsyła
-	                      --   przez atrybut gracza `Config.Graphics.AttributeName`; nic w grze
-	                      --   od tego nie zależy (SettingsService)
 	"StructureFX",        -- FireAllClients: (kind: "creak"|"collapse", position: Vector3, magnitude: number)
 	"CarFire",            -- FireAllClients: (cf: CFrame, size: Vector3, duration: number) — płonący
 	                      --   wrak auta po wybuchu (27.09). Czysty efekt u klienta: ogień nie rani

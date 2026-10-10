@@ -688,3 +688,6 @@ produkcja bez czerwonych chunków.
 **Zmiana**: `dropResting` w obu, PO `handOffNow` — oddane kawałki są już w `pendingParts`, więc nie liczą się jako oparcie dla dużych dekoracji (w `launch` to samo daje odkotwiczenie).
 
 **Test**: GreenBuilding — zwal cały budynek (seria w parter) → na górnych piętrach nie zostają w powietrzu skrzynie, paczki ani palety.
+
+
+> **Twarde ruiny (08.10) — pomysł i decyzje Kacpra, NIEPRZETESTOWANE.** Zgłoszenie: po zawaleniu „wszystko to no-collide ruiny”. Log testu 08.10: wszystkie małe bryły (< `SmallRubbleVolume`) znikały po 4 s, ~2/3 fragmentów kruszenia szło do klientów bez kolizji. Decyzje: **25%** (z zakresu Kacpra 20-30%) obu rodzajów zostaje twarde do końca rundy — `Config.Structure.Collapse.KeepSmallRubbleChance` (mała bryła nie znika; losowane raz, przy pierwszym osiadaniu) i `SolidFragmentChance` (mały fragment ≥ `SolidFragmentMinVolume` 8 spada fizyką serwera zamiast u klientów, w tym samym budżecie `MaxCost`). Gruz z dziur bomby NIE (istnieje tylko u klienta — ⛔ fizyka serwera dla kawałków dziur, 23.09). Log: `osiadła … (mała — twarda ruina do końca rundy)`, `kruszenie … (w tym małych twardych N)`.

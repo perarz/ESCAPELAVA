@@ -5,7 +5,7 @@
 -- lokalnie: kulę ognia, falę uderzeniową, błysk światła, dym, iskry, embery i pył przy
 -- ziemi + ambientowy screen shake skalowany odległością od kamery.
 -- Zero kosztu replikacji poza jednym eventem — im słabszy sprzęt, tym łatwiej to skalować.
--- Ilość cząsteczek skaluje tryb grafiki gracza (QualityController, 2026-09-23).
+-- Ilość cząsteczek skaluje profil grafiki (`Config.Graphics.Profile`; od 08.10 jeden dla wszystkich).
 --
 -- Kosmetyczne ODŁAMKI gruzu robi osobno DebrisFXController (ten sam event, ten sam seed).
 -- Dźwięk: Config.Destruction.FX.ExplosionSoundId — puste do czasu assetu Kacpra (etap 5);
@@ -20,7 +20,6 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Destructible = require(ReplicatedStorage.Shared.Modules.Destructible)
 local MovementController = require(script.Parent.MovementController)
-local QualityController = require(script.Parent.QualityController)
 
 local ExplosionFXController = {}
 
@@ -107,10 +106,10 @@ local function flash(anchor: Part, radius: number)
 	end)
 end
 
--- Liczba cząsteczek × mnożnik trybu grafiki (Ziemniak: połowa). Nigdy zero — wybuch
+-- Liczba cząsteczek × mnożnik profilu grafiki. Nigdy zero — wybuch
 -- bez ognia i dymu wyglądałby jak bug, nie jak oszczędzanie.
 local function scaled(count: number): number
-	return math.max(1, math.round(count * QualityController.profile().ParticleScale))
+	return math.max(1, math.round(count * Config.Graphics.Profile.ParticleScale))
 end
 
 local function particles(anchor: Part, radius: number)
@@ -259,10 +258,10 @@ local function onBlastFX(blast: any)
 	if typeof(center) ~= "Vector3" or typeof(radius) ~= "number" then return end
 
 	-- Daleki wybuch (poza zasięgiem wzroku z sensownym detalem): tylko światło i fala,
-	-- bez particli — oszczędność na słabym sprzęcie przy kilku bombach naraz. W trybie
-	-- Ziemniak „daleko” zaczyna się bliżej (zasięg rysowania gruzu z profilu).
+	-- bez particli — oszczędność na słabym sprzęcie przy kilku bombach naraz. „Daleko”
+	-- liczy się od zasięgu rysowania gruzu z profilu grafiki.
 	local camera = Workspace.CurrentCamera
-	local farDistance = math.min(250, QualityController.profile().FXDistance + 60)
+	local farDistance = math.min(250, Config.Graphics.Profile.FXDistance + 60)
 	local far = camera and (camera.CFrame.Position - center).Magnitude > farDistance
 
 	local anchor = makeAnchor(center, 3)
@@ -341,7 +340,7 @@ local function onStructureFX(kind: any, position: any, magnitude: any)
 		-- telefon po drugiej stronie miasta, emitował 40-80 cząsteczek na grupę — ~1500-3000
 		-- naraz (przegląd 29.09, B-6). Daleko: sam dźwięk, jak przy zwykłym wybuchu; blisko:
 		-- najwyżej `CollapseDustPerSecond` obłoków — przy kaskadzie i tak zlewają się w jeden.
-		local farDistance = math.min(250, QualityController.profile().FXDistance + 60)
+		local farDistance = math.min(250, Config.Graphics.Profile.FXDistance + 60)
 		if distance <= farDistance and allowCollapseDust() then
 			structureDust(position, mag, true)
 		end
@@ -371,7 +370,7 @@ local FIRE_TEXTURE = "rbxasset://textures/particles/fire_main.dds"
 local function onCarFire(cf: any, size: any, duration: any)
 	if typeof(cf) ~= "CFrame" or typeof(size) ~= "Vector3" or typeof(duration) ~= "number" then return end
 	duration = math.clamp(duration, 0, 30)
-	local scale = QualityController.profile().ParticleScale
+	local scale = Config.Graphics.Profile.ParticleScale
 	local base = cf.Position - Vector3.new(0, size.Y * 0.5 - 0.5, 0)
 	local anchor = makeAnchor(base, duration + 3)
 	-- Emitery sypią z objętości kotwicy — kotwica w obrysie auta, płomienie po całym wraku.

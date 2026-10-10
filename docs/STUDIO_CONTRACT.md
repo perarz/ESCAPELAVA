@@ -10,8 +10,14 @@
 
 Na prośbę Kacpra przepisano bieżący wygląd z Edit do `default.project.json`. Ten wpis zastępuje wartości historyczne z 16/29.09 poniżej: Ambient RGB 88/58/52, OutdoorAmbient 129/91/68, oba ColorShift 70/70/70, Brightness 3, godzina 16:42, GeographicLatitude 0, ShadowSoftness 0, EnvironmentDiffuseScale 0.965, EnvironmentSpecularScale 0.081, ExposureCompensation 0. Fog RGB 192/192/192, początek 0, koniec 100000. `LightingStyle = Realistic` zastępuje dawny wpis `Technology = ShadowMap` (Technology niedostępne do odczytu MCP). GlobalShadows i PrioritizeLightingQuality włączone. ColorCorrection: Brightness 0, Contrast 0, Saturation 0.4, TintColor 235/235/235; SunRays: Intensity 0.483, Spread 1; Blur włączony, Size 1. Atmosphere i Bloom nie ma w Studio — usunięte z projektu. `SunsetSereneSky` oraz `LightingPreset` pozostają zarządzane w Studio. Projekt przechodzi `rojo build`; odczytywalne właściwości porównano ze Studio.
 
+### Latarnie i sygnalizatory — 2026-10-08
+- `OutsideDecorations.Lamps` i `OutsideDecorations.TrafficLights` to foldery REKWIZYTÓW (`Config.Destruction.Props.Folders`): każdy model latarni / sygnalizatora pada w całości jak mebel (blisko bomby rozpad, dalej przewraca się cały). Rekwizytem jest tylko zawartość **FOLDERU** o tej nazwie (`Destructible.isPropFolder`) — modele sygnalizatorów też nazywają się `TrafficLights` i po samej nazwie każdy ich part stawał się osobnym rekwizytem. Folder o tej nazwie gdzie indziej w mapie też stałby się rekwizytem (dziś po jednym).
+
+### Drzwi — 2026-10-08
+- **Drzwi są PRZECHODNE (`CanCollide = false`, decyzja Kacpra), ale MUSZĄ mieć `CanQuery = true`.** Destrukcja szuka tego, co ma spaść, zapytaniami przestrzennymi, a te pomijają party z `CanQuery = false` — takie drzwi zostawały w powietrzu po zawaleniu ściany/stropu (zgłoszenie 08.10). Naprawione przez MCP: 28 partów w `Decorations.Doors` (PupleHotel — całe drzwi, SandBuilding — skrzydła i klamki). **Ta sama zasada dla każdej nowej przechodniej dekoracji:** bez kolizji wolno, bez `CanQuery` — nie (wyjątek: drobnica w meblu, np. klawisze klawiatur w `OfficeDesks`, bo mebel pada w całości).
+
 ### Drabiny — 2026-10-08
-- **Tag `Ladder` (CollectionService) na szynach i szczeblach każdej drabiny** — z niego korzysta przyciąganie do drabiny (klient) i „drabina = grunt” w obrażeniach od upadku (serwer). Stawia go **`LADDERS_TAG.luau`** (Command Bar, Edit, TRYB 2, potem Cmd+S); rozpoznaje drabiny po kształcie: szyna pionowa ≤ 1,3 × 1,3, wysokość ≥ 8, przy niej ≥ 5 szczebli (poziome, 1 × 1, długość 2-8). Zmierzone 08.10: **6 drabin, 12 szyn, 195 szczebli** (`Leader` w PurpleSchool / CyanOffice / GreenBuilding / PupleHotel, OrangeBuilding.Building, OldBuilding2.Model). **Nowa drabina = uruchomić skrypt jeszcze raz.** Bez tagu drabina działa jak dawniej (tylko silnik).
+- **Tag `Ladder` (CollectionService) na szynach i szczeblach każdej drabiny** — z niego korzysta łatwiejsze łapanie drabiny (klient, `LadderController`: dobijanie prędkości do sprintu tuż przed szczeblami) i „drabina = grunt” w obrażeniach od upadku (serwer). Stawia go **`LADDERS_TAG.luau`** (Command Bar, Edit, TRYB 2, potem Cmd+S); rozpoznaje drabiny po kształcie: szyna pionowa ≤ 1,3 × 1,3, wysokość ≥ 8, przy niej ≥ 5 szczebli (poziome, 1 × 1, długość 2-8). Zmierzone 08.10: **6 drabin, 12 szyn, 195 szczebli** (`Leader` w PurpleSchool / CyanOffice / GreenBuilding / PupleHotel, OrangeBuilding.Building, OldBuilding2.Model). **Nowa drabina = uruchomić skrypt jeszcze raz.** Bez tagu drabina działa jak dawniej (tylko silnik).
 
 ### Streaming i przejście na mapę — 2026-10-07
 - **`Workspace.StreamingEnabled = false`** — źródło prawdy: `default.project.json` (zmiana w Studio zostanie nadpisana przy syncu). Decyzja Kacpra: cała mapa wczytuje się za ekranem ładowania przy wejściu, nic nie dojeżdża w trakcie gry (przedtem po teleporcie z lobby cienie i oświetlenie dochodziły 10-20 s).
@@ -107,14 +113,7 @@ Na prośbę Kacpra przepisano bieżący wygląd z Edit do `default.project.json`
   - `StarterGui.ShopUI` (ScreenGui, **ResetOnSpawn=false**, `Enabled=false`) — dolny panel sklepu-NPC. **Obecnie PLACEHOLDER postawiony przez Claude'a — Kacper go przestyluje.** Kod szuka rekurencyjnie tych nazw i tylko je napędza:
     - `ItemName`, `Price`, `Description`, `StatusLabel` (TextLabele)
     - `BuyButton` ("KUP"), `CloseButton` ("X"), `PrevButton` ("◀"), `NextButton` ("▶")
-  - **USTAWIENIA — PANEL TRYBU GRAFIKI (NOWY 2026-09-23, do zbudowania przez Kacpra)**. Decyzja Kacpra: tryb Ziemniak / Pełny wybiera się „w ustawieniach”. Kod (`QualityController`) szuka tych nazw **rekurencyjnie** w PlayerGui i tylko je napędza — wygląd, układ i napisy są Kacpra. Nazwy w `Config.Graphics.UI`. **Wszystko OPCJONALNE**: dopóki panelu nie ma, tryb dobiera się sam (telefon/konsola → Ziemniak, PC → Pełny), a dev przełącza go klawiszem **G**.
-    - `StarterGui.Settings` (ScreenGui, **ResetOnSpawn=false** — hard rule 10, **`Enabled=false`** na starcie) — panel ustawień.
-      - `GraphicsPotato` (dowolny GuiButton: TextButton/ImageButton) — klik = tryb Ziemniak.
-      - `GraphicsFull` (GuiButton) — klik = tryb Pełny.
-      - `Selected` (dowolny GuiObject, **dziecko** każdego z dwóch przycisków, opcjonalny) — kod pokazuje go tylko przy AKTYWNYM trybie (`Visible`). Podświetlenie, ramka, ptaszek — co chcesz.
-      - `Close` (GuiButton, opcjonalny) — zamyka panel. Liczy się tylko `Close` WEWNĄTRZ `Settings` (inne okna mogą mieć swój).
-    - `SettingsButton` (GuiButton, np. w `StarterGui.HUD`) — otwiera/zamyka panel `Settings`.
-    - Wybór zapisuje się w DataStore i wraca przy następnym wejściu (`SettingsService`). Zmiana działa od następnego wybuchu, bez restartu.
+  - ~~USTAWIENIA — PANEL TRYBU GRAFIKI~~ — **NIEAKTUALNE od 08.10**: tryby grafiki usunięte (jeden profil dla wszystkich), panelu nie budować.
 
 ## Budynki na destrukcji v4 (2026-09-24)
 
