@@ -20,8 +20,9 @@
 -- Ten serwis nie wie nic o fizyce, graczach ani efektach — tylko stan i geometria dziur.
 --
 -- CYKL RUNDY: MapService po rundzie podmienia mapę na świeże klony, więc stare instancje
--- są martwe. Budynki budujemy od nowa przy starcie i na każdym COUNTDOWN (bomb wtedy nie
--- ma — rzucać można tylko w ROUND).
+-- są martwe. Budynki budujemy od nowa przy starcie i na POCZĄTKU każdego lobby (bomb wtedy nie
+-- ma — rzucać można tylko w ROUND; mapa jest już odtworzona, bo MapService robi to na
+-- RoundEnded, przed 10 s POST_ROUND). Do 11.10 na COUNTDOWN, który usunięto.
 
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -359,7 +360,7 @@ local function addGuests(rec: Rec, map: Instance, names: { string }): number
 end
 
 -- ============================================================================
--- Budowa budynków (start serwera + każdy COUNTDOWN)
+-- Budowa budynków (start serwera + początek każdego lobby)
 -- ============================================================================
 
 local function loadData(id: string, folder: Instance, parts: { Core.PartRec }): (any?, { Core.PartRec }, string)
@@ -393,7 +394,7 @@ function StructuralService.rebuild()
 	local first = true
 	for id, own in pairs(CFG.Buildings) do
 		-- Jeden budynek na klatkę (27.09): analiza na żywo to 3-34 ms na budynek, przy dziewięciu
-		-- ~150 ms przycięcia serwera w jednej klatce. Rebuild idzie przy starcie i na COUNTDOWN,
+		-- ~150 ms przycięcia serwera w jednej klatce. Rebuild idzie przy starcie i na początku lobby,
 		-- kiedy bomb nie ma, więc chwilowo niepełna lista budynków niczego nie psuje.
 		if not first then
 			task.wait()
@@ -799,10 +800,14 @@ end
 
 function StructuralService.init()
 	StructuralService.rebuild()
+	-- Lobby bywa ustawiane kilka razy z rzędu (czekanie na graczy, ktoś wyszedł) — budujemy
+	-- tylko przy WEJŚCIU do lobby z innego stanu.
+	local lastState = GameLoopService.getState()
 	GameLoopService.StateChanged:Connect(function(newState: string)
-		if newState == "COUNTDOWN" then
+		if newState == GameLoopService.STATE.LOBBY and lastState ~= GameLoopService.STATE.LOBBY then
 			StructuralService.rebuild()
 		end
+		lastState = newState
 	end)
 end
 

@@ -5,6 +5,7 @@
 --   Etap 2: sprint hold (LeftShift) z staminą + HUD pasek.
 --   Etap 3: dynamic FOV (sprint = +X°).
 --   Etap 4: smooth camera (elastic rotation smoothing, landing dip, screenShake API).
+--   11.10: lekkie drżenie przy sprincie i przechył przy ruchu w bok (Config.Movement.Camera).
 --   Etap 5 (TERAZ): head rotation — lokalna głowa + waist obracają się za kamerą,
 --                   replikacja do innych klientów ~10Hz przez HeadTrackingService.
 --
@@ -120,6 +121,9 @@ local shoulderFilterChar: Model? = nil
 
 -- FOV punch (bomba) — chwilowy additive offset FOV, decays do 0. Niezależny od sprint FOV.
 local fovPunch: number = 0
+-- Drżenie przy sprincie i przechył przy ruchu w bok (11.10) — stan wygładzania między klatkami.
+local sprintShakeAmount = 0
+local leanAngle = 0
 
 -- Pasek staminy 3D (BillboardGui obok postaci, client-only). Template = ReplicatedStorage.StaminaBar.
 local staminaBar: BillboardGui? = nil
@@ -486,6 +490,17 @@ local function updateStaminaBar(dt: number)
 	local fadeTime = if wantVisible then CFG_BAR.FadeInTime else CFG_BAR.FadeOutTime
 	local step = if fadeTime > 0 then dt / fadeTime else 1
 	barAlpha = math.clamp(barAlpha + (if wantVisible then step else -step), 0, 1)
+
+	-- Obrys proporcjonalny do paska (11.10). Pasek ma rozmiar w studach, więc rośnie i maleje
+	-- z ekranem i odległością kamery, a `UIStroke.Thickness` jest w PIKSELACH — przy stałej
+	-- wartości obrys był za cienki na dużym monitorze i za gruby na telefonie. Szerokość
+	-- billboardu (nie `Root`), bo na `Root` siedzi UIScale wskoku, który i tak mnoży obrys.
+	if bar.Enabled then
+		local thickness = math.max(1, bar.AbsoluteSize.X * CFG_BAR.BorderToWidth)
+		for stroke in pairs(barStrokeBase) do
+			stroke.Thickness = thickness
+		end
+	end
 
 	-- W pełni schowany → wyłącz render (zero kosztu billboardu przy pełnej staminie).
 	if not wantVisible and barAlpha <= 0 then
@@ -985,6 +1000,45 @@ local function keepLineOfSight(camera: Camera, cf: CFrame): CFrame
 	return CFrame.new(focus + toCam / dist * safe) * cf.Rotation
 end
 
+-- Lekkie drżenie przy SPRINCIE na ziemi (11.10). Płynny szum (`math.noise`), nie losowe skoki
+-- jak `computeShakeOffset` — to ma być rytm biegu, nie trafienie. Wchodzi i schodzi przez
+-- `FadeTime`, więc start/koniec sprintu nie szarpie kamerą.
+local function computeSprintShake(dt: number): Vector3
+	local cfg = CFG_CAM.SprintShake
+	local hum = currentHumanoid
+	local want = activeSprintNow and hum ~= nil and hum.FloorMaterial ~= Enum.Material.Air
+		and hum.MoveDirection.Magnitude > 0.1 and not isRagdolled()
+	local k = if cfg.FadeTime > 0 then math.clamp(dt / cfg.FadeTime, 0, 1) else 1
+	sprintShakeAmount += ((if want then 1 else 0) - sprintShakeAmount) * k
+	if sprintShakeAmount < 0.001 or cfg.Amplitude <= 0 then
+		sprintShakeAmount = if want then sprintShakeAmount else 0
+		return Vector3.zero
+	end
+	local t = os.clock() * cfg.Frequency
+	local a = cfg.Amplitude * sprintShakeAmount * 2 -- noise ∈ ~[-0.5, 0.5]
+	return Vector3.new(math.noise(t, 1.7) * a, math.noise(4.3, t) * a, 0)
+end
+
+-- Przechył przy ruchu w BOK względem kamery (11.10): w prawo → kamera kładzie się w prawo
+-- (ujemny kąt wokół osi patrzenia). Pełny przy prędkości sprintu, w ragdollu / po śmierci 0.
+local function computeLean(camera: Camera, dt: number): number
+	local cfg = CFG_CAM.Lean
+	local target = 0
+	local hum = currentHumanoid
+	local root = hum and hum.RootPart
+	if cfg.MaxDegrees > 0 and root and isAlive() and not isRagdolled() then
+		local vel = root.AssemblyLinearVelocity
+		local right = camera.CFrame.RightVector
+		local lateral = vel.X * right.X + vel.Z * right.Z
+		target = -math.clamp(lateral / CFG.SprintSpeed, -1, 1) * math.rad(cfg.MaxDegrees)
+	end
+	leanAngle += (target - leanAngle) * (1 - math.exp(-cfg.Speed * dt))
+	if math.abs(leanAngle) < 1e-4 then
+		leanAngle = 0
+	end
+	return leanAngle
+end
+
 local function onRenderStepCamera(dt: number)
 	-- Trzy efekty na finalnym CFrame kamery, liczone PO default camera (priorytet Camera+1):
 	--   1. Elastic rotation smoothing — renderujemy lagged wersję (kamera dogania mysz).
@@ -1032,13 +1086,19 @@ local function onRenderStepCamera(dt: number)
 	local shoulder = computeShoulderOffset(camera, base, dt)
 
 	-- 3. Shake — camera-local translacja (X=right, Y=up, Z=back). Zero gdy nieaktywny.
-	local offset = shoulder + computeShakeOffset()
+	--    + drżenie przy sprincie (11.10).
+	local offset = shoulder + computeShakeOffset() + computeSprintShake(dt)
+	-- 4. Przechył przy ruchu w bok (11.10) — obrót wokół osi patrzenia.
+	local roll = computeLean(camera, dt)
 
 	-- Ustaw CFrame tylko gdy faktycznie coś modyfikujemy — inaczej zostaw default camera
 	-- w spokoju (mniej redundantnych setów, brak konfliktu gdy efekty wyłączone/idle).
 	-- Każda NASZA kamera przechodzi przez `keepLineOfSight` — to on gwarantuje brak x-raya.
-	if cfg.Enabled or offset ~= Vector3.zero then
+	if cfg.Enabled or offset ~= Vector3.zero or roll ~= 0 then
 		local cf = if offset ~= Vector3.zero then base * CFrame.new(offset) else base
+		if roll ~= 0 then
+			cf *= CFrame.Angles(0, 0, roll)
+		end
 		camera.CFrame = keepLineOfSight(camera, cf)
 	end
 end

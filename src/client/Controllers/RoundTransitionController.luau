@@ -6,7 +6,8 @@
 -- 10-20 s. Silnik buduje oświetlenie wokół KAMERY, a ta przez całą przerwę stała w lobby
 -- ~640 studów od mapy. Dwie poprawki idą razem: streaming wyłączony (cała mapa jest u
 -- klienta od wejścia — `default.project.json`) i ta zasłona: ekran ściemnia się pod koniec
--- odliczania, a rozjaśnia, gdy gracz STOI już na mapie i silnik miał `SettleTime` na
+-- odliczania lobby (od 11.10 — wcześniej odliczania GET READY, które usunięto), a rozjaśnia,
+-- gdy gracz STOI już na mapie i silnik miał `SettleTime` na
 -- oświetlenie. Świat renderuje się POD zasłoną, więc ten czas pracuje na wygląd.
 --
 -- Sygnał „stoisz na mapie” = `Remotes.AliveChanged(true)`, wysyłany przez serwer PO
@@ -18,8 +19,10 @@
 -- ekran ładowania).
 --
 -- Przypadki brzegowe:
---   - odliczanie przerwane (za mało graczy → LOBBY) → zasłona schodzi od razu;
---   - gracz dołącza w trakcie rundy → widzi ROUND bez COUNTDOWN przed nim → nic nie robimy
+--   - odliczanie lobby przerwane (za mało graczy → LOBBY od nowa) → żeton unieważnia
+--     zaplanowane ściemnienie, zasłona schodzi;
+--   - dev skip lobby → ROUND bez ściemnienia → runRoundEntry zaciemnia od razu;
+--   - gracz dołącza w trakcie rundy → widzi ROUND bez LOBBY przed nim → nic nie robimy
 --     (zakrywa go ekran ładowania);
 --   - gracz nie trafił do rundy (dołączał w odliczaniu) → brak sygnału przez
 --     `SpawnSignalTimeout` → zasłona schodzi;
@@ -177,15 +180,19 @@ local function onState(newState: string, duration: number?)
 	local previous = lastState
 	lastState = newState
 
-	if newState == "COUNTDOWN" then
-		-- Ściemnianie tak, żeby skończyło się razem z odliczaniem.
+	if newState == "LOBBY" and (duration or 0) > 0 then
+		-- Lobby z odliczaniem: ściemnianie tak, żeby skończyło się razem z nim. Zasłona z
+		-- poprzedniej rundy (gdyby jeszcze wisiała) najpierw schodzi.
+		if alpha > 0 then
+			fadeTo(0, CFG.FadeOutTime)
+		end
 		local lead = math.max((duration or 0) - CFG.FadeInTime, 0)
 		task.delay(lead, function()
 			if token == flowToken then
 				fadeTo(1, CFG.FadeInTime)
 			end
 		end)
-	elseif newState == "ROUND" and previous == "COUNTDOWN" then
+	elseif newState == "ROUND" and previous == "LOBBY" then
 		task.spawn(runRoundEntry, token)
 	elseif alpha > 0 then
 		-- Odliczanie przerwane albo inny stan — nie zostawiamy ciemnego ekranu.

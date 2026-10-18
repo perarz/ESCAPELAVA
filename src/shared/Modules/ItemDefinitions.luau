@@ -9,7 +9,10 @@ local ItemDefinitions = {}
 
 ItemDefinitions.bomb = {
 	id = "bomb",
-	name = "Bomba",
+	name = "Bomb", -- 10.10: nazwy itemów po angielsku (decyzja Kacpra)
+	-- Ikona w slocie paska (10.10): z output/inventory-icons-v1, zmniejszona do 512 px (ostra
+	-- przy każdej skali slotu), wgrana na konto Kacpra.
+	icon = "rbxassetid://76350408241384",
 	price = 50,
 	desc = "Rzuć i wysadź ściany, filary oraz graczy. Wybuch niszczy teren.",
 	-- Nazwa modelu na wystawie w scenie sklepu (Workspace.<Config.Shop.SceneName>
@@ -37,7 +40,7 @@ ItemDefinitions.bomb = {
 	                        -- 1 = tłumienie wyłączone. W locie nietykane — rzut pełnej długości.
 	-- Detonation (gracze — BombService.applyDamageAndKnockback):
 	blastRadius = 22,       -- stud (damage zasięg dla humanoidów)
-	damagePercent = 0.5,    -- 50% MaxHealth w epicentrum (skaluje liniowo do 0)
+	damagePercent = 0.6,    -- 60% MaxHealth w epicentrum (skaluje liniowo do 0); 10.10: było 0.5, +20% (Kacper)
 	knockbackForce = 450,   -- velocity stud/s w epicentrum
 	knockbackMinT = 0.35,   -- min multiplier — nawet daleko gracz dostanie push 35% × force
 	ragdollDuration = 2,    -- sek, PlatformStand=true (postać leci jak ragdoll)
@@ -66,12 +69,12 @@ ItemDefinitions.bomb = {
 		glassRadius = 35, -- szyby (Material Glass) tłuką się w TYM promieniu — także na
 		                  -- sąsiednich budynkach, bez occlusion (fala "przez okna")
 	},
-	-- icon = "rbxassetid://..."  -- placeholder Day 4+
 }
 
 ItemDefinitions.bridge_builder = {
 	id = "bridge_builder",
-	name = "Most",
+	name = "Bridge",
+	icon = "rbxassetid://133863155182575",
 	price = 100,
 	desc = "Postaw kładkę nad lawą albo dziurą. Przejście dla całej ekipy.",
 	sceneModel = "Blueprint",
@@ -99,7 +102,8 @@ ItemDefinitions.bridge_builder = {
 
 ItemDefinitions.grapple = {
 	id = "grapple",
-	name = "Hak",
+	name = "Grapple",
+	icon = "rbxassetid://102380718280742",
 	price = 40,
 	desc = "Celuj w ścianę albo dach — szarpnie Cię prosto tam. Jedno użycie.",
 	-- Wystawa w scenie sklepu: model Kacpra stoi już w WeaponShopScene.Decorations.

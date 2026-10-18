@@ -12,7 +12,6 @@ local RunService = game:GetService("RunService")
 
 local REMOTE_NAMES = {
 	"GameStateChanged",   -- (stateName: string, payload: table?)
-	"PhaseChanged",       -- (phaseName: string, phaseIndex: number, duration: number)
 	"PlayerDied",         -- (player: Player, reason: string)
 	"RoundEnded",         -- (survivors: {Player}, payload: table?)
 	"CashChanged",        -- FireClient: (balance: number, delta: number?, reason: string?)
@@ -25,7 +24,7 @@ local REMOTE_NAMES = {
 	                      --   (bomb→BombService, bridge_builder→BridgeService), reszta chowa swoje
 	"UnequipItem",        -- klient→server: FireServer()
 	"ThrowBomb",          -- klient→server: FireServer(direction: Vector3) — gdy ma BombTool equipped
-	"Push",               -- klient→server: FireServer() — F key, server pickuje cel w stożku przed graczem
+	"Push",               -- klient→server: FireServer() — F key, server po Config.Push.Windup wybiera cel w stożku przed graczem
 	"Pushed",             -- server→target client: FireClient(target, velocity: Vector3) — target aplikuje na swoim HRP
 	"BuildBridge",        -- klient→server: FireServer(position: Vector3, rotationY: number)
 	"BridgeBuildMode",    -- server→klient: FireClient(active: boolean) — enter/exit build mode
@@ -33,7 +32,7 @@ local REMOTE_NAMES = {
 	"HeadAim",            -- klient→server: FireServer(yaw: number, pitch: number) — radianach, throttled ~10Hz
 	                      -- server→klient: FireClient(sourcePlayer: Player, yaw: number, pitch: number) — broadcast do innych
 	"RoundWon",           -- FireAllClients: (winners: {Player}, rewardPerPlayer: number) — banner "NAME WON $X"
-	"PlayerKilled",       -- FireAllClients: (killer: Player, victim: Player, weapon: string, reward: number) — killfeed
+	"PlayerKilled",       -- FireClient(zabójca): (killer: Player, victim: Player, weapon: string, reward: number) — komunikat „YOU KILLED”
 	"AliveChanged",       -- FireClient: (isAlive: boolean) — server-side aliveSet zmiana (round spawn=true, death=false)
 	                      --   `true` idzie PO teleporcie na mapę (07.10) — RoundTransitionController
 	                      --   zdejmuje na nim ciemne przejście

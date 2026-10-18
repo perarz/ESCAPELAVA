@@ -4,7 +4,7 @@
 -- przez prosty velocity nudge (BEZ ragdolla — ragdoll byłby za OP).
 --
 -- Mechanika:
---   - COOLDOWN 4s per gracz (zużywa się NAWET gdy brak celu w zasięgu — zapobiega
+--   - COOLDOWN 2.5s per gracz (zużywa się NAWET gdy brak celu w zasięgu — zapobiega
 --     spamowi F żeby "wyszukać" cel; gracz musi celować)
 --   - MAX_RANGE 7 stud — close-combat only
 --   - Stożek ~70° przed pusherem (dot product > 0.3) — push tylko w przód
@@ -24,7 +24,11 @@ local PlayerService = require(script.Parent.PlayerService)
 local KillService = require(script.Parent.KillService)
 local AntiCheatService = require(script.Parent.AntiCheatService)
 
+local GameLoopService = require(script.Parent.GameLoopService)
+local RagdollService = require(script.Parent.RagdollService)
+
 local PushService = {}
+local roundEpoch = 0
 
 -- Balans z Config (hard rule #5) — tu tylko aliasy dla czytelności.
 local MAX_RANGE = Config.Push.MaxRange
@@ -64,14 +68,13 @@ local function pickTarget(pusher: Player, pusherHRP: BasePart): Player?
 	return bestPlayer
 end
 
-local function onPush(pusher: Player)
-	-- Tylko żywi gracze w ROUND
-	if not PlayerService.isAlive(pusher) then return end
+local function canPush(pusher: Player): boolean
+	local hum = pusher.Character and pusher.Character:FindFirstChildOfClass("Humanoid")
+	return GameLoopService.getState() == "ROUND" and PlayerService.isAlive(pusher)
+		and hum ~= nil and hum.Health > 0 and not RagdollService.isRagdolled(pusher)
+end
 
-	-- Cooldown — START na próbie, nie sukcesie (anti-spam F)
-	local now = os.clock()
-	if now - (lastPushAt[pusher] or 0) < Config.RateLimits.Push * Config.RateLimits.ServerTolerance then return end
-	lastPushAt[pusher] = now
+local function resolvePush(pusher: Player)
 
 	local pusherHRP = Utils.getRoot(pusher)
 	if not pusherHRP then return end
@@ -109,6 +112,21 @@ local function onPush(pusher: Player)
 	print(("[Push] %s pushed %s"):format(pusher.Name, target.Name))
 end
 
+local function onPush(pusher: Player)
+	if not canPush(pusher) then return end
+	local now = os.clock()
+	if now - (lastPushAt[pusher] or 0) < Config.RateLimits.Push * Config.RateLimits.ServerTolerance then return end
+	lastPushAt[pusher] = now
+	local character = pusher.Character
+	local epoch = roundEpoch
+	-- The client starts the pose immediately; only the server may authorize impact.
+	task.delay(Config.Push.Windup, function()
+		if pusher.Parent ~= Players or pusher.Character ~= character or epoch ~= roundEpoch then return end
+		if not canPush(pusher) then return end
+		resolvePush(pusher)
+	end)
+end
+
 local function onPlayerRemoving(player: Player)
 	lastPushAt[player] = nil
 end
@@ -118,6 +136,7 @@ function PushService.init()
 	if initialized then return end
 	initialized = true
 
+	GameLoopService.RoundEnded:Connect(function() roundEpoch += 1 end)
 	Remotes.Push.OnServerEvent:Connect(onPush)
 	Players.PlayerRemoving:Connect(onPlayerRemoving)
 end

@@ -464,7 +464,6 @@ function PlayerService.init()
 			or newState == GameLoopService.STATE.POST_ROUND then
 			sendSurvivorsToLobby()
 		end
-		-- COUNTDOWN: bez zmian, gracze nadal w lobby
 	end)
 end
 

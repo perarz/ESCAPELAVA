@@ -2,7 +2,7 @@
 
 > Dokument dla asystenta pomagającego w organizacji pracy (TODO, planowanie, decyzje).
 > Celowo bez szczegółów kodu — od logiki gry jest Claude Code w repo.
-> Stan na: 2026-10-08.
+> Stan na: 2026-10-10.
 
 ---
 
@@ -93,7 +93,7 @@ Zasady współpracy:
   leciało dobrze, ale przelatywało przez punkt, potem dolatywało, ale po sztywnej prostej.
   Dopiero łuk prowadzony do punktu spełnia wszystko naraz.
   ⚠️ **Nie widać go w pasku** — pasek ma tylko 2 sloty. Działa z klawisza 3.
-- **Push (F)**: spychanie przeciwników z cooldownem 4s — kill credit jak wpadną w lawę.
+- **Push (F)**: spychanie przeciwników z cooldownem 2,5 s i zamachem 0,15 s (customowa animacja oburącz; pozostały ruch domyślny) — kill credit jak wpadną w lawę.
 - **Kasa**: zbierana z mapy (przyciąganie magnetyczne + animacja lotu ze złotym trailem),
   za zabójstwa (25$), za przetrwanie rundy (100$), popupy "+10$", licznik kasy w HUD
   w Twoim stylu (cyfry-obrazki ze studs zostały wyłączone 11.08, bo wyglądały źle).
@@ -178,7 +178,7 @@ Zasady współpracy:
 - **Oprawa lawy** (14-21.09) — powierzchnia przewija się (Ty dajesz teksturę, kod ją
   animuje), tafla faluje, wypychają się z niej bąble i pękają z iskrami, ciepłe światła
   podświetlają dolne piętra, a tam gdzie lawa podchodzi pod ulicę unosi się para. Od 21.09
-  **zapala się dopiero, gdy lawa wyjdzie na ulice** — dopóki siedzi w kanale pod miastem,
+  **zapala się dopiero, gdy lawa wyjdzie na ulice** — dopóki siedzi w kanale pod miastem, 
   efekty przebijałyby przez jezdnię. Tekstura powierzchni jest po Twojej stronie.
 - **Pasek staminy przy postaci** (12.09): nie element HUD, tylko pionowy wskaźnik unoszący
   się obok Twojej postaci w świecie — widzi go **tylko właściciel**. Pokazuje się sam przy
@@ -377,6 +377,12 @@ Każdy pomysł "a może dodamy..." → odpowiedź brzmi: **po launchu, nie teraz
 - Nagrody: przetrwanie 100$, kill 25$, kasa z mapy 10$/szt. (Daily skasowane 12.09 —
   do zrobienia od nowa.)
 - Start gracza: 100$ na dzień dobry.
+
+## Stan na 2026-10-10
+
+- **Potwierdzone w Play**: drabiny, jeden profil grafiki, mosty + ghost, gęsta lawa. Eksplozje „raczej git, nie na 100%” — do stałego testu destrukcji.
+- **Nowe UI z projektu Kacpra w Figmie** (https://www.figma.com/design/QT4JMeE6jssxdNPzJMmhNG/Untitled?node-id=0-1). Zasady Kacpra: czcionka zawsze Fredoka; wszystko skaluje się z ekranem; pod każdym tekstem czarny cień przesunięty w lewo i w dół; UI to obiekty w Studio, nie kod; ostre przy każdej skali (żadnych rozmytych obrazków). Zrobione: licznik kasy (zielony napis z przesuwającym się połyskiem, ikona banknotów), przy każdym zarobku banknoty lecą ze środka ekranu do licznika — licznik podskakuje, ikona się przechyla, wybuchają iskierki, liczba płynnie rośnie (popup „+10$” usunięty); pasek 3 slotów z ikonami itemów i angielskimi nazwami (Bomb / Bridge / Grapple). Czeka na ocenę Kacpra. Dalej z Figmy: czas ROUND/LOBBY, komunikat zabójstwa, przyciski SETTINGS/INVENTORY, panel ustawień (duży szary prostokąt), szkic INVENTORY/DETAILS.
+- Poprawki 08-09.10: latarnie i sygnalizatory padają w całości, twarde ruiny, Studio nie wisi po Stop (jeden końcowy zapis gracza) — czekają na test.
 
 ## Stan na 2026-10-08
 

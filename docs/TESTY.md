@@ -8,6 +8,34 @@ Jak coś wisi w powietrzu — **nie zatrzymuj Play**, napisz Claude'owi: przeska
 
 ---
 
+## 🎨 NOWE UI Z FIGMY (10.10)
+- [ ] Licznik kasy w lewym dolnym rogu: banknoty + zielona liczba z czarnym cieniem; zmienia się przy zbieraniu/wydawaniu
+- [ ] Zbierz kasę z mapy → banknot wyskakuje na środku ekranu i leci do licznika, licznik podskakuje, liczba płynnie rośnie
+- [ ] Zabójstwo (25$) → 3 banknoty, wygrana (100$) → 6, jeden po drugim
+- [ ] Zakup w sklepie → liczba spada od razu, bez banknotów; zakup w trakcie lotu banknotów nie psuje licznika
+- [ ] Wejście do gry → licznik od razu pokazuje stan, bez lecących banknotów
+- [ ] Pasek: 3 sloty z IKONAMI (bomba, most, hak), mała angielska nazwa na dole, numer klawisza w lewym górnym rogu (bez kółka), liczba sztuk w prawym; wybrany → biała ramka
+- [x] Pasek, ramka (poprawka 10.10): wybierz item → biała ramka; kliknij ten sam slot / klawisz drugi raz (schowaj) → ramka wraca do czarnej. Powtórz kilka razy na każdym slocie i po rzucie bombą — biała nie może zostać na schowanym slocie
+- [ ] Czas na górze (Figma, 10.10): napis stanu biały z cieniem, po bokach czarne kreski zwężające się na zewnątrz; czas pod spodem żółto-pomarańczowy. Przejdź LOBBY → GET READY → ROUND → ROUND OVER — kreski zawsze tuż przy napisie, nic nie nachodzi; sprawdź mały i duży ekran (telefon)
+- [ ] Licznik czasu przy samej górze ekranu (10.10 wieczór): w oknie Studio, na pełnym ekranie i na telefonie (emulator) zawsze ~4 px od górnej krawędzi, nic go nie zasłania; reszta HUD na miejscu (kasa, pasek, przyciski z boku)
+- [ ] Kamera w ruchu (11.10): chodzenie → kamera spokojna (zero bujania); sprint po ziemi → lekkie, płynne drżenie, znika po puszczeniu shifta i w powietrzu; bieg w bok (A/D) → kamera lekko się przechyla w stronę ruchu i wraca; F (push) → krótkie szarpnięcie + mały zoom u popychającego, także przy pudle; nic z tego w ragdollu; kamera dalej nie wchodzi w ściany. Za mocne / za słabe → `Config.Movement.Camera.SprintShake.Amplitude`, `.Lean.MaxDegrees` (1,2° od 11.10), `Config.Push.PushShakeIntensity`
+- [ ] Bez GET READY (11.10): lobby odlicza do 0, ekran ściemnia się w ostatniej chwili i od razu startuje runda na mapie (bez 5 s „GET READY”); po rundzie lobby → budynki znowu stoją i walą się normalnie (przebudowa przeniesiona na wejście do lobby); ktoś wychodzi w lobby przy MinPlayers 2 → ekran nie zostaje czarny
+- [ ] Przełączanie itemów (11.10): hak → bomba → most → hak w różnej kolejności, także szybko — w ręce zawsze JEDEN przedmiot, w pasku podniesiony tylko jeden slot
+- [ ] Runda bez faz (11.10): lawa przez pierwsze ~15 s prawie stoi, potem przyspiesza płynnie bez skoków; po 240 s jest ~120 studów wyżej (zalewa najwyższy dach); w logu serwera brak linii `[GameLoop] phase`; klawisz skip w rundzie kończy rundę
+- [ ] Wyciąganie itemu (11.10): klik / klawisz → slot podskakuje, zostaje wyżej i trochę większy, ikona się buja; schowanie → opada; rzut bombą (auto-wyciągnięcie następnej) → slot NIE skacze przy każdym rzucie; zmiana itemu 1 → 2 → slot 1 opada, 2 wjeżdża
+- [ ] Licznik czasu (11.10): przy zmianie LOBBY → GET READY → ROUND → ROUND OVER napis wskakuje; ostatnie 10 s lobby / odliczania / rundy → czas czerwony i podskakuje co sekundę, potem wraca do żółtego
+- [ ] Zakup w sklepie (11.10): liczba kasy spada płynnie (nie skokiem), licznik krótko się chwieje
+- [ ] Pasek staminy (11.10): pobiegnij w małym oknie Studio, na pełnym ekranie i w emulatorze telefonu, z kamerą blisko i daleko — obrys i odstęp wypełnienia od ramki zawsze w tych samych proporcjach (nie cienka nitka na dużym ekranie, nie gruby klocek na telefonie)
+- [ ] Balans (10.10 wieczór): push co 2,5 s (pasek odnowienia krótszy niż wcześniej 4 s); bomba w epicentrum zabiera 60% HP (było 50%) — dwie bomby blisko nadal nie muszą zabić, sprawdzić odczucie; lawa buja się mniej (fala o połowę niższa)
+- [ ] Zbieranie kasy (11.10): na środku ekranu za banknotami zielony błysk, promienie, dwa pierścienie i migoczące gwiazdki — BEZ iskierek; nic nie zostaje na ekranie po ~1 s; napis kasy: pionowy gradient (góra jaśniejsza), przy dolocie banknotu przejeżdża po nim jasny połysk
+- [ ] Kasa (10.10 wieczór): w spoczynku napis równo zielony, bez ruchu; przy zebraniu kasy przez napis raz przejeżdża jasny połysk (przy kilku banknotach naraz — bez szarpania)
+- [ ] Licznik czasu: bez poświat, kreski ostre (nie rozmyte) w oknie i na pełnym ekranie
+- [ ] Komunikat zabójstwa (Figma, 10.10, potrzebny drugi gracz): zabij kogoś (bomba / zepchnięcie do lawy) → na środku nad połową ekranu wskakuje „YOU KILLED <nick>” z czerwonym KILLED i czaszkami, pod spodem „+25$”; po ~2,5 s gaśnie. Zabity NIE widzi komunikatu, killfeedu w prawym górnym rogu już nie ma. Dwa zabójstwa szybko po sobie → drugi nick, komunikat od nowa, nie znika w połowie. Długi nick nie nachodzi na czaszki
+- [ ] Dolot banknotu: z ikony wybuchają zielone iskierki, za ikoną błyska zielona poświata
+- [ ] Licznik kasy: inny odcień zieleni, połysk przesuwa się po napisie w kółko; ikona przechyla się przy dolocie banknotu
+- [ ] Sklep pokazuje angielskie nazwy (Bomb / Bridge / Grapple)
+- [ ] Małe okno / telefon: wszystko się zmniejsza proporcjonalnie, nic nie wychodzi za ekran
+
 ## 🆕 NAJPIERW — ZMIANY Z 30.09-08.10
 
 > **10.10:** potwierdzone ✅ gęsta lawa, mosty + ghost, jeden profil grafiki, drabiny. Eksplozje „raczej git, nie na 100%” — zostają do stałego testu T1-T7 niżej.
@@ -145,3 +173,31 @@ Reszta:
 
 - [x] Obrażenia od upadku — 5 przypadków z 19.09 ✅ 01.10
   *dla Claude'a:* lista przy `FallDamageService` w `docs/ARCHITECTURE.md`
+
+
+## 11.10 — kierunkowy chód/sprint R15 (DO TESTU KACPRA)
+
+8 kierunków chodu; sprint tylko W, W+A, W+D; postać patrzy zgodnie z kamerą. Sprawdzić zmianę kierunku i tempa, start/stop pod ścianą, zatrzymanie zużycia staminy podczas Shift+A/D/S, skoki, drabiny, lawę, hak, ragdoll, śmierć/respawn i sklep. Potem wyłączyć `Config.DirectionalLocomotion.Enabled`, ponowić Play: stare animacje i obracanie oraz sprint we wszystkich kierunkach. Nowe animacje to lokalny podgląd Studio, publikacja 11 assetów jeszcze nieukończona. Pełna instrukcja i rollback w `artifacts/animations/directional/README.md`. Sprawdzone bez Play: kompilacja, zgodność kodu ze Studio, 15 stawów, skończone liczby i identyczne końce 11 pętli.
+
+
+### Kierunkowy ruch R15 — poprawka 11.10, wersja 2
+
+Zestaw rozszerzony z 11 do 14 sekwencji o `Jump`, `Fall`, `Land` w `ReplicatedStorage.DirectionalAnimations` i `Config.DirectionalLocomotion.AnimationIds`. Jump/Land nie są zapętlone. Controller wybiera ruch powietrzny po stanie Humanoida i znaku prędkości Y; lądowanie nie blokuje fizyki ani wejścia. Krok przebudowany na tor stopy z oddzielnym podparciem i uniesieniem. Sprint nadal F/FR/FL, chód 8 kierunków, prędkości 12/20. Backup v1: `ServerStorage.DirectionalAnimations_v1_20261011` i `artifacts/animations/directional/backup_v1/`. Pełne cofnięcie flagą Enabled=false. Nadal StudioPreview (ID=0). Sprawdzono kompilację Edit, zgodność kodu i pętle; Play wyłącznie Kacper: ocenić unoszenie stóp, skok z miejsca/w biegu, spadanie z krawędzi, lądowanie, ragdoll, respawn.
+
+
+### Kierunkowy ruch R15 — wersja 3, idle (11.10)
+
+`ReplicatedStorage.DirectionalAnimations.Idle` i `Config.DirectionalLocomotion.AnimationIds.Idle`: 4 s, pętla, priorytet Idle. Istniejący kontroler wybiera ją na ziemi przy braku kroku, po zakończeniu lądowania; przejście `IdleBlendTime=0.20`. Faza idle nie przechodzi do chodu. W zestawie 15 klipów; Jump/Fall/Land bez zmian. Ramiona lekko odwiedzione i poruszane bocznie, tułów reaguje na kierunek. Kopia v2: `ServerStorage.DirectionalAnimations_v2_20261011` oraz `artifacts/animations/directional/backup_v2/`. Nadal StudioPreview i cofnięcie Enabled=false. Kacper sprawdza w nowym Play idle, start/stop, trzymanie przedmiotu, ruch boczny i przejście po skoku; agent sprawdził tylko dane, Blender, budowę i kompilację Edit.
+
+
+Doprecyzowanie v3: Kacper wybrał swobodny idle i wyraźniejszy ruch tułowia. Wgrano mocniejszy przeciwskręt barków/bioder oraz przechył kierunkowy do 11 klipów Walk/Sprint. Idle/Jump/Fall/Land identyczne z wcześniejszą v3. Subtelny wariant zachowany w `backup_v3_subtle/` i `ServerStorage.DirectionalAnimations_v3_subtle_20261011`. Pętle i eksport sprawdzone; ocena ruchu w nowym Play po stronie Kacpra.
+
+
+### Wycofanie kierunkowych animacji — 11.10
+
+Na prośbę Kacpra usunięto DirectionalLocomotionController, jego zależność/init/bramkę sprintu w MovementController oraz Config.DirectionalLocomotion. Oryginalny Animate w StarterCharacter jest włączony i nie był zmieniany. Poprzednie sekcje o customowym chodzie/idle/skoku są historyczne. Klipy przeniesione z ReplicatedStorage do ServerStorage.DirectionalAnimations_Retired_20261011. Aktywny kierunek: default animacje + wyłącznie custom push pod F.
+
+
+### Default + custom push R15 — 11.10
+
+Aktywne: oryginalny Animate + `ReplicatedStorage.PushAnimations.Push_TwoHands_R15` (Action, 0.7 s, kontakt0.15, tylko 8 stawów górnej części ciała). `PushController` odtwarza na F, czyści track na respawn i przerywa przy śmierci/ragdollu/końcu rundy. `PushService` rezerwuje cooldown2.5 na próbę, po `Config.Push.Windup=0.15` ponownie sprawdza postać/rundę/zdrowie/ragdoll i wybiera cel. Remote Push bez payloadu; Pushed bez zmian. Koniec rundy unieważnia oczekujące próby. Config.Push.AnimationId=0, AnimationStudioPreview=true — lokalny podgląd, publikacja assetu nadal wymagana. Cofnięcie gestu AnimationEnabled=false, opóźnienia Windup=0. Szczegóły i lista prób Kacpra: `artifacts/animations/push_r15/README.md`. Kompilacja/synchronizacja i czysta logika sprawdzone, Play nieuruchamiany.

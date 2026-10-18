@@ -48,6 +48,7 @@ local surfaceLayer: LavaLayer? = nil
 local boundsMinX, boundsMaxX = 0, 0
 local boundsMinZ, boundsMaxZ = 0, 0
 local currentSpeed: number = 0
+local roundStartedAt: number = 0 -- prędkość rośnie liniowo z czasem od startu rundy (11.10)
 -- Wysokość, z której lawa startuje każdą rundę. Nadpisywana pozycją wierzchniego partu
 -- Kacpra w `collectLayers` — Config to tylko fallback dla partu tworzonego z kodu.
 local lavaStartY: number = Config.Lava.StartY
@@ -104,7 +105,7 @@ local function spawnDeathPoof(position: Vector3)
 
 	local steam = Instance.new("ParticleEmitter")
 	steam.Texture = "rbxasset://textures/particles/smoke_main.dds"
-	steam.Color = ColorSequence.new(Color3.fromRGB(235, 235, 235), Color3.fromRGB(180, 180, 180))
+	steam.Color = ColorSequence.new(Config.Lava.FX.SmokeColor, Config.Lava.FX.SmokeEndColor)
 	steam.Size = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, 2),
 		NumberSequenceKeypoint.new(1, 7),
@@ -123,7 +124,7 @@ local function spawnDeathPoof(position: Vector3)
 
 	local embers = Instance.new("ParticleEmitter")
 	embers.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	embers.Color = ColorSequence.new(Color3.fromRGB(255, 160, 50), Color3.fromRGB(255, 70, 20))
+	embers.Color = ColorSequence.new(Config.Lava.FX.HotColor, Config.Lava.FX.CoolColor)
 	embers.Size = NumberSequence.new(0.5, 0.1)
 	embers.Lifetime = NumberRange.new(0.5, 0.9)
 	embers.Rate = 0
@@ -190,53 +191,6 @@ local function damageSubmerged(dt: number)
 			-- PlayerDied leci z PlayerService.onDeath (single source) — nie dublujemy.
 		end
 	end
-end
-
-local function attachLavaVFX(part: BasePart)
-	-- Żywa lawa: embery unoszące się z powierzchni + ciężki dym. Emitter na parcie
-	-- emituje z górnej ściany (EmissionDirection=Top). Rate stały — koszt pomijalny,
-	-- particle renderują się tylko u klientów którzy patrzą.
-	if part:FindFirstChild("LavaEmbers") then return end
-
-	local embers = Instance.new("ParticleEmitter")
-	embers.Name = "LavaEmbers"
-	-- Startuje WYŁĄCZONY: dopóki lawa siedzi w kanale, particle przelatywałyby przez
-	-- jezdnię (nie kolidują z geometrią) i wynurzały się nad ulicą. Włącza `refreshSurfaceFX`.
-	embers.Enabled = false
-	embers.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	embers.Color = ColorSequence.new(Color3.fromRGB(255, 170, 60), Color3.fromRGB(255, 80, 20))
-	embers.Size = NumberSequence.new(0.6, 0.15)
-	embers.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.25),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	embers.Lifetime = NumberRange.new(1.2, 2.2)
-	embers.Rate = 90
-	embers.Speed = NumberRange.new(8, 16)
-	embers.EmissionDirection = Enum.NormalId.Top
-	embers.SpreadAngle = Vector2.new(12, 12)
-	embers.LightEmission = 1
-	embers.Parent = part
-
-	local smoke = Instance.new("ParticleEmitter")
-	smoke.Name = "LavaSmoke"
-	smoke.Enabled = false
-	smoke.Texture = "rbxasset://textures/particles/smoke_main.dds"
-	smoke.Color = ColorSequence.new(Color3.fromRGB(90, 50, 40), Color3.fromRGB(50, 40, 40))
-	smoke.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 5),
-		NumberSequenceKeypoint.new(1, 11),
-	})
-	smoke.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.8),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	smoke.Lifetime = NumberRange.new(2.5, 4)
-	smoke.Rate = 12
-	smoke.Speed = NumberRange.new(3, 6)
-	smoke.EmissionDirection = Enum.NormalId.Top
-	smoke.SpreadAngle = Vector2.new(8, 8)
-	smoke.Parent = part
 end
 
 -- Właściwości, które kod wymusza na KAŻDEJ warstwie — niezależnie od tego, co Kacper
@@ -369,56 +323,11 @@ local function collectLayers()
 	-- Liczona z WIERZCHNIEJ warstwy, bo to ona jest powierzchnią, którą widać.
 	lavaStartY = top.Position.Y
 
-	-- VFX (embery, dym) tylko na wierzchniej warstwie: mają unosić się Z POWIERZCHNI,
-	-- a nie ze środka stosu — plus trzy emittery to trzy razy więcej particli za nic.
-	attachLavaVFX(top)
+	-- Ambient VFX ma jednego właściciela: lokalny LavaSurfaceController.
+
 end
 
 local TAU = math.pi * 2
-
--- ============================================================================
--- OPRAWA LAWY: JEDNA BRAMKA — WYSOKOŚĆ TAFLI (2026-09-21, decyzja Kacpra)
--- ============================================================================
--- Dopóki lawa siedzi w kanale pod ulicami, jej oprawa jest WYŁĄCZONA w całości.
--- Tu gasimy embery i dym; bąble, para, światła i poświata gasną po stronie klienta
--- (`LavaSurfaceController`) na podstawie TEJ SAMEJ liczby z `Config.Lava.FX.MinSurfaceY`,
--- więc nie ma czego replikować ani synchronizować.
---
--- ⚠️ DLACZEGO PRÓG WYSOKOŚCI, A NIE RAYCASTY: particle w Robloxie **nie kolidują
--- z geometrią** — ember wypuszczony z tafli na Y 2.5 przelatuje przez jezdnię na Y 9
--- i wynurza się nad ulicą. Żadna bramka „czy nad tym punktem coś jest" tego nie naprawi,
--- bo problem nie jest w miejscu emisji, tylko w torze lotu. Do tego raycast, który w nic
--- nie trafił, przy `StreamingEnabled` znaczy „jeszcze się nie wczytało" i przez pierwsze
--- ~15 s po wejściu kłamie. Porównanie dwóch liczb nie ma jak się pomylić.
-local fxAllowed = false
-
-local function refreshSurfaceFX()
-	local y = LavaService.getSurfaceY()
-	local fx = Config.Lava.FX
-	local h = fx.MinSurfaceHysteresis or 0
-	-- HISTEREZA: tafla faluje, więc goły próg przełączałby się kilka razy na sekundę,
-	-- gdy średni poziom stoi blisko niego. Między progami trzymamy poprzedni stan.
-	local allowed = fxAllowed
-	if y >= fx.MinSurfaceY + h then
-		allowed = true
-	elseif y <= fx.MinSurfaceY - h then
-		allowed = false
-	end
-	if allowed == fxAllowed then return end
-	fxAllowed = allowed
-	for _, layer in ipairs(layers) do
-		local part = layer.part
-		if not part.Parent then continue end
-		for _, name in ipairs({ "LavaEmbers", "LavaSmoke" }) do
-			local emitter = part:FindFirstChild(name)
-			if emitter and emitter:IsA("ParticleEmitter") then
-				emitter.Enabled = allowed
-			end
-		end
-	end
-	print(("[Lava] oprawa %s (wierzch tafli Y=%.1f, próg %.1f ±%.1f)"):format(
-		if allowed then "WŁĄCZONA" else "wyłączona", y, fx.MinSurfaceY, h))
-end
 
 -- JEDYNE miejsce zapisujące pozycje warstw. Wzrost aktualizuje tylko `currentY`.
 -- Dwie pętle zapisujące `Position` co klatkę biłyby się o nią zależnie od kolejności
@@ -447,6 +356,11 @@ local function applyPositions(wobbleClock: number?)
 		end
 
 		part.Position = Vector3.new(layer.anchorX, currentY + layer.dy + common + diff, layer.anchorZ)
+		-- Cosmetic mesh follows growth without inheriting whole-plane bobbing.
+		-- Gameplay still reads the unchanged physical surface above.
+		if layer == surfaceLayer then
+			part:SetAttribute("LavaVisualBaseY", currentY + layer.dy + part.Size.Y * 0.5)
+		end
 	end
 end
 
@@ -454,8 +368,6 @@ local function reset()
 	currentSpeed = 0
 	currentY = lavaStartY
 	applyPositions(nil)
-	-- Nowa runda zaczyna od tafli w kanale, więc oprawa MUSI zgasnąć razem z nią.
-	refreshSurfaceFX()
 end
 
 local function startGrowth()
@@ -465,9 +377,12 @@ local function startGrowth()
 	heartbeatConn = RunService.Heartbeat:Connect(function(dt: number)
 		if not surfaceLayer then return end
 
-		-- Wzrost tylko gdy faza ma prędkość (faza Spawn ma 0), ale sprawdzanie ofiar
-		-- MUSI lecieć zawsze — inaczej gracz który sam wskoczy w stojącą lawę w fazie
-		-- Spawn przeżyje, a przy Touched ginął.
+		-- Prędkość od `SpeedStart` do `SpeedEnd` liniowo przez `RoundDuration` (bez faz od
+		-- 11.10). Sprawdzanie ofiar MUSI lecieć zawsze, także gdy prędkość ~0 na starcie —
+		-- inaczej gracz, który sam wskoczy w stojącą lawę, przeżyje.
+		local lava = Config.Lava
+		local t = if lava.RoundDuration > 0 then math.clamp((os.clock() - roundStartedAt) / lava.RoundDuration, 0, 1) else 1
+		currentSpeed = lava.SpeedStart + (lava.SpeedEnd - lava.SpeedStart) * t
 		-- Sam STAN wysokości; pozycje warstw zapisuje wyłącznie `applyPositions`,
 		-- żeby wzrost i falowanie nie biły się o tę samą właściwość co klatkę.
 		if currentSpeed > 0 then
@@ -481,8 +396,6 @@ local function startGrowth()
 			local elapsed = killAccumulator
 			killAccumulator = 0
 			damageSubmerged(elapsed)
-			-- Piggyback na 10 Hz: sama funkcja i tak wychodzi od razu, gdy nic się nie zmieniło.
-			refreshSurfaceFX()
 		end
 	end)
 end
@@ -543,21 +456,15 @@ function LavaService.init()
 
 	GameLoopService.StateChanged:Connect(function(newState: string)
 		if newState == GameLoopService.STATE.ROUND then
+			roundStartedAt = os.clock()
 			startGrowth()
 		elseif newState == GameLoopService.STATE.LOBBY
-			or newState == GameLoopService.STATE.COUNTDOWN
 			or newState == GameLoopService.STATE.POST_ROUND then
 			stopGrowth()
 			reset()
 		end
 	end)
 
-	GameLoopService.PhaseChanged:Connect(function(_name: string, index: number, _duration: number)
-		local phase = Config.Lava.Phases[index]
-		if phase then
-			currentSpeed = phase.Speed
-		end
-	end)
 end
 
 return LavaService

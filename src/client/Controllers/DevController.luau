@@ -5,7 +5,7 @@
 -- `Dev.isDev(player)`. Sprawdzenie po stronie klienta jest wyłącznie po to, żeby
 -- zwykły gracz nie generował ruchu sieciowego, który zostanie odrzucony.
 --
---   Config.Dev.SkipKey     → pomiń bieżącą fazę / stan (LOBBY → runda w kilka klików)
+--   Config.Dev.SkipKey     → pomiń bieżący stan (LOBBY → runda w kilka klików; w rundzie = koniec rundy)
 --   Config.Dev.EndRoundKey → natychmiast zakończ rundę (restore mapy + nagrody)
 
 local Players = game:GetService("Players")
@@ -41,7 +41,7 @@ function DevController.init()
 	if not Dev.isDev(localPlayer) then return end
 
 	UserInputService.InputBegan:Connect(onInput)
-	print(("[Dev] klawisze aktywne: %s = skip fazy, %s = koniec rundy"):format(
+	print(("[Dev] klawisze aktywne: %s = skip stanu, %s = koniec rundy"):format(
 		Config.Dev.SkipKey.Name,
 		Config.Dev.EndRoundKey.Name
 	))

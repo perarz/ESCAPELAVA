@@ -248,7 +248,13 @@ end
 
 -- ── Equip / unequip ──────────────────────────────────────────────────────────────────
 local function onEquipItem(player: Player, itemId: any)
-	if itemId ~= ITEM_ID then return end
+	if itemId ~= ITEM_ID then
+		-- Gracz wyciąga INNY item — hak chowamy (jak BombService / BridgeService). Do 11.10 ten
+		-- przypadek był pomijany i hak zostawał w ręce obok nowego itemu („mam 2 naraz”).
+		-- Bez limitu: chowanie jest idempotentne, a limit mógłby je zgubić.
+		removeGrappleTool(player)
+		return
+	end
 	local now = os.clock()
 	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem * Config.RateLimits.ServerTolerance then return end
 	lastEquipAt[player] = now

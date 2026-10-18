@@ -52,7 +52,6 @@ Config.Game = {
 	MinPlayers = 1, -- TODO Day 7: ustaw na 2 przed publishem.
 	MaxPlayers = 20,
 	LobbyDuration = 15,
-	CountdownDuration = 5,
 	PostRoundDuration = 10,
 
 	-- ⚠️ WYŁĄCZA DOMYŚLNĄ REGENERACJĘ ŻYCIA (decyzja Kacpra 2026-09-21, razem z lawą
@@ -111,38 +110,26 @@ Config.Lava = {
 	Enabled = true,
 	StartY = -5,
 	MaxY = 250,
-	-- DESIGN: szybka i dynamiczna gra. Runda ~80s total, nie 5+ minut.
+	-- RUNDA BEZ FAZ (11.10, decyzja Kacpra „usuń fazy, płynne przyspieszanie”): lawa rośnie
+	-- przez całą rundę z prędkością rosnącą LINIOWO od `SpeedStart` do `SpeedEnd`. Do 11.10
+	-- były fazy Spawn/Easy/Mid/Hard/Endgame ze skokami prędkości (`Phases`, `PhaseChanged`).
+	-- Całkowity przyrost = RoundDuration × (SpeedStart + SpeedEnd) / 2.
 	--
-	-- ⚠️ WYDŁUŻONE DO 10 MINUT NA TESTY (2026-08-12, prośba Kacpra) — długa runda daje
-	-- czas na spokojne wysadzanie bez przerywania w połowie. To NIE jest zmiana designu:
-	-- wartości produkcyjne to 5/20/20/20/15 = 80s (GDD + zasada "dynamika > kompleksowość").
-	-- PRZYWRÓCIĆ PRZED LAUNCHEM. GameLoopService warnuje co boot, dopóki tu jest >180s.
-	--
-	-- UWAGA przy powrocie do lawy: przy tych czasach i tych prędkościach lawa urosłaby
-	-- o ~990 stud i po ~3 minutach siedziałaby na MaxY (250) do końca rundy. Jeśli chcesz
-	-- testować rundy Z lawą, trzeba albo zejść z prędkościami, albo podnieść MaxY.
-	-- ⚠️ RUNDA 4-MINUTOWA NA TESTY Z LUDŹMI (2026-09-21, prośba Kacpra).
-	-- Wartości PRODUKCYJNE to 15/60/60/60/45 → 5/20/20/20/15 (80 s) i prędkości
-	-- 0.6 / 1.2 / 2.0 / 3.0. PRZYWRÓCIĆ PRZED LAUNCHEM.
-	--
-	-- CZASY: kształt projektowy (5/20/20/20/15) przeskalowany ×3 = 240 s.
-	-- PRĘDKOŚCI: przeskalowane ÷3, żeby CAŁKOWITY przyrost został ten sam co w designie
-	-- (~120 studów). To jest tu najważniejsze: wydłużenie rundy bez zejścia z prędkości
-	-- dałoby 3× większy przyrost, lawa zalałaby mapę w połowie i test skończyłby się
-	-- pływaniem. Tak zachowany jest i czas na testowanie, i narastanie presji.
+	-- ⚠️ RUNDA 4-MINUTOWA NA TESTY Z LUDŹMI (od 2026-09-21, prośba Kacpra). PRODUKCJA:
+	-- RoundDuration 80, SpeedStart 0, SpeedEnd 3.0 (ten sam przyrost ~120 studów w 80 s).
+	-- PRZYWRÓCIĆ PRZED LAUNCHEM — GameLoopService warnuje co boot, dopóki runda > 180 s.
+	-- Czas i prędkość zmieniać RAZEM: dłuższa runda przy tych samych prędkościach zalałaby
+	-- mapę w połowie i test skończyłby się pływaniem.
 	--
 	-- Zmierzone na tej mapie: tafla startuje na Y 2.5, najwyższy dach jest na Y 109.
 	-- Przyrost 120 → koniec rundy na ~Y 122, czyli **lawa zalewa wszystko** i runda
-	-- naprawdę się kończy, zamiast wygasnąć na timerze.
-	-- Próg oprawy (`FX.MinSurfaceY` = 9) przekroczony po ~33 s fazy Easy, czyli ~48 s
-	-- od startu rundy — wtedy zapalają się embery, dym, światła i poświata.
-	Phases = {
-		{ Name = "Spawn",   Speed = 0.00, Duration = 15 },  -- "Get ready" grace
-		{ Name = "Easy",    Speed = 0.20, Duration = 60 },  -- +12 studów
-		{ Name = "Mid",     Speed = 0.40, Duration = 60 },  -- +24
-		{ Name = "Hard",    Speed = 0.65, Duration = 60 },  -- +39
-		{ Name = "Endgame", Speed = 1.00, Duration = 45 },  -- +45
-	},
+	-- naprawdę się kończy, zamiast wygasnąć na timerze. Start od prędkości 0 = pierwsze
+	-- sekundy lawa prawie stoi (dawna faza „Get ready”: po 15 s +0,5 studa). Próg oprawy
+	-- (`FX.MinSurfaceY` = 9, +6,5 studa) mija po ~56 s — wtedy zapalają się embery, dym,
+	-- światła i poświata.
+	RoundDuration = 240,
+	SpeedStart = 0,    -- stud/s na starcie rundy
+	SpeedEnd = 1.0,    -- stud/s na końcu rundy
 	-- LAWA RANI, NIE ZABIJA NA MIEJSCU (decyzja Kacpra 2026-09-21).
 	-- Obrażenia lecą WYŁĄCZNIE, dopóki stopy są pod powierzchnią — wyskoczysz, przestaje
 	-- boleć. Nic się nie goi (`Game.DisableHealthRegen`), więc kilka krótkich wejść sumuje
@@ -208,21 +195,13 @@ Config.Lava = {
 		LerpSpeed = 4,      -- szybkość dochodzenia efektu (1-exp(-k·dt))
 	},
 
-	-- RUCH POWIERZCHNI LAWY (LavaSurfaceController, 2026-09-14).
-	--
-	-- PODZIAŁ RÓL: teksturę daje Kacper w Studio, kod ją tylko PRZEWIJA. Kod nie tworzy
-	-- ani nie podmienia wyglądu powierzchni — próbowaliśmy tego cztery razy (siatka kafli
-	-- ze studsami, podział na trójkąty, `Material = CrackedLava`, własne wygenerowane
-	-- tekstury) i każde podejście zostało odrzucone. Wygląd należy do Kacpra, ruch do kodu.
-	--
-	-- KONTRAKT: każdy part w `Workspace.Lava` → dziecko typu **`Texture`** (NIE `Decal` —
-	-- Decal nie ma `OffsetStuds`), `Face = Top`. Tekstury mogą siedzieć na jednym parcie
-	-- albo rozłożone po warstwach stosu (2026-09-16) — kod numeruje je od góry w dół
-	-- i każdej kolejnej daje inny mnożnik prędkości. Opcjonalne atrybuty NA WARSTWIE
-	-- nadpisują te wartości: `ScrollU`, `ScrollV`, `PulseAmount`, `PulsePeriod` — czyli
-	-- stroisz tempo w Studio, bez wchodzenia w kod, także w trakcie Play.
+	-- 11.10: oprawa za zgodą Kacpra — matowa skorupa, emisyjne szczeliny.
+	-- Wariant materiału zapisany w Studio; instalator i cofnięcie w artifacts/lava.
+	-- Texture pozostaje opcjonalne, żeby cofnięcie starej oprawy działało bez migracji.
 	Surface = {
 		Enabled = true,
+		UpdateHz = 30, -- kosmetyka nie potrzebuje 144 aktualizacji/s
+		MaxFrameStep = 0.1, -- po przycięciu nie nadrabiaj salwą efektów
 		-- Domyślne przewijanie w studach/s. Podniesione 2026-09-16 na prośbę "więcej
 		-- ruchu" — przy kaflu 30 studów stare 0.55 dawało jeden kafel na ~55 s, czyli
 		-- ruch na granicy zauważalności. Teraz ~20 s na kafel: widać płynięcie, ale
@@ -254,7 +233,7 @@ Config.Lava = {
 		-- 1) WSPÓLNY — cały stos jedzie razem, jak tafla wody podnoszona falą. Warstwy
 		--    nie zbliżają się do siebie ani o milimetr, więc ten może być DUŻY i to on
 		--    odpowiada za "widać, że lawa faluje".
-		Amplitude = 0.9, -- stud
+		Amplitude = 0.45, -- stud (10.10: było 0.9 — Kacper: „zmniejsz, jak bardzo buja się lawa”)
 		Period = 3.5,    -- s pełnego cyklu
 		-- STOS WARSTW (2026-09-16): lawa to kilka partów jeden nad drugim. Gdyby wszystkie
 		-- falowały identycznie, stos jechałby jak jeden sztywny blok i przezroczystość
@@ -264,7 +243,7 @@ Config.Lava = {
 		--    Ten zjada szczelinę między warstwami, więc kod przycina go do niej
 		--    (`MaxGapUsage`) — podnoszenie go bez rozsunięcia warstw w Studio nic nie da.
 		--    Inny okres niż wspólny, żeby ruch nie wyglądał jednostajnie.
-		LayerAmplitude = 0.35,
+		LayerAmplitude = 0.2, -- 10.10: było 0.35
 		LayerPeriod = 2.3,
 		LayerPhase = 2.1,  -- przesunięcie fazy każdej kolejnej warstwy (radiany, ~120°)
 		LayerDecay = 0.6,  -- mnożnik amplitudy w głąb: masa pod spodem kołysze się mniej
@@ -276,138 +255,73 @@ Config.Lava = {
 		MaxGapUsage = 0.7,
 	},
 
-	-- EFEKTY POWIERZCHNI (LavaSurfaceController, klient). Wszystko lokalne: zero
-	-- replikacji, zero fizyki serwera — ten sam wzorzec co DebrisFXController.
+	-- Connected cosmetic mesh; disable to retain the original flat surface.
+	Waves = {
+		Enabled = true,
+		Cells = 24,
+		Amplitude = 1.05,
+		Wavelength = 96,
+		CrossWavelength = 130,
+		Period = 7,
+		CrossPeriod = 9,
+		CrossWeight = 0.3,
+		DirectionZ = 0.45,
+		CrossDirectionX = 0.55,
+		TileSize = 44,
+		UpdateHz = 20,
+	},
+
+	-- V4: sześć lokalnych skupisk, stała pula; bez emitterów na całej mapie.
+	-- Tylko LavaSurfaceController. Damage/Submerged/Swim są niezależne.
 	FX = {
-		-- Dalej niż to od kamery żaden z efektów nie jest liczony ani spawnowany.
-		-- Lawa bywa widoczna przez pół mapy, a bąble z 400 studów to kilka pikseli.
-		Distance = 420,
-
-		-- ===== ODSŁONIĘCIE TAFLI (2026-09-16) =====
-		-- Tafla lawy jest JEDNYM wielkim prostokątem pod całą mapą, ale widać z niej
-		-- tylko kawałki: zmierzone na gotowej mapie **86% powierzchni jest zakryte**
-		-- ulicami, chodnikami i stropami. Efekty spawnowane na ślepo lądowały pod
-		-- jezdnią — stąd zgłoszenie Kacpra "w losowych miejscach nad lawą pojawia się
-		-- dziwne światło": dwa z czterech świateł stały dokładnie pod chodnikiem
-		-- i prześwietlały go od spodu.
-		-- Jeden raycast W GÓRĘ przed spawnem załatwia wszystkie efekty naraz, a wraz
-		-- ze wzrostem lawy coraz więcej tafli robi się odsłonięte samo z siebie.
-		-- ===== JEDYNA BRAMKA OPRAWY: WYSOKOŚĆ TAFLI (2026-09-21) =====
-		-- Dopóki lawa siedzi w kanale pod ulicami, NIE MA żadnych efektów: ani emberów
-		-- i dymu (serwer, `LavaService`), ani bąbli, pary, świateł i poświaty (klient).
-		-- Zapalają się dopiero, gdy wierzch tafli przekroczy tę wysokość.
-		--
-		-- ⚠️ DLACZEGO TO JEST LEPSZE OD POPRZEDNICH BRAMEK ODSŁONIĘCIA (decyzja Kacpra):
-		-- tamte pytały GEOMETRIĘ raycastami („czy nad tym punktem coś jest?"), a raycast,
-		-- który w nic nie trafił, znaczy albo „otwarte niebo", albo „jeszcze się nie
-		-- wczytało". Przy `StreamingEnabled = true` po wejściu na mapę przez ~15 s nie ma
-		-- jeszcze ulic, więc kod uznawał lawę za odsłoniętą i zapalał poświatę
-		-- prześwitującą przez niedoładowaną podłogę. Porównanie dwóch LICZB nie ma jak
-		-- się pomylić i jest poprawne od pierwszej klatki. Przy okazji znika 16 raycastów
-		-- na sprawdzenie i cały problem „particle przelatują przez jezdnię" — bo particle
-		-- w Robloxie nie kolidują z geometrią i nie dało się tego obejść inaczej.
-		--
-		-- Zmierzone na mapie: tafla startuje na Y 2.5, strop kanału jest 6.0 studa wyżej,
-		-- a Kacper odczytał poziom ulicy (po białych pasach) jako Y 9.
 		MinSurfaceY = 9,
-		-- ⚠️ HISTEREZA — BEZ NIEJ OPRAWA MIGOCZE (zgłoszenie z logu 2026-09-21).
-		-- Tafla FALUJE (`Wobble.Amplitude` 0.9, okres 3.5 s), więc gdy średni poziom stoi
-		-- blisko progu, sama fala przenosi go w tę i z powrotem co ~1.75 s — embery i dym
-		-- mrugają, a poświata pompuje. Zapalamy dopiero powyżej `MinSurfaceY + H`, gasimy
-		-- poniżej `MinSurfaceY - H`, a pomiędzy trzymamy stan. **H musi być większe od
-		-- amplitudy falowania** — przy 0.9 daje to zapas 0.3.
 		MinSurfaceHysteresis = 1.2,
-
-		-- ===== BĄBLE =====
-		-- Powierzchnia wybrzusza się kopułą, rośnie, pęka i pryska iskrami.
-		BubblesEnabled = true,
-		BubbleInterval = 0.55,  -- średni odstęp (s); losowany ±50%, żeby nie tykało jak metronom
-		BubbleMaxActive = 10,   -- sufit jednocześnie żyjących bąbli
-		BubbleSpread = 120,     -- promień wokół gracza, w którym szukamy odsłoniętej lawy
-		BubbleTries = 5,        -- prób na jeden bąbel (86% tafli jest zakryte)
-		BubbleRiseTime = 0.7,   -- s wzrostu przed pęknięciem (dłużej = widać rosnącą kopułę)
-		BubbleSizeMin = 3,
-		BubbleSizeMax = 7,
-		BubbleRise = 1.6,       -- ile studów kopuła wychodzi ponad powierzchnię
-		BubbleColor = Color3.fromRGB(255, 140, 40),
-		BubbleSparks = 16,      -- iskier przy pęknięciu
-		-- Pęknięcie wyrzuca też KROPLE lawy: cięższe od iskier, lecą po łuku i gasną.
-		-- Particle, nie party — dziesiątki fizycznych kropel na sekundę to koszt bez sensu.
-		BubbleGlobs = 7,
-		BubbleGlobGravity = 70,
-
-		-- ===== ŚWIATŁO ZNAD LAWY =====
-		-- Kilka świateł sunących po powierzchni — ciepła poświata na dolne piętra.
-		-- Dynamiczne światła są w Robloxie drogie, więc jest ich mało i bez cieni.
-		-- ===== STAŁA POŚWIATA Z TAFLI =====
-		-- Prośba Kacpra: "żeby lawa ciągle tak świeciła". Wędrujące PointLighty dają
-		-- zmienność, ale z definicji gasną i wracają — stałe światło musi iść z samej
-		-- tafli. `SurfaceLight` na górnej ścianie warstwy wierzchniej świeci NIEPRZERWANIE
-		-- na wszystko w zasięgu i nie ma nic wspólnego z cyklem wędrujących świateł.
-		SurfaceGlowEnabled = true,
-		-- ⚠️ ZASIĘG = ILE ŚWIATŁO PRZEBIJA PRZEZ PIĘTRA, nie „jak daleko ładnie świeci".
-		-- Pod `Lighting.Technology = ShadowMap` światła lokalne (PointLight/SurfaceLight)
-		-- **nie rzucają cieni w ogóle**, więc strop ich nie zatrzymuje — `Range` jest
-		-- jedyną rzeczą, która je ogranicza.
-		-- ZMIERZONE na tej mapie 2026-09-21: mediana rozstawu stropów = **14 studów**.
-		--   Range 60 -> przebija ~4.3 piętra  (tak było; zgłoszenie „oświetla całe piętro")
-		--   Range 30 -> ~2.1 piętra
-		--   Range 12 -> ~0.9 piętra  <- mieści się w kondygnacji, w której jest lawa
-		-- ➜ Podniesiesz `Range` powyżej ~14 i światło zacznie wychodzić piętro wyżej.
-		-- Chcesz mocniejszej łuny bez przebijania → podnoś `Brightness`, NIE `Range`.
-		SurfaceGlowRange = 12,        -- zasięg poświaty; patrz pomiar wyżej
-		SurfaceGlowBrightness = 2.2,
-		SurfaceGlowAngle = 150,       -- szeroki stożek: lawa świeci na boki, nie tylko w górę
-		SurfaceGlowColor = Color3.fromRGB(255, 120, 35),
-
-		-- ===== ŚWIATŁO NIE MOŻE PRZEŚWIECAĆ PRZEZ PODŁOGĘ (2026-09-16) =====
-		-- Zgłoszenie Kacpra: lawa startuje w kanale POD ulicą i światło przebijało jezdnię
-		-- od spodu. To nie jest błąd w kodzie, tylko właściwość silnika: przy
-		-- `Lighting.Technology = ShadowMap` światła lokalne (PointLight/SurfaceLight)
-		-- **nie rzucają cieni w ogóle** — cienie świateł lokalnych są dopiero we `Future`,
-		-- które na telefonach jest drogie. Czyli albo Future, albo światła nie mogą
-		-- świecić, dopóki tafla siedzi niżej niż grunt dookoła.
-		-- ⚠️ ROZWIĄZANE OSTATECZNIE 2026-09-21 PRZEZ `MinSurfaceY` (wyżej): żadnych raycastów,
-		-- tylko próg wysokości tafli. Skasowane razem z tamtym podejściem:
-		-- `LightsRequireOpenLava`, `OpenSamples`, `OpenRings`, `OpenTolerance`,
-		-- `SurfaceGlowCheckHz`, `LightCutFade`, `LightRecheck`. **Nie przywracać** — powód
-		-- (dwuznaczny raycast przy StreamingEnabled + particle nie kolidujące z geometrią)
-		-- opisany przy `fxAllowed` w `LavaSurfaceController`.
-		SurfaceGlowFade = 1.5,  -- stud jasności/s — poświata narasta płynnie, nie skokiem
-
-		LightsEnabled = true,
-		LightCount = 4,
-		-- Ten sam powód co przy `SurfaceGlowRange`: pod ShadowMap `Range` to zasięg
-		-- PRZEBICIA przez geometrię. Mediana piętra = 14, więc 12 trzyma światło
-		-- w kondygnacji lawy. (Stare 30 przebijało ~2 piętra.)
-		LightRange = 12,       -- zasięg wędrującego światła
-		LightBrightness = 1.2,
-		LightColor = Color3.fromRGB(255, 130, 45),
-		LightHeight = 3,        -- ile nad powierzchnią wisi światło (nisko = zostaje W wyrwie)
-		LightDrift = 1.2,       -- stud/s dryfu (niski: cały dryf wchodzi w zapas przy wyborze miejsca)
-		-- Światła żyją W POBLIŻU GRACZA, nie wędrują po całej tafli 513×457. Wcześniej
-		-- dryfowały przez całą planszę i po dojściu do krawędzi PRZESKAKIWAŁY na drugą
-		-- stronę — z perspektywy gracza światło "pojawiało się" znikąd w losowym miejscu.
-		-- Teraz każde ma cykl życia: rozjaśnia się, dryfuje, gaśnie i DOPIERO PO ZGAŚNIĘCIU
-		-- przenosi się w nowe wylosowane miejsce.
-		LightSpread = 140,      -- promień wokół kamery, w którym losowane są miejsca
-		LightLifetime = 7,      -- s pełnego cyklu (losowane ±30%, żeby nie mrugały zgodnie)
-		LightFade = 1.5,        -- s narastania i zanikania — tyle trwa "brak przeskoku"
-		LightPlacementTries = 6,-- prób znalezienia odsłoniętego punktu na cykl
-		LightRetry = 0.75,      -- s przerwy, gdy w pobliżu nie ma odsłoniętej lawy
-
-		-- ===== PARA NA STYKU Z MAPĄ =====
-		-- Szukamy miejsc, gdzie tuż POD powierzchnią jest geometria mapy — czyli linii
-		-- zalania — i tam unosi się para. Raycasty w dół, nie w bok: gdy lawa podchodzi
-		-- pod strop czy ulicę, to właśnie tam jest styk, który widać.
-		SteamEnabled = true,
-		SteamCheckHz = 3,       -- jak często losujemy próbki
-		SteamSamples = 8,       -- próbek na tick (cały koszt tego efektu)
-		SteamSpread = 180,      -- promień wokół gracza
-		SteamTries = 4,         -- prób znalezienia odsłoniętej lawy na próbkę
-		SteamProbeDepth = 4,    -- stud w dół: trafienie = geometria przy linii zalania
-		SteamPerSecond = 4,     -- sufit obłoczków/s (przy zalewaniu piętra trafień jest dużo)
-		SteamLifetime = 1.6,
+		Distance = 140,
+		VentCount = 6,
+		VentSpread = 48,
+		VentMinRadius = 10,
+		RelocateDistance = 85,
+		CycleMin = 3.2,
+		CycleMax = 5.2,
+		GrowFraction = 0.42,
+		PopFadeFraction = 0.08,
+		BubbleMin = 2.8,
+		BubbleMax = 5.8,
+		BubbleHeightRatio = 0.32,
+		BubbleColor = Color3.fromRGB(38, 20, 23),
+		HotColor = Color3.fromRGB(210, 18, 25),
+		CoolColor = Color3.fromRGB(48, 6, 12),
+		SmokeColor = Color3.fromRGB(52, 52, 56),
+		SmokeEndColor = Color3.fromRGB(28, 28, 32),
+		SparkTexture = "rbxasset://textures/particles/sparkles_main.dds",
+		SmokeTexture = "rbxasset://textures/particles/smoke_main.dds",
+		EmberRate = 1.5,
+		EmberLifeMin = 0.8,
+		EmberLifeMax = 1.5,
+		EmberSpeedMin = 1.5,
+		EmberSpeedMax = 4,
+		SmokeRate = 1.5,
+		SmokeLifeMin = 1.4,
+		SmokeLifeMax = 2.2,
+		SmokeSpeedMin = 1.5,
+		SmokeSpeedMax = 3.5,
+		SmokeSizeMin = 2,
+		SmokeSizeMax = 7,
+		SmokeBurst = 5,
+		SparkBurst = 9,
+		DropBurst = 5,
+		DropLifeMin = 0.45,
+		DropLifeMax = 0.85,
+		DropSpeedMin = 9,
+		DropSpeedMax = 15,
+		DropGravity = 38,
+		LightCount = 2,
+		LightRange = 11,
+		LightHeight = 1.2,
+		LightColor = Color3.fromRGB(255, 65, 42),
+		LightBaseBrightness = 0.8,
+		LightPopBrightness = 1.5,
+		LightFadeSeconds = 0.45,
 	},
 }
 
@@ -422,6 +336,32 @@ Config.UI = {
 	ReferenceHeight = 1200,
 	MinScale = 0.5,         -- safety: nie zmniejszaj HUD poniżej połowy (mikro-okna)
 	MaxScale = 2.0,         -- safety: nie rozdmuchuj powyżej 2× (ultra-tall porty)
+
+	-- Wyciągnięcie itemu w pasku (HotbarController, 11.10): wybrany slot podskakuje, zostaje
+	-- wyżej i trochę większy, ikona się buja; po schowaniu opada. Px = px projektu.
+	HotbarEquip = {
+		Raise = 16,           -- px: o ile wybrany slot jest wyżej
+		RaiseTime = 0.28,     -- s: wjazd w górę (sprężyście)
+		PopScale = 1.2,       -- skala w chwili wyciągnięcia…
+		SelectedScale = 1.06, -- …i ta, na której zostaje
+		PopTime = 0.35,
+		IconWiggle = 16,      -- stopnie: bujnięcie ikony przy wyciągnięciu
+		WiggleTime = 0.6,
+		DropTime = 0.18,      -- s: opadnięcie po schowaniu
+		DeselectDelay = 0.12, -- s: zwłoka opadnięcia (auto-re-equip bomby po rzucie nie szarpie slotem)
+	},
+
+	-- Licznik czasu na górze (UIController, 11.10): wskok napisu przy zmianie stanu i nerwowe
+	-- ostatnie sekundy (czerwony gradient + wskok co sekundę).
+	Timer = {
+		StatePop = 1.25,      -- skala napisu stanu w chwili zmiany (LOBBY → ROUND → ROUND OVER)
+		StatePopTime = 0.4,
+		UrgentSeconds = 10,   -- od ilu sekund do końca odliczanie robi się nerwowe
+		TickPop = 1.22,       -- wskok czasu co sekundę w tej końcówce
+		TickPopTime = 0.3,
+		UrgentTop = Color3.fromRGB(255, 150, 120),   -- gradient czasu w końcówce (góra → dół)
+		UrgentBottom = Color3.fromRGB(215, 25, 25),
+	},
 }
 
 Config.Spawn = {
@@ -457,14 +397,14 @@ Config.Map = {
 -- silnik miał chwilę na zbudowanie oświetlenia wokół kamery (świat renderuje się POD
 -- zasłoną, więc ten czas nie idzie na marne).
 Config.RoundTransition = {
-	FadeInTime = 0.35,      -- ściemnianie pod koniec odliczania
+	FadeInTime = 0.35,      -- ściemnianie pod koniec odliczania lobby
 	FadeOutTime = 0.5,      -- rozjaśnianie na mapie
 	-- Ile trzymać ciemno PO tym, jak gracz stoi na mapie — czas dla oświetlenia i cieni.
 	-- Gałka do strojenia w Play: jeśli cienie dalej doskakują, podnieść; każda sekunda
-	-- zabiera sekundę z fazy Spawn lawy.
+	-- zabiera sekundę z początku rundy (lawa wtedy jeszcze prawie stoi).
 	SettleTime = 1.2,
 	-- Sygnał „stoisz na mapie” (Remotes.AliveChanged true) nie przyszedł — gracz nie jest
-	-- w tej rundzie (np. dołączył w trakcie odliczania). Zdejmujemy zasłonę.
+	-- w tej rundzie (np. dołączył w ostatniej chwili lobby). Zdejmujemy zasłonę.
 	SpawnSignalTimeout = 2.5,
 	-- Twardy sufit całej zasłony: ciemny ekran, który wisi, jest gorszy od doskakujących cieni.
 	MaxHold = 5,
@@ -539,19 +479,53 @@ Config.Cash = {
 		LightEmission = 1,      -- 1 = addytywnie świeci, czytelne na każdym tle
 	},
 
-	-- Floating popup nad CashLabel ("+10$", "-50$"). Stack maks Popup.MaxSlots, najstarszy
-	-- wycieka przy overflow. Tylko klient-side — server odpala przez Remotes.CashChanged.
-	Popup = {
-		MaxSlots = 4,
-		SpacingPixels = 28,              -- odstęp Y między slotami stacku (px)
-		PopInTime = 0.15,                -- scale 0.7 → 1.0 (Back EaseOut)
-		SteadyTime = 1.7,                -- czas pełnej widoczności
-		FadeOutTime = 0.5,               -- normalny zanik
-		DriftUpPixels = 20,              -- ile px popup unosi się podczas fade-out
-		OverflowFadeTime = 0.2,          -- skrócony fade gdy nowy wypycha najstarszy
-		SlotTransitionTime = 0.18,       -- czas przesuwania stacku gdy nowy popup wpada
-		ColorPositive = Color3.fromRGB(80, 230, 100),
-		ColorNegative = Color3.fromRGB(230, 80, 80),
+	-- LECĄCE BANKNOTY (10.10, pomysł Kacpra; zastępuje popup „+10$”, usunięty jego decyzją).
+	-- Każdy ZAROBEK (zbieranie, zabójstwo, wygrana): banknoty wyskakują na środku ekranu,
+	-- lecą do ikony licznika, licznik podskakuje przy każdym dolocie, a liczba rośnie płynnie
+	-- do nowej sumy. Wydatek (sklep) → liczba spada od razu, bez banknotów. CashCounterController.
+	Fly = {
+		-- Ile banknotów przy danej kwocie: pierwszy wiersz, którego próg ≤ kwota.
+		Notes = { { 100, 6 }, { 25, 3 }, { 0, 1 } },
+		AppearTime = 0.18, -- s: wyskok banknotu na środku (od zera do pełnego rozmiaru)
+		HoldTime = 0.28,   -- s: chwila na środku przed lotem (11.10: było 0.08, Kacper „0,2 s dłużej”)
+		FlyTime = 0.5,     -- s: lot do ikony licznika
+		Stagger = 0.09,    -- s: odstęp między kolejnymi banknotami jednego zarobku
+		StartJitter = 70,  -- px projektu: rozrzut miejsca startu wokół środka ekranu
+		EndScale = 0.45,   -- rozmiar przy liczniku względem wzoru
+		Spin = 25,         -- ± stopnie obrotu w locie (losowo)
+		PopScale = 1.18,   -- podskok licznika przy dolocie banknotu
+		PopTime = 0.22,    -- s: powrót z podskoku
+		IconTilt = 12,     -- stopnie: przechył ikony przy dolocie (na przemian w lewo / w prawo)
+		-- Efekt zarobku na ŚRODKU ekranu (10.10 wieczór, Kacper: „nikt nie patrzy w róg”, potem
+		-- „ulepsz 5×”): błysk, promienie, dwa pierścienie, iskierki z opadaniem, gwiazdki. Wygląd
+		-- warstw = wzory `HUD.Cash*Template`; tu liczby. Przy liczniku został tylko `Body.Glow`.
+		FlashTime = 0.45,      -- s: błysk rośnie i gaśnie
+		RayCount = 10,         -- promieni przy 1 banknocie
+		RayPerNote = 2,        -- + za każdy kolejny banknot
+		RayInner = 40,         -- px projektu: promień startuje tyle od środka
+		RayTime = 0.5,
+		RingTime = 0.45,       -- s: pierwszy pierścień (drugi o 30% dłużej, 45% większy)
+		RingGap = 0.09,        -- s: opóźnienie drugiego pierścienia
+		-- ⚠️ 11.10: iskierki USUNIĘTE decyzją Kacpra (skasowany wzór `HUD.CashSparkTemplate`) —
+		-- liczby Spark* działają dopiero, gdy wzór wróci do HUD.
+		SparkCount = 14,       -- iskierek przy 1 banknocie
+		SparkPerNote = 4,      -- + za każdy kolejny (25$ → 22, 100$ → 34)
+		SparkDistance = 240,   -- px projektu: zasięg wylotu (losowo 50-120%)
+		SparkFall = 70,        -- px projektu: opadanie po wylocie
+		SparkTime = 0.75,      -- s: wylot (45%) + opadanie i zgaśnięcie (55%)
+		SparkScaleMin = 0.6,   -- rozmiar iskierki względem wzoru (losowo z zakresu)
+		SparkScaleMax = 1.6,
+		TwinkleCount = 6,      -- gwiazdek przy 1 banknocie (+1 za każdy kolejny)
+		TwinkleMinRadius = 90, -- px projektu: gdzie migoczą (pierścień wokół środka)
+		TwinkleMaxRadius = 260,
+		TwinkleSpread = 0.35,  -- s: rozrzut momentu pojawienia się
+		TwinkleTime = 0.45,    -- s: wskok + zniknięcie jednej gwiazdki
+		GlowTime = 0.35,     -- s: zgaśnięcie poświaty
+		GlowAlpha = 0.45,    -- przezroczystość poświaty w szczycie błysku (0 = pełna)
+		ShineTime = 0.55,    -- s: jeden przejazd połysku przez napis kasy przy dolocie banknotu
+		CountRate = 6,     -- jak szybko liczba dogania sumę (1/s; więcej = szybciej) — w górę i w dół
+		SpendTilt = 7,     -- stopnie: zachwianie licznika przy wydatku (11.10)
+		SpendTime = 0.55,  -- s: powrót z zachwiania (sprężyście)
 	},
 }
 
@@ -674,6 +648,10 @@ Config.Movement = {
 		ColorFull = Color3.fromRGB(60, 140, 255), -- niebieski
 		ColorMid = Color3.fromRGB(250, 205, 55),  -- żółty
 		ColorLow = Color3.fromRGB(235, 60, 55),   -- czerwony
+		-- Grubość obrysu jako ułamek SZEROKOŚCI paska na ekranie (11.10). Pasek ma rozmiar w
+		-- studach, a obrys w pikselach — bez tego 2,3 px było za cienkie na dużym monitorze
+		-- i za grube na telefonie. 0.1 ≈ dawne 2,3 px przy typowym oddaleniu kamery.
+		BorderToWidth = 0.1,
 	},
 
 	HeadTrack = {
@@ -752,6 +730,21 @@ Config.Movement = {
 
 		-- Reakcja trafionego gracza na wybuch bomby (Remotes.BombHit → shake + FOV punch).
 		-- Intensywność skaluje z falloff wybuchu (1.0 w epicentrum, 0 na krawędzi radius).
+		-- Lekkie drżenie kamery przy SPRINCIE na ziemi (11.10, prośba Kacpra „shake podczas biegu
+		-- lekkie”). Płynny szum, nie losowe szarpanie; przy chodzeniu NIC (Kacper nie chciał
+		-- bujania przy chodzeniu — stary sprint bob usunięty). Wyłącznik: Amplitude 0.
+		SprintShake = {
+			Amplitude = 0.11,   -- studa — maksymalne przesunięcie kamery (11.10: było 0.07, „trochę bardziej”)
+			Frequency = 6,      -- szybkość drżenia (wyżej = drobniej i szybciej)
+			FadeTime = 0.2,     -- s: wejście / zejście przy starcie i końcu sprintu
+		},
+		-- Przechył kamery przy ruchu w BOK (11.10, „podrasuj movement”): biegniesz w prawo →
+		-- kamera lekko kładzie się w prawo. Pełny przechył przy prędkości sprintu. 0 = wyłączony.
+		Lean = {
+			MaxDegrees = 1.2,   -- 11.10: było 2.5 (Kacper: „mniej stopni”)
+			Speed = 8,          -- jak szybko dochodzi do przechyłu (wyżej = szybciej)
+		},
+
 		HitReaction = {
 			ShakeMax = 2.4,        -- max intensity screenShake w epicentrum
 			ShakeDuration = 0.45,  -- czas trwania shake (s)
@@ -843,6 +836,17 @@ Config.Ladder = {
 }
 
 Config.Push = {
+	Windup = 0.15, -- authoritative delay before target selection / impulse
+	AnimationEnabled = true,
+	AnimationId = 0, -- publish Push_TwoHands_R15 and insert the owner account's ID
+	AnimationStudioPreview = true,
+	AnimationFolder = "PushAnimations",
+	AnimationName = "Push_TwoHands_R15",
+	AnimationImpactTime = 0.15, -- authored contact time; playback scales to Windup
+	AnimationFadeIn = 0.035,
+	AnimationFadeOut = 0.10,
+	AnimationLoadTimeout = 10,
+	AnimationLoadPoll = 0.1,
 	MaxRange = 7,   -- stud; close-combat only
 	ConeDot = 0.3,  -- min dot(look, kierunek do celu) — ~70° stożek przed pusherem
 	Force = 80,     -- pozioma velocity (stud/s)
@@ -850,6 +854,11 @@ Config.Push = {
 	-- Feedback ofiary: screen shake gdy ktoś Cię pchnie (klient, MovementController.screenShake).
 	HitShakeIntensity = 1.1,
 	HitShakeDuration = 0.3,
+	-- Feedback POPYCHAJĄCEGO (11.10): krótkie szarpnięcie kamery + mały zoom w chwili uderzenia
+	-- (po `Windup`), także przy pudle — czujesz, że pchnąłeś.
+	PushShakeIntensity = 0.45,
+	PushShakeDuration = 0.18,
+	PushFOVKick = 4,     -- stopnie (wraca sam, jak FOV punch od bomby)
 }
 
 -- Rate limits per akcja (sekundy). Server enforces, klient mirrors dla wizualizacji
@@ -948,7 +957,7 @@ Config.RateLimits = {
 	-- limit, tylko o 15% luźniejszy. Dotyczy wszystkich limitów akcji niżej (nie BuyItemPerSecond).
 	ServerTolerance = 0.85,
 	BombThrow = 0.5,
-	Push = 4,
+	Push = 2.5,      -- 10.10: było 4 (prośba Kacpra „zmniejsz cooldown na popychanie”)
 	BridgeBuild = 0.5,
 	Grapple = 0.6,   -- hak: krótki, bo item jest zużywalny — limituje go cena, nie zegar
 	-- EquipItem+UnequipItem: klik hotbar slot. Spam clickowanie = flickering Tool
@@ -976,6 +985,16 @@ Config.AntiCheat = {
 	-- Okno bezkarności po impulsie nadanym PRZEZ SERWER (knockback bomby, push).
 	-- Bez tego własna bomba robiłaby z gracza "cheatera".
 	GraceAfterImpulseSec = 4,
+}
+
+-- Komunikat „YOU KILLED <nick>” dla zabójcy (KillMessageController, 10.10, projekt z Figmy).
+-- Wygląd w Studio (`HUD.KillMessage`); tu tylko czasy i kolor słowa „KILLED”.
+Config.KillMessage = {
+	ShowTime = 2.5,   -- s widoczności, zanim zacznie gasnąć
+	FadeTime = 0.35,  -- s wygaszania
+	PopScale = 1.35,  -- wskok: start z tej skali do 1
+	PopTime = 0.3,
+	KilledColor = Color3.fromRGB(159, 0, 0), -- Figma: #9F0000
 }
 
 Config.Rewards = {
@@ -1401,7 +1420,7 @@ Config.Destruction = {
 		-- Wybuch auta: pola jak w ItemDefinitions.bomb (BombService.explodeAt), słabszy od bomby.
 		Blast = {
 			blastRadius = 16,       -- gracze (bomba: 22)
-			damagePercent = 0.4,    -- MaxHealth w epicentrum (bomba: 0.5)
+			damagePercent = 0.4,    -- MaxHealth w epicentrum (bomba: 0.6 od 10.10)
 			knockbackForce = 380,   -- (bomba: 450)
 			knockbackMinT = 0.3,
 			ragdollDuration = 2,
@@ -1877,6 +1896,8 @@ table.freeze(Config.Dev.Usernames)
 table.freeze(Config.Dev)
 table.freeze(Config.Game)
 table.freeze(Config.PlayerData)
+table.freeze(Config.UI.HotbarEquip)
+table.freeze(Config.UI.Timer)
 table.freeze(Config.UI)
 -- Spawn ma Vector3 fields — freeze tylko po:
 table.freeze(Config.Spawn)
@@ -1889,10 +1910,15 @@ table.freeze(Config.Lava.Swim)
 table.freeze(Config.Lava.Submerged)
 table.freeze(Config.Lava.Surface.LayerMultipliers)
 table.freeze(Config.Lava.Wobble)
+table.freeze(Config.Lava.Waves)
 table.freeze(Config.Lava.FX)
 table.freeze(Config.Lava.Surface)
 table.freeze(Config.Lava)
-table.freeze(Config.Cash.Popup)
+for _, row in ipairs(Config.Cash.Fly.Notes) do
+	table.freeze(row)
+end
+table.freeze(Config.Cash.Fly.Notes)
+table.freeze(Config.Cash.Fly)
 table.freeze(Config.Cash.PickupTrail)
 table.freeze(Config.Cash.DigitDisplay)
 table.freeze(Config.Cash)
@@ -1903,12 +1929,15 @@ table.freeze(Config.Movement.StaminaBar)
 table.freeze(Config.Movement.HeadTrack)
 table.freeze(Config.Movement.Camera.RotationSmoothing)
 table.freeze(Config.Movement.Camera.HitReaction)
+table.freeze(Config.Movement.Camera.SprintShake)
+table.freeze(Config.Movement.Camera.Lean)
 table.freeze(Config.Movement.Camera)
 table.freeze(Config.Movement)
 table.freeze(Config.Ladder)
 table.freeze(Config.Push)
 table.freeze(Config.RateLimits)
 table.freeze(Config.AntiCheat)
+table.freeze(Config.KillMessage)
 table.freeze(Config.Rewards)
 table.freeze(Config.Destruction.Categories.Wall)
 table.freeze(Config.Destruction.Categories.Glass)

@@ -395,7 +395,7 @@ function CashPickupService.init()
 	takeSpawnSnapshot()
 	getOrCreateActiveFolder()
 
-	-- StateChanged: spawn na ROUND start, cleanup na POST_ROUND/LOBBY/COUNTDOWN.
+	-- StateChanged: spawn na ROUND start, cleanup na POST_ROUND/LOBBY.
 	-- (RoundEnded BindableEvent triggeruje POST_ROUND, ale MapService czeka 0.5s na restore
 	-- — jeśli czyściłbym cash dopiero w RoundEnded → cleanupActiveBombs to MapService
 	-- nie tknie ActiveCash bo to osobny folder Workspace. Bezpiecznie czyścić w StateChanged
@@ -404,8 +404,7 @@ function CashPickupService.init()
 		if newState == GameLoopService.STATE.ROUND then
 			startRound()
 		elseif newState == GameLoopService.STATE.POST_ROUND
-			or newState == GameLoopService.STATE.LOBBY
-			or newState == GameLoopService.STATE.COUNTDOWN then
+			or newState == GameLoopService.STATE.LOBBY then
 			endRound()
 		end
 	end)

@@ -123,7 +123,7 @@ Pytania mają być **konkretne** ("X czy Y?", "Jak nazwać Z?", "Czy chcesz tu A
 
 - **Rojo 7.7.0-rc.1** (Aftman), VS Code, Luau, Roblox Studio.
 - **Struktura repo** (stan 2026-09-23):
-  - `src/server/Services/` — 28 serwisów (26.09: + `PropService`, 27.09: + `CarService`, 08.10: − `SettingsService`); `src/client/Controllers/` — 24 moduły (08.10: + `RoundTransitionController`, `LadderController`, `LavaSwimController`; − `QualityController`) (opisy, pułapki i historia decyzji: **`docs/ARCHITECTURE.md`**)
+  - `src/server/Services/` — 28 serwisów (26.09: + `PropService`, 27.09: + `CarService`, 08.10: − `SettingsService`); `src/client/Controllers/` — 25 modułów (08.10: + `RoundTransitionController`, `LadderController`, `LavaSwimController`; − `QualityController`; 10.10: + `TextShadowController`, `CashCounterController`, `GradientShimmerController`, `KillMessageController`, − `CashPopupController`, `KillFeedController`) (opisy, pułapki i historia decyzji: **`docs/ARCHITECTURE.md`**)
   - `src/server/Structure/` — **NOWE 2026-09-24, destrukcja v4**: czyste moduły konstrukcji spoza `Services` (nie mają `init`): `StructureCore` (klasyfikacja, solver, odcisk geometrii — wspólne dla bake'u i gry), `StructureBake` (analiza budynku, podgląd kolorami, zapis danych), `BuildingState` (stan chunków jednego budynku, CAS), `CollapsePlanner` (grupy kolapsu), `Pieces` (geometria kawałków), `StructureTests` (scenariusze offline). W grze ładują je `StructuralService` i `CollapseService`; w Studio — skrypty `STRUCTURE_*.luau` z korzenia repo.
   - `src/shared/Modules/` — `Config` (WSZYSTKIE liczby), `ItemDefinitions`, `Remotes` (tworzy RemoteEventy w runtime — folderu `src/shared/Remotes` nie ma), `Utils`, `Destructible`, `Fracture`, `Shockwave`, `Dev`, `AppearanceDefinitions`, `GrappleArc`, `Ladders` (08.10 — rozpoznawanie szczebli drabin, klient + serwer)
   - **`docs/`** — dokumentacja referencyjna, czytana na żądanie (mapa niżej). **`docs/PROJECT_CONTEXT.md`** — kontekst dla asystenta od planowania (perspektywa gracza, bez kodu); **aktualizować razem z tym plikiem**. `docs/DESTRUCTION_PLAN.md` — plan destrukcji v2 + **rozdział v3 (2026-09-23)** — czytać przed dotykaniem destrukcji.
@@ -151,6 +151,7 @@ Do 2026-09-23 wszystko siedziało w tym pliku: 185 KB, ~58 tys. tokenów ładowa
 | dotykać czegoś, co Kacper stawia w Studio (mapa, lobby, sklep, lawa, szyby, latarnie, HUD, modele itemów, Lighting, ustawienia kamery) | **`docs/STUDIO_CONTRACT.md`** — nazwy tam opisane są kontraktem; rozjazd kod ↔ plac psuje grę po cichu |
 | planować nową ficzurę: item, loadout, skiny, wygląd, pancerze, balans rundy | **`docs/ROADMAP.md`** — wizja Kacpra, decyzje, plan etapów, rozdziały badań (rig, ślizg, wygląd) |
 | proponować podejście, które „wygląda na oczywiste” | lista ⛔ w STATUS niżej, potem **`docs/HISTORY.md`** i odpowiedni plik — sporo „oczywistych” rozwiązań już sprawdzono i odrzucono |
+| robić albo zmieniać UI (HUD, panele, komunikaty, efekty) | **`docs/UI_RULES.md`** — zasady Kacpra (Fredoka, cień, obrys, skalowanie, ostrość) i pułapki silnika; szczegóły elementów w `STUDIO_CONTRACT` → „UI z Figmy” |
 | balansować liczby | `Config.luau` + **`docs/ARCHITECTURE.md`** → „Bieżąca konfiguracja” |
 | debugować „to nie działa” | 📌 LEKCJE PROCESOWE w STATUS niżej — zanim cokolwiek zmienisz |
 | naprawiać błędy z przeglądu kodu (paczki 1-9) | **`docs/REVIEW_2026-09-29.md`** — lista ~70 punktów (M-/A-/B-), decyzje Kacpra, plan paczek i ich stan |
@@ -178,20 +179,20 @@ Voting mapy, lobby parkour, pożary, trzęsienia, blackout, bounty, steal monet,
 
 ESCAPE LAVA ma być **szybkie i dynamiczne** — nie kontemplacyjne, nie 5+ minutowe rundy.
 
-- **Runda ~80s total** (Spawn 5s + Easy 20s + Mid 20s + Hard 20s + Endgame 15s).
-- **Lobby przerwa 30s** — wystarczy żeby kupić item, zmienić skin, dołączyć ekipą.
-- **Lawa szybka od początku** — 0.6 stud/s w Easy, 3.0 w Endgame.
+- **Runda ~80s total** — bez faz od 11.10: lawa przyspiesza płynnie od zera do 3,0 stud/s (wcześniej Spawn 5s + Easy 20s + Mid 20s + Hard 20s + Endgame 15s).
+- **Lobby przerwa 30s** — wystarczy żeby kupić item, zmienić skin, dołączyć ekipą. Bez odliczania GET READY (usunięte 11.10) — lobby przechodzi prosto w rundę.
+- **Lawa narasta przez całą rundę** — płynnie 0 → 3.0 stud/s (do 11.10 skokami: 0.6 w Easy, 3.0 w Endgame).
 - **Krótkie fazy = TikTok-friendly** — cały gameplay loop mieści się w 1-2 minutach (clip-friendly).
 
 Każde "może rozszerzymy fazy", "może dodajmy więcej czasu" → **NIE**. Dynamika > kompleksowość. Jak gra wydaje się za szybka, najpierw test z prawdziwymi graczami zanim wydłużymy.
 
 ---
 
-## STATUS PROJEKTU (ostatnia aktualizacja 2026-10-08)
+## STATUS PROJEKTU (ostatnia aktualizacja 2026-10-10)
 
-> 🧭 **START NASTĘPNEJ SESJI (stan na 2026-10-08)**:
+> 🧭 **START NASTĘPNEJ SESJI (stan na 2026-10-10)**:
 > 0. **Kacper prosi: krócej i prościej** (~3/4 długości, najpierw co to znaczy dla gry, mniej nazw funkcji) — też w pamięci. **Woli małe poprawki od rozbudowanych systemów** (drabina: własny tryb odrzucony „gówno, wyjeb to”, została jedna liczba) — też w pamięci.
-> 0a. **Git**: ostatni commit `cc2ad32` (08.10 — ładowanie mapy, drabiny, ghost mostu, lampy + zaległe 30.09-07.10). PO NIM niezacommitowane: jeden profil grafiki (usunięte `QualityController`, `SettingsService`, remote `SetGraphicsMode`), latarnie jako rekwizyt, twarde ruiny, dokumentacja. Poza gitem zawsze: `AGENTS.md`, `docs/AGENTS.md`, `.codex/`, `output/` (ikony ekwipunku). Nic nie wypchnięte.
+> 0a. **Git**: ostatni commit `f8a423c` (10.10 — jeden profil grafiki, latarnie i sygnalizatory, twarde ruiny, jeden końcowy zapis). PO NIM niezacommitowane: całe UI z Figmy (kontrolery `TextShadowController`, `GradientShimmerController`, `CashCounterController`, zmiany `HotbarController`/`UIController`/`ItemDefinitions`/`Config`, usunięty `CashPopupController`) + dokumentacja. UI w Studio (obiekty w `StarterGui`) żyje w placu — Kacper zapisuje Cmd+S. Poza gitem zawsze: `AGENTS.md`, `docs/AGENTS.md`, `.codex/`, `output/` (ikony ekwipunku). Nic nie wypchnięte.
 > 0b0. **✅ POTWIERDZONE przez Kacpra 10.10**: drabiny (v3), jeden profil grafiki, mosty + ghost (nieprzezroczysty, 45°, dłuższy), gęsta lawa. Eksplozje „raczej git, nie na 100%” — dalej do stałego testu T1-T7. Kod sygnalizatorów i jednego końcowego zapisu w Studio (suma kontrolna zgodna, kompiluje się; sygnalizatory sprawdzone na danych z placu: 300/300 partów → cały model jako mebel) — czeka na test.
 > 0b. **Kacper TESTUJE w Play od 08.10** (`docs/TESTY.md`) i zgłasza na bieżąco. Wszystko z 28.09-08.10 jest NIEPRZETESTOWANE, dopóki nie potwierdzi. Do release'u: `docs/DO_RELEASE.md`; przegląd kodu i paczki: `docs/REVIEW_2026-09-29.md`. Przy zgłoszeniu z Play: najpierw log tej sesji (lekcja 11), potem pomiar w placu.
 > 0c. **Zrobione 07-08.10 (opisy w `docs/ARCHITECTURE.md`, `docs/STUDIO_CONTRACT.md`, `docs/DESTRUCTION_PLAN.md`)**:
@@ -202,6 +203,15 @@ Każde "może rozszerzymy fazy", "może dodajmy więcej czasu" → **NIE**. Dyna
 >    - **Most**: ghost nieprzezroczysty (`GhostTransparency = 0` — na tle `LavaSurface` 0,55 znikał mimo `Highlight`), kąt startowy co 45°, model dłuższy o 3 (16,25).
 >    - **Plac (przez MCP, Kacper zapisuje Cmd+S)**: lampy wewnętrzne i wentylatory studsowe, tagi drabin, drzwi `CanQuery`, dłuższe mosty (`ReplicatedStorage.Bridge` + 3 na wystawie).
 > 0c+. **Wyjście z Play wisiało 25-30 s** → `PlayerDataService`: jeden końcowy zapis na gracza + bez auto-zapisu przy zamykaniu (NIEPRZETESTOWANE; po limicie log mówi, co trzyma).
+> 0c++. **10.10 — UI Z FIGMY (praca w toku, Kacper ocenia na bieżąco)**:
+>    - **Projekt: https://www.figma.com/design/QT4JMeE6jssxdNPzJMmhNG/Untitled?node-id=0-1** — czytać wtyczką Figma MCP (zalogowana; Figma webowa wystarcza): `get_metadata` strony `0:1` → `get_design_context` węzła (skill `figma-design-to-code` PRZED nim). Elementy na stronie: licznik kasy (`46:7` ikona, `46:8`/`46:9` tekst+cień), slot paska `64:3`, czas ROUND/LOBBY `64:2` + `15:*`, komunikat zabójstwa `54:2`, przyciski SETTINGS/INVENTORY (`60:*`), **panel ustawień = duży szary prostokąt `60:13`**, panel INVENTORY `56:3` + DETAILS (`39:7`/`40:13`) = SZKIC.
+>    - **ZASADY KACPRA (twarde, dla KAŻDEGO UI)**: czcionka zawsze **Fredoka** (`FredokaOne`); **zawsze skalowalne** (model projektu: px przy wysokości 1200 + `HudScale`); **pod każdym tekstem cień** = etykieta `<Nazwa>Shadow`, czarna, w lewo i w dół (tekst kopiuje `TextShadowController`); **UI jako obiekty w Studio** (buduję przez MCP w `StarterGui`, kod tylko logika i animacje); **ostre w każdej skali** (tekst/ramki/zaokrąglenia natywne, obrazki ≥ wyświetlanego rozmiaru, ikony 512 px). Pułapki: `TextWrapped=false` wyłącza `TextScaled`; `TextScaled` ma sufit 100 px; `UIGradient` przezroczystości na obiekcie z `UIStroke` zjada ramkę. Pełny opis: `docs/STUDIO_CONTRACT.md` → „UI z Figmy”.
+>    - **Zrobione (NIEPRZETESTOWANE w Play, ostatnia wersja)**: `HUD.Cash` — biały napis + `UIGradient` zieleni z połyskiem (`ShimmerPeriod` 2,6 → `GradientShimmerController`), obrys, cień, ikona banknotów (`rbxassetid://90192610744649`); lecące banknoty `HUD.CashFlyTemplate` + podskok `Body.Pop` + przechył ikony + iskierki `HUD.CashSparkTemplate` + błysk `Body.Glow` + płynny licznik (`CashCounterController`, jedyny piszący `CashLabel`); popup „+10$” i `CashPopupController` USUNIĘTE. `HUD.Hotbar` = 3 sloty 140 (ramka `SelectStroke` czarna 7 / biała przy wyborze, `Fill` czarny z gradientem przezroczystości (bez `Gloss`), `Icon` z `ItemDefinitions.icon`, `ItemName`, `Count`, `Keybind` w rogu — kółko usunięte). Nazwy itemów: Bomb / Bridge / Grapple. Liczby efektów: `Config.Cash.Fly`.
+>    - **Czas ROUND/LOBBY z Figmy (10.10)**: `HUD.RoundTimer` (opis w `docs/STUDIO_CONTRACT.md`), NIEPRZETESTOWANE w Play. Poprawka ramki slotu (biała zostawała po schowaniu) — ✅ potwierdzona przez Kacpra.
+>    - **Komunikat zabójstwa z Figmy (10.10)**: `HUD.KillMessage` + `KillMessageController` (zastąpił killfeed dla wszystkich; `PlayerKilled` idzie tylko do zabójcy), NIEPRZETESTOWANE. Czas ROUND/LOBBY dostał obrysy i czarną poświatę; obrys kasy wyrównany do 5.
+>    - **11.10 (2)**: zasady UI w **`docs/UI_RULES.md`**; kamera: lekkie drżenie przy sprincie, przechył przy ruchu w bok, szarpnięcie + zoom dla popychającego (`Config.Movement.Camera.SprintShake`/`Lean`, `Config.Push.PushShake*`). NIEPRZETESTOWANE.
+>    - **11.10**: GET READY (stan COUNTDOWN) USUNIĘTY — lobby prosto w rundę, przebudowa budynków na wejściu do lobby, ściemnienie na końcu lobby; hak nie zostaje w ręce przy zmianie itemu (było „2 naraz”); fazy rundy USUNIĘTE (lawa płynnie przyspiesza, `Config.Lava.RoundDuration`/`SpeedStart`/`SpeedEnd`, `PhaseChanged` skasowany); animacja wyciągnięcia w pasku (slot podskakuje i zostaje wyżej); licznik czasu z wskokiem i czerwoną końcówką; wydatek kasy = płynny spadek + zachwianie; pasek staminy skalowany (obrys z szerokości); kasa: pionowy gradient + nakładka połysku; iskierki przy kasie usunięte. Wszystko NIEPRZETESTOWANE w Play.
+>    - **Następne z Figmy (po akceptacji Kacpra)**: przyciski SETTINGS/INVENTORY (`SideButtons`), panel ustawień, szkic INVENTORY/DETAILS (pod przyszły loadout). Opisy w sklepie dalej po polsku — zapytać, czy na angielski.
 > 0d. **Decyzje Kacpra (29.09-08.10), które obowiązują**: fizyka destrukcji ZOSTAJE; loadout = 3 itemy na rundę, wybór w panelu „Ekwipunek”; anty-cheat = cofanie na ostatnią dobrą pozycję; telefon = przyciski dotykowe; drzwi przechodne; z ulicy w całości padają latarnie i sygnalizatory. Zasada zamrożenia destrukcji (2 zaliczone T1-T7 pod rząd) — czeka na „tak” Kacpra.
 > 0e. **Oświetlenie** = `default.project.json` → `Lighting`; **dokumentacja** w `docs/` (`CLAUDE.md` w głównym folderze tylko wczytuje `docs/CLAUDE.md`). Na starcie sprawdzić, czy instrukcje się wczytały (np. czy znasz trzy flagi testowe).
 > 1. `ps aux | grep rojo` (VS Code uruchamia `rojo serve` sam, czasem minutę po starcie) **i porównać ZAWARTOŚĆ zmienionych plików w Studio z dyskiem** (lekcja 5 — 27.09 po raz szósty zmiany nie weszły mimo „Connected”, dopóki Kacper nie połączył wtyczki od nowa).
@@ -303,7 +313,7 @@ Każde "może rozszerzymy fazy", "może dodajmy więcej czasu" → **NIE**. Dyna
 > - **`Config.Destruction.FX` ma 5 PUSTYCH slotów audio** (Explosion/Glass/Impact/Creak/Collapse). Wpięcie gotowe, brakuje id.
 >
 > **🔴 TRZY FLAGI TESTOWE DO COFNIĘCIA PRZED LAUNCHEM** (wszystkie warnują co boot):
-> - `Config.Lava.Phases` — **240 s** (15/60/60/60/45) i prędkości **0.20/0.40/0.65/1.00**. Produkcyjne: 80 s (5/20/20/20/15) i 0.6/1.2/2.0/3.0. ⚠️ Czasy i prędkości **przeskalowane odwrotnie**, żeby całkowity przyrost został ~120 studów — nie zmieniać jednego bez drugiego.
+> - `Config.Lava.RoundDuration` **240 s**, lawa płynnie `SpeedStart` 0 → `SpeedEnd` **1.0** (fazy usunięte 11.10, decyzja Kacpra). Produkcyjne: 80 s, 0 → 3.0. ⚠️ Czas i prędkość końcowa **sprzężone** (przyrost = czas × (start + koniec) / 2 ≈ 120 studów) — nie zmieniać jednego bez drugiego.
 > - `Config.Dev.Enabled = true` **oraz `Config.Dev.InfiniteItemsForAll = true`** — drugie daje nieskończone itemy KAŻDEMU, nie tylko nickom z `Usernames`.
 > - `Config.Game.MinPlayers = 1`.
 >

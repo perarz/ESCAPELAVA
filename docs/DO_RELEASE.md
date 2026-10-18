@@ -15,8 +15,6 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 
 ## 🎨 UI I RZECZY W STUDIO
 
-- [ ] **Slot 3 w hotbarze** (i kolejne) — hak działa z klawisza 3, ale nie widać go w pasku.
-  *dla Claude'a:* skopiować `HUD.Hotbar.Slot2` → `Slot3`.
 - [ ] **Kamera przy haku w sklepie** — postawić marker obok modelu haka.
   *dla Claude'a:* `WeaponShopScene.ShopCameras`, kod sam go znajdzie.
 - [ ] **Przyciski dotykowe na telefon** — wygląd przycisków sprint / push / most (logikę podłącza Claude).
@@ -92,7 +90,6 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 
 - [ ] Balans lawy na koniec rundy — po teście z prawdziwymi graczami
 - [ ] 25$ za zabójstwo bez limitu — dwa konta mogą się farmić. OK?
-- [ ] Nazwa fazy lawy na ekranie (Easy / Mid / Hard / Endgame) — tak czy nie?
 - [ ] Latarnie świecą pod ulicę — poprawić?
 - [ ] Szyby w autach, automatach, przystanku — mają się tłuc?
 - [ ] Ile punktów spawnu na 30-50 graczy?
@@ -101,7 +98,7 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 
 ## 🚀 TUŻ PRZED PUBLIKACJĄ
 
-- [ ] 💻 Lawa z powrotem na 80 s (5/20/20/20/15), prędkości 0,6 / 1,2 / 2,0 / 3,0
+- [ ] 💻 Lawa z powrotem na 80 s, płynnie 0 → 3,0 (`Config.Lava.RoundDuration`, `SpeedEnd`; fazy usunięte 11.10)
 - [ ] 💻 Wyłączyć tryb dev (`Config.Dev.Enabled`, `InfiniteItemsForAll` = false)
 - [ ] 💻 Minimum graczy = 2 (`Config.Game.MinPlayers`)
 - [ ] 💻 Wyłączyć logi debug (`Structure.Collapse.Debug`, `Destruction.Debug`)

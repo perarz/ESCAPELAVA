@@ -51,7 +51,7 @@ CashService.init()
 ItemService.init()
 -- Debris → Structural → Destruction → Collapse → Bomb. DESTRUCTION_PLAN.md (v3 + „v4”).
 -- Debris pierwszy (rejestr gruzu, collision group, pętla usypiania). Structural (v4) buduje
--- budynki z `Config.Structure.Buildings` przy starcie i na każdym COUNTDOWN — przed
+-- budynki z `Config.Structure.Buildings` przy starcie i na początku każdego lobby — przed
 -- Destruction, która pyta go, czy part należy do budynku v4. Collapse (wykonawca v4)
 -- dostaje od Destruction przekazanie klientom wstrzyknięte, bo Destruction woła Collapse
 -- (bezpośredni require w obie strony = cykl). Wszystko przed BombService.

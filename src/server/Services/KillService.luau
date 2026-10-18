@@ -55,7 +55,8 @@ function KillService.processDeath(victim: Player, hum: Humanoid)
 	local reward = Config.Rewards.Kill
 
 	CashService.add(attacker, reward, "kill_" .. weaponStr)
-	Remotes.PlayerKilled:FireAllClients(attacker, victim, weaponStr, reward)
+	-- Tylko do zabójcy: komunikat „YOU KILLED” widzi on sam (killfeed dla wszystkich usunięty 10.10).
+	Remotes.PlayerKilled:FireClient(attacker, attacker, victim, weaponStr, reward)
 end
 
 return KillService
