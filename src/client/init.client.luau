@@ -1,6 +1,8 @@
 --!strict
 -- Client bootstrap.
 
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 
 -- Wyłącz Roblox default Backpack hotbar — mamy własny Hotbar UI.
@@ -15,7 +17,12 @@ local function disableDefaultBackpack()
 		task.wait(0.5)
 	end
 end
-disableDefaultBackpack()
+-- task.spawn (paczka 3): do 5 s prób NIE może wstrzymywać podpięcia listenerów.
+-- Twarda zasada tego pliku: od startu do `ClientReady` yielduje tylko `require` (moduły
+-- i remote'y) — żaden listener nie może czekać na UI ani na postać.
+task.spawn(disableDefaultBackpack)
+
+local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 
 local UIController = require(script.Controllers.UIController)
 local ShopController = require(script.Controllers.ShopController)
@@ -43,30 +50,64 @@ local LadderController = require(script.Controllers.LadderController)
 local TextShadowController = require(script.Controllers.TextShadowController)
 local GradientShimmerController = require(script.Controllers.GradientShimmerController)
 
-UIController.init()
-ShopController.init()
-HotbarController.init()
-ToolController.init()
-PushController.init()
-CashController.init()
-CashCounterController.init()
-BridgeController.init()
-GrappleController.init()
-MovementController.init()
-CooldownBarController.init()
-WinBannerController.init()
-KillMessageController.init()
-LavaHeatController.init()
-LavaSurfaceController.init()
-LavaSwimController.init()
-HudScaleController.init()
-CashDigitsController.init()
-ExplosionFXController.init()
-DebrisFXController.init()
-DevController.init()
-RoundTransitionController.init()
-LadderController.init()
-TextShadowController.init()
-GradientShimmerController.init()
+-- KAŻDY KONTROLER W OSOBNYM WĄTKU (paczka 3, przegląd 29.09 B-1). Dawniej startowały po
+-- kolei, a kilka czekało na UI — kontroler nr 5 nie podpinał listenerów, dopóki nr 4 nie
+-- znalazł swojego HUD, a błąd jednego zatrzymywał wszystkie następne (też ruch i kamerę).
+-- `task.spawn` wykonuje init od razu aż do pierwszego yieldu, więc po tej pętli każdy
+-- kontroler ma już podpięte listenery, które stoją w nim przed czekaniem na UI.
+local function start(name: string, controller: { init: () -> () })
+	task.spawn(function()
+		local ok, err = xpcall(controller.init, debug.traceback)
+		if not ok then
+			warn(("[Client] %s.init padł: %s"):format(name, tostring(err)))
+		end
+	end)
+end
+
+start("UIController", UIController)
+start("ShopController", ShopController)
+start("HotbarController", HotbarController)
+start("ToolController", ToolController)
+start("PushController", PushController)
+start("CashController", CashController)
+start("CashCounterController", CashCounterController)
+start("BridgeController", BridgeController)
+start("GrappleController", GrappleController)
+start("MovementController", MovementController)
+start("CooldownBarController", CooldownBarController)
+start("WinBannerController", WinBannerController)
+start("KillMessageController", KillMessageController)
+start("LavaHeatController", LavaHeatController)
+start("LavaSurfaceController", LavaSurfaceController)
+start("LavaSwimController", LavaSwimController)
+start("HudScaleController", HudScaleController)
+start("CashDigitsController", CashDigitsController)
+start("ExplosionFXController", ExplosionFXController)
+start("DebrisFXController", DebrisFXController)
+start("DevController", DevController)
+start("RoundTransitionController", RoundTransitionController)
+start("LadderController", LadderController)
+start("TextShadowController", TextShadowController)
+start("GradientShimmerController", GradientShimmerController)
+
+-- EKRAN ŁADOWANIA czeka na stan startowy (decyzja Kacpra 18.10: „wszystko ma się
+-- załadować w tym UI”). Atrybut jest LOKALNY (klient na własnym Playerze — serwer go nie
+-- widzi) i czyta go `ReplicatedFirst.LoadingScreen`, który nie może requirować modułów.
+-- Kasa i inventory przychodzą dopiero po wczytaniu danych gracza; stan gry od razu.
+local player = Players.LocalPlayer
+local got = { state = false, cash = false, inventory = false }
+local function mark(key: string)
+	if got[key] then return end
+	got[key] = true
+	if got.state and got.cash and got.inventory then
+		player:SetAttribute("ClientStateReady", true)
+	end
+end
+Remotes.GameStateChanged.OnClientEvent:Connect(function() mark("state") end)
+Remotes.CashChanged.OnClientEvent:Connect(function() mark("cash") end)
+Remotes.InventoryChanged.OnClientEvent:Connect(function() mark("inventory") end)
+
+-- Wszystkie listenery stoją — dopiero teraz serwer wysyła stan startowy (init.server).
+Remotes.ClientReady:FireServer()
 
 print("[Client] ESCAPE LAVA client ready.")

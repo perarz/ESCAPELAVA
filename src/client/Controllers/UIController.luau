@@ -48,7 +48,7 @@ end
 local function findLabels(): (TextLabel?, TextLabel?)
 	local playerGui = localPlayer:WaitForChild("PlayerGui")
 
-	local hud = playerGui:WaitForChild("HUD", 10)
+	local hud = playerGui:WaitForChild("HUD")
 	if not hud then
 		warn("[UIController] PlayerGui.HUD (ScreenGui) nie istnieje — HUD nieaktywny")
 		return nil, nil

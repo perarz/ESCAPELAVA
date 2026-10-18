@@ -239,7 +239,7 @@ function HotbarController.init()
 	end
 
 	local playerGui = localPlayer:WaitForChild("PlayerGui")
-	local hud = playerGui:WaitForChild("HUD", 10)
+	local hud = playerGui:WaitForChild("HUD")
 	if not hud then
 		warn("[HotbarController] PlayerGui.HUD nie istnieje")
 		return

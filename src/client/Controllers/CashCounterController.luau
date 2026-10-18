@@ -422,7 +422,7 @@ function CashCounterController.init()
 	RunService.Heartbeat:Connect(step)
 	task.spawn(function()
 		local playerGui = localPlayer:WaitForChild("PlayerGui")
-		local screen = playerGui:WaitForChild("HUD", 10)
+		local screen = playerGui:WaitForChild("HUD")
 		if not (screen and screen:IsA("ScreenGui")) then
 			warn("[CashCounter] PlayerGui.HUD nie istnieje — licznik kasy nieaktywny")
 			return

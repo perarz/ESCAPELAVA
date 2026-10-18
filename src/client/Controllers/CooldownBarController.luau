@@ -39,7 +39,7 @@ local function ensureUI(): boolean
 
 	local player = Players.LocalPlayer
 	local pgui = player:WaitForChild("PlayerGui")
-	local hud = pgui:WaitForChild("HUD", 10)
+	local hud = pgui:WaitForChild("HUD")
 	if not hud then return false end
 
 	local ctr = hud:FindFirstChild("CooldownBars", true)

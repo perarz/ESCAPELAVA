@@ -82,6 +82,14 @@ local function replicate(player: Player)
 	Remotes.InventoryChanged:FireClient(player, snapshot(player))
 end
 
+-- Stan startowy po `ClientReady`. Przed wczytaniem danych nie wysyła nic (pusty pasek
+-- nadpisałby się zaraz i tak, ale mignąłby graczowi) — wyśle subskrypcja „loaded”.
+function ItemService.replicateTo(player: Player)
+	if Dev.hasInfiniteItems(player) or PlayerDataService.get(player) then
+		replicate(player)
+	end
+end
+
 function ItemService.getInventory(player: Player)
 	return snapshot(player)
 end
@@ -171,11 +179,8 @@ function ItemService.init()
 	-- Replicate gdy data się ładuje
 	PlayerDataService.subscribe(function(eventKey, player, _oldData, _newData)
 		if eventKey == "loaded" or eventKey == "loaded_default" then
-			task.delay(1, function()
-				if player.Parent then
-					replicate(player)
-				end
-			end)
+			-- Od razu; spóźniony klient dostanie inventory z `replicateTo` (paczka 3).
+			replicate(player)
 		end
 	end)
 end

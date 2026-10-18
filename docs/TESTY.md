@@ -8,6 +8,17 @@ Jak coś wisi w powietrzu — **nie zatrzymuj Play**, napisz Claude'owi: przeska
 
 ---
 
+## 📱 START GRY NA WOLNYM TELEFONIE (paczka 3, 18.10) — NIEPRZETESTOWANE
+- [ ] Wejdź do gry → ekran ładowania pokazuje „Wczytywanie danych gracza...”, a po zejściu kasa, pasek itemów i czas są już prawidłowe (nie „0$”, nie pusty pasek)
+- [ ] Wejdź w **trakcie rundy** → HUD od razu pokazuje ROUND i czas, nie „LOBBY”
+- [ ] Kup coś, wyjdź, wejdź → kasa i itemy widać od razu po zejściu ekranu ładowania
+- [ ] Studio: Network → wolna sieć (throttling), wejdź → to samo co wyżej
+- [ ] Sklep: otwórz → kwota i „za mało kasy” się zgadzają
+- [ ] Ruch, sprint, kamera, hak, most, bomba, pchnięcie, drabina działają jak wcześniej (kontrolery startują teraz równolegle)
+- [ ] W Output **NIE MA**: `bez ClientReady`, `init padł`, `stan gracza … nie doszedł`. Jeśli są — wklej je Claude'owi
+
+---
+
 ## 🎨 NOWE UI Z FIGMY (10.10)
 - [ ] Licznik kasy w lewym dolnym rogu: banknoty + zielona liczba z czarnym cieniem; zmienia się przy zbieraniu/wydawaniu
 - [ ] Zbierz kasę z mapy → banknot wyskakuje na środku ekranu i leci do licznika, licznik podskakuje, liczba płynnie rośnie

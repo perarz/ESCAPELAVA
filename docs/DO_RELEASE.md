@@ -55,7 +55,7 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 ## 📱 TELEFON
 
 - [ ] 💻 Logika przycisków sprint / push / most (wygląd: UI wyżej)
-- [ ] 💻 Start gry na wolnym telefonie — dziś może pokazać „0$”, pusty hotbar albo „LOBBY” w trakcie rundy. **Plan gotowy 30.09.**
+- [x] 💻 Start gry na wolnym telefonie (paczka 3, zrobione 18.10 — czeka na test w `docs/TESTY.md`)
   *dla Claude'a:* paczka 3 — `docs/REVIEW_2026-09-29.md` → „Plan paczki 3”.
 
 ---

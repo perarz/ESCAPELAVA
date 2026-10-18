@@ -44,6 +44,12 @@ local SETTLE_TIME = 0.5
 local FADE_TIME = 0.6
 local CHARACTER_TIMEOUT = 12
 local STREAM_TIMEOUT = 10
+-- Ile najdłużej czekamy na kasę, itemy i stan rundy w HUD (paczka 3, decyzja Kacpra 18.10:
+-- „wszystko ma się załadować w tym UI”). Sygnał: lokalny atrybut `ClientStateReady` na
+-- graczu, ustawiany przez `init.client`, gdy dojdą wszystkie trzy. Nazwa = kontrakt z tamtym
+-- plikiem (tu nie ma `require`, patrz wyżej).
+local STATE_TIMEOUT = 15
+local STATE_ATTRIBUTE = "ClientStateReady"
 
 -- Zdejmujemy domyślny ekran Robloxa OD RAZU, zanim cokolwiek innego zdąży się wydarzyć.
 ReplicatedFirst:RemoveDefaultLoadingScreen()
@@ -274,6 +280,16 @@ local function waitForWorldAround(hrp: BasePart)
 	end
 end
 
+local function waitForClientState()
+	local limit = math.min(os.clock() + STATE_TIMEOUT, deadline)
+	while not player:GetAttribute(STATE_ATTRIBUTE) and os.clock() < limit do
+		task.wait(0.1)
+	end
+	if not player:GetAttribute(STATE_ATTRIBUTE) then
+		warn("[LoadingScreen] stan gracza (kasa / itemy / runda) nie doszedł w limicie — wpuszczam")
+	end
+end
+
 -- ---------------------------------------------------------------------------
 
 -- Zejście ekranu. Jedno miejsce i jeden raz — woła je zwykły przebieg albo strażnik niżej.
@@ -320,6 +336,8 @@ task.spawn(function()
 	if hrp then
 		waitForWorldAround(hrp)
 	end
+	setProgress(0.8, "Wczytywanie danych gracza...")
+	waitForClientState()
 	setProgress(0.88, "Oświetlenie...")
 
 	-- 4) Cienie i oświetlenie potrzebują kilku klatek PO tym, jak geometria jest na

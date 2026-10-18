@@ -354,9 +354,44 @@ function ShopController.init()
 	if initialized then return end
 	initialized = true
 
+	-- Listenery PRZED czekaniem na ShopUI (zasada 9, paczka 3): stan kasy przychodzi zaraz po
+	-- `ClientReady`, a na wolnym telefonie ShopUI może jeszcze nie istnieć.
+	-- Affordability: initial z leaderstats + live z CashChanged.
+	readCash()
+	Remotes.CashChanged.OnClientEvent:Connect(function(balance: any)
+		if type(balance) == "number" then
+			currentCash = balance
+			if isOpen then refreshUI() end
+		end
+	end)
+
+	-- Feedback zakupu.
+	Remotes.ShopResult.OnClientEvent:Connect(function(success: boolean, _itemId: string, reason: string?)
+		if not elStatus then return end
+		if success then
+			elStatus.TextColor3 = Color3.fromRGB(120, 220, 120)
+			elStatus.Text = "Kupiono!"
+		else
+			elStatus.TextColor3 = Color3.fromRGB(235, 90, 80)
+			elStatus.Text = (reason and BUY_FAIL_TEXT[reason]) or "Nie udało się"
+		end
+	end)
+
+	-- Force-close: start rundy (teleport) lub respawn nie mogą zostawić zablokowanej kamery.
+	Remotes.GameStateChanged.OnClientEvent:Connect(function(newState: any)
+		if newState ~= "LOBBY" and isOpen then
+			closeShop()
+		end
+	end)
+	localPlayer.CharacterAdded:Connect(function()
+		if isOpen then
+			closeShop()
+		end
+	end)
+
 	-- UI refs (ShopUI ResetOnSpawn=false → persistuje).
 	local pg = localPlayer:WaitForChild("PlayerGui")
-	local gui = pg:WaitForChild("ShopUI", 15)
+	local gui = pg:WaitForChild("ShopUI")
 	if gui and gui:IsA("ScreenGui") then
 		ui = gui
 		elItemName = gui:FindFirstChild("ItemName", true) :: TextLabel?
@@ -423,39 +458,6 @@ function ShopController.init()
 		if input.UserInputType == Enum.UserInputType.MouseWheel then
 			-- Scroll w górę (Z>0) = poprzedni item.
 			setIndex(index - (if input.Position.Z > 0 then 1 else -1), false)
-		end
-	end)
-
-	-- Affordability: initial z leaderstats + live z CashChanged.
-	readCash()
-	Remotes.CashChanged.OnClientEvent:Connect(function(balance: any)
-		if type(balance) == "number" then
-			currentCash = balance
-			if isOpen then refreshUI() end
-		end
-	end)
-
-	-- Feedback zakupu.
-	Remotes.ShopResult.OnClientEvent:Connect(function(success: boolean, _itemId: string, reason: string?)
-		if not elStatus then return end
-		if success then
-			elStatus.TextColor3 = Color3.fromRGB(120, 220, 120)
-			elStatus.Text = "Kupiono!"
-		else
-			elStatus.TextColor3 = Color3.fromRGB(235, 90, 80)
-			elStatus.Text = (reason and BUY_FAIL_TEXT[reason]) or "Nie udało się"
-		end
-	end)
-
-	-- Force-close: start rundy (teleport) lub respawn nie mogą zostawić zablokowanej kamery.
-	Remotes.GameStateChanged.OnClientEvent:Connect(function(newState: any)
-		if newState ~= "LOBBY" and isOpen then
-			closeShop()
-		end
-	end)
-	localPlayer.CharacterAdded:Connect(function()
-		if isOpen then
-			closeShop()
 		end
 	end)
 end

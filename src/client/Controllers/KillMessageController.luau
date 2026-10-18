@@ -109,7 +109,7 @@ function KillMessageController.init()
 
 	task.spawn(function()
 		local playerGui = localPlayer:WaitForChild("PlayerGui")
-		local hud = playerGui:WaitForChild("HUD", 10)
+		local hud = playerGui:WaitForChild("HUD")
 		local gui = hud and hud:WaitForChild("KillMessage", 5)
 		if not (gui and gui:IsA("GuiObject")) then
 			warn("[KillMessageController] HUD.KillMessage nie istnieje — komunikat zabójstwa wyłączony")

@@ -74,6 +74,12 @@ Config.Game = {
 	-- (PlayerService, `spawnBusy`). Normalnie to ułamek sekundy; limit jest po to, żeby
 	-- zawieszony spawn jednego gracza nie wstrzymał startu rundy wszystkim.
 	SpawnWaitMax = 5,
+
+	-- Paczka 3 (18.10): stan startowy (runda, kasa, itemy) idzie do klienta po jego
+	-- `Remotes.ClientReady`. Gdy ten nie przyjdzie w tyle sekund od dołączenia (klient
+	-- padł przy starcie), serwer wysyła stan i tak — jak przed handshake'iem. Kolejny
+	-- `ClientReady` wyśle go jeszcze raz, więc za krótki limit niczego nie psuje.
+	ClientReadyFallback = 5,
 }
 
 -- Zapis danych gracza (PlayerDataService). Liczby przeniesione z serwisu 29.09 (zasada 5).

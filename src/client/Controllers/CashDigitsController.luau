@@ -78,7 +78,7 @@ end
 
 local function setupUI()
 	local pgui = Players.LocalPlayer:WaitForChild("PlayerGui")
-	local hud = pgui:WaitForChild("HUD", 10)
+	local hud = pgui:WaitForChild("HUD")
 	if not hud then
 		warn("[CashDigits] PlayerGui.HUD nie istnieje — licznik nieaktywny")
 		return
@@ -114,8 +114,8 @@ local function watchLeaderstats()
 	-- (zasada 9: RemoteEvent nie buforuje). Leaderstats.Cash to replikowany IntValue
 	-- (mirror PlayerDataService) — wartości nie da się "przegapić". Remote zostaje
 	-- jako szybka ścieżka update'u, leaderstats jako źródło stanu początkowego.
-	local stats = Players.LocalPlayer:WaitForChild("leaderstats", 15)
-	local cash = stats and stats:WaitForChild("Cash", 15)
+	local stats = Players.LocalPlayer:WaitForChild("leaderstats")
+	local cash = stats and stats:WaitForChild("Cash")
 	if not cash or not cash:IsA("IntValue") then
 		warn("[CashDigits] brak leaderstats.Cash — licznik zaktualizuje się dopiero przy zmianie kasy")
 		return

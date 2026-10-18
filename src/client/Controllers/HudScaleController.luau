@@ -41,7 +41,7 @@ function HudScaleController.init()
 
 	task.spawn(function()
 		local pgui = Players.LocalPlayer:WaitForChild("PlayerGui")
-		local hud = pgui:WaitForChild("HUD", 10)
+		local hud = pgui:WaitForChild("HUD")
 		if not hud or not hud:IsA("ScreenGui") then
 			warn("[HudScale] PlayerGui.HUD nie istnieje — skalowanie nieaktywne")
 			return

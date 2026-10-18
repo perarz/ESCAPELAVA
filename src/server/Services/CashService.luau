@@ -7,6 +7,7 @@
 --   CashService.get(player) -> number
 --   CashService.add(player, amount, reason) -> number (nowy balance)
 --   CashService.spend(player, amount, reason) -> boolean (true gdy udało się)
+--   CashService.replicateTo(player) — stan startowy po `ClientReady`
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -24,6 +25,12 @@ local function replicate(player: Player, delta: number?, reason: string?)
 	local data = PlayerDataService.get(player)
 	if not data then return end
 	Remotes.CashChanged:FireClient(player, data.cash or 0, delta, reason)
+end
+
+-- Stan startowy dla klienta, który właśnie zgłosił gotowość. Bez danych (jeszcze się
+-- wczytują) nic nie wysyła — wyśle je subskrypcja „loaded”.
+function CashService.replicateTo(player: Player)
+	replicate(player, nil, "init")
 end
 
 function CashService.get(player: Player): number
@@ -95,11 +102,9 @@ function CashService.init()
 			if RunService:IsStudio() then
 				CashService.add(player, STUDIO_BONUS, "studio_test_bonus")
 			end
-			task.delay(1, function()
-				if player.Parent then
-					replicate(player, nil, "init")
-				end
-			end)
+			-- Od razu, bez zgadywania „po sekundzie”: jeśli klient jeszcze nie słucha, dostanie
+			-- kasę z `replicateTo` po swoim `ClientReady` (paczka 3).
+			replicate(player, nil, "init")
 		end
 	end)
 end

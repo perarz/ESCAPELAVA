@@ -95,19 +95,45 @@ RewardsService.init()
 LeaderstatsService.init()
 DevService.init()
 
--- Replikuj aktualny state do nowych graczy żeby HUD nie utknął na default tekście
--- (klient yielduje na WaitForChild HUD i może minąć pierwszy setState).
-local function replicate(player: Player)
-	-- Trochę poczekać żeby klient miał czas na podpięcie OnClientEvent.
-	task.delay(1, function()
-		if player.Parent then
-			GameLoopService.replicateTo(player)
+-- STAN STARTOWY KLIENTA (paczka 3, 18.10; przegląd 29.09 B-1/A-8). Dawniej `task.delay(1)`
+-- w trzech miejscach zgadywało, że klient już słucha — wolny telefon nie słuchał, a
+-- RemoteEvent nie buforuje (zasada 9), więc gracz widział „0$”, pusty pasek i „LOBBY”
+-- w trakcie rundy. Teraz klient MÓWI, że ma listenery, i dopiero wtedy dostaje stan.
+-- Kolejność z wczytaniem danych obojętna: przed „loaded” kasa i itemy wychodzą z
+-- subskrypcji w CashService / ItemService, po — stąd.
+local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local Config = require(ReplicatedStorage.Shared.Modules.Config)
+
+local readyPlayers: { [Player]: boolean } = {}
+
+local function sendInitialState(player: Player)
+	GameLoopService.replicateTo(player)
+	CashService.replicateTo(player)
+	ItemService.replicateTo(player)
+end
+
+Remotes.ClientReady.OnServerEvent:Connect(function(player: Player)
+	-- Raz na sesję gracza = limit (zasada 4): kolejne wywołania nic nie kosztują.
+	if readyPlayers[player] then return end
+	readyPlayers[player] = true
+	sendInitialState(player)
+end)
+Players.PlayerRemoving:Connect(function(player: Player)
+	readyPlayers[player] = nil
+end)
+
+local function fallback(player: Player)
+	task.delay(Config.Game.ClientReadyFallback, function()
+		if player.Parent and not readyPlayers[player] then
+			warn(("[Server] %s bez ClientReady po %ds — wysyłam stan startowy na ślepo")
+				:format(player.Name, Config.Game.ClientReadyFallback))
+			sendInitialState(player)
 		end
 	end)
 end
-Players.PlayerAdded:Connect(replicate)
+Players.PlayerAdded:Connect(fallback)
 for _, p in ipairs(Players:GetPlayers()) do
-	replicate(p)
+	fallback(p)
 end
 
 GameLoopService.start()

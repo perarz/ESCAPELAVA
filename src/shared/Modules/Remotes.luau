@@ -14,6 +14,9 @@ local REMOTE_NAMES = {
 	"GameStateChanged",   -- (stateName: string, payload: table?)
 	"PlayerDied",         -- (player: Player, reason: string)
 	"RoundEnded",         -- (survivors: {Player}, payload: table?)
+	"ClientReady",        -- klient→server: FireServer() bez payloadu — klient podpiął listenery
+	                      --   (paczka 3, 18.10). Serwer odsyła stan startowy: stan gry, kasę,
+	                      --   inventory. Liczy się tylko pierwszy na sesję gracza
 	"CashChanged",        -- FireClient: (balance: number, delta: number?, reason: string?)
 	"CashCollected",      -- FireAllClients: (player: Player, fromPosition: Vector3) — klient animuje pickup
 	"InventoryChanged",   -- FireClient: (inventory: {[itemId: string] = count: number})
