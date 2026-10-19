@@ -17,6 +17,7 @@ local PlayerService = require(script.Services.PlayerService)
 local GameLoopService = require(script.Services.GameLoopService)
 local CashService = require(script.Services.CashService)
 local ItemService = require(script.Services.ItemService)
+local LoadoutService = require(script.Services.LoadoutService)
 local ShopService = require(script.Services.ShopService)
 local DebrisService = require(script.Services.DebrisService)
 local PropService = require(script.Services.PropService)
@@ -49,6 +50,7 @@ local DevService = require(script.Services.DevService)
 PlayerDataService.init()
 CashService.init()
 ItemService.init()
+LoadoutService.init()
 -- Debris → Structural → Destruction → Collapse → Bomb. DESTRUCTION_PLAN.md (v3 + „v4”).
 -- Debris pierwszy (rejestr gruzu, collision group, pętla usypiania). Structural (v4) buduje
 -- budynki z `Config.Structure.Buildings` przy starcie i na początku każdego lobby — przed
@@ -110,6 +112,7 @@ local function sendInitialState(player: Player)
 	GameLoopService.replicateTo(player)
 	CashService.replicateTo(player)
 	ItemService.replicateTo(player)
+	LoadoutService.replicateTo(player)
 end
 
 Remotes.ClientReady.OnServerEvent:Connect(function(player: Player)

@@ -1,6 +1,6 @@
 --!strict
 -- HudScaleController.luau
--- Jednolite skalowanie HUD: każdy top-level element StarterGui.HUD dostaje UIScale
+-- Jednolite skalowanie HUD (i od 18.10 panelu Inventory): każdy top-level element dostaje UIScale
 -- (name: "HudScale") = viewportY / Config.UI.ReferenceHeight.
 --
 -- Model projektowania (ustalony z Kacprem, 2026-07-05):
@@ -35,39 +35,47 @@ local function ensureScale(element: GuiObject): UIScale
 	return scale
 end
 
+-- Jedna reguła dla każdego ScreenGui z listy `Config.UI.ScaledGuis` (18.10: HUD + Inventory).
+-- Element z atrybutem `NoHudScale = true` zostaje bez skali (np. pełnoekranowe tło panelu —
+-- przy skali < 1 przestałoby zakrywać ekran).
+local function scaleGui(gui: ScreenGui)
+	local function factor(): number
+		-- AbsoluteSize ScreenGui = viewport minus GUI inset — właściwa baza.
+		return math.clamp(gui.AbsoluteSize.Y / CFG.ReferenceHeight, CFG.MinScale, CFG.MaxScale)
+	end
+	local function apply(child: Instance, f: number)
+		if child:IsA("GuiObject") and child:GetAttribute("NoHudScale") ~= true then
+			ensureScale(child).Scale = f
+		end
+	end
+	local function applyAll()
+		local f = factor()
+		for _, child in ipairs(gui:GetChildren()) do
+			apply(child, f)
+		end
+	end
+	applyAll()
+	-- Zmiana rozmiaru okna / fullscreen toggle → przelicz.
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyAll)
+	-- Elementy dodane później (np. kod tworzy nowe top-level nody) też dostają skalę.
+	gui.ChildAdded:Connect(function(child)
+		apply(child, factor())
+	end)
+end
+
 function HudScaleController.init()
 	if initialized then return end
 	initialized = true
 
-	task.spawn(function()
-		local pgui = Players.LocalPlayer:WaitForChild("PlayerGui")
-		local hud = pgui:WaitForChild("HUD")
-		if not hud or not hud:IsA("ScreenGui") then
-			warn("[HudScale] PlayerGui.HUD nie istnieje — skalowanie nieaktywne")
-			return
-		end
-
-		local function applyAll()
-			-- AbsoluteSize ScreenGui = viewport minus GUI inset — właściwa baza.
-			local factor = math.clamp(hud.AbsoluteSize.Y / CFG.ReferenceHeight, CFG.MinScale, CFG.MaxScale)
-			for _, child in ipairs(hud:GetChildren()) do
-				if child:IsA("GuiObject") then
-					ensureScale(child).Scale = factor
-				end
-			end
-		end
-
-		applyAll()
-		-- Zmiana rozmiaru okna / fullscreen toggle → przelicz.
-		hud:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyAll)
-		-- Elementy dodane później (np. kod tworzy nowe top-level nody) też dostają skalę.
-		hud.ChildAdded:Connect(function(child)
-			if child:IsA("GuiObject") then
-				local factor = math.clamp(hud.AbsoluteSize.Y / CFG.ReferenceHeight, CFG.MinScale, CFG.MaxScale)
-				ensureScale(child).Scale = factor
+	local pgui = Players.LocalPlayer:WaitForChild("PlayerGui")
+	for _, name in ipairs(CFG.ScaledGuis) do
+		task.spawn(function()
+			local gui = pgui:WaitForChild(name)
+			if gui:IsA("ScreenGui") then
+				scaleGui(gui)
 			end
 		end)
-	end)
+	end
 end
 
 return HudScaleController

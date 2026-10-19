@@ -8,6 +8,23 @@ Jak coś wisi w powietrzu — **nie zatrzymuj Play**, napisz Claude'owi: przeska
 
 ---
 
+## 🎒 EKWIPUNEK / LOADOUT (18.10) — NIEPRZETESTOWANE
+- [ ] **(19.10) Nowe ikony** (render z gry + czarny obrys) w pasku i w ekwipunku: bomba, most, hak czytelne
+- [ ] **(19.10) Wygląd klasyczny**: czarny obrys na wszystkim, pomarańczowy nagłówek, karty itemów w kolorach (x0 szara z zieloną ceną), sloty loadoutu wyglądają jak pasek na dole i stoją na płynącej lawie; karta rośnie pod kursorem, ikona wpada do slotu z odbiciem; model w DETAILS się kręci
+- [ ] `I` albo przycisk INVENTORY (lewa strona) → panel spada na miejsce, tło ciemnieje; `I` / X / klik w ciemne tło zamyka. Klik w puste miejsce PANELU go NIE zamyka
+- [ ] Najechanie na item → DETAILS: model 3D się kręci, opis, paski POWER / RANGE / MOBILITY dojeżdżają
+- [ ] Klik itemu → ikona przelatuje do slotu; klik itemu z zielonym numerkiem → wyjmuje go ze slotu
+- [ ] Przeciągnij item na slot; slot na slot (zamiana); slot poza sloty (wyjęcie); prawy klik slotu (wyjęcie)
+- [ ] Najedź na item i wciśnij 2 → item w slocie 2, a pasek NIE wyciąga itemu
+- [ ] Pasek na dole = sloty loadoutu, nic się nie przestawia, gdy skończą się bomby (slot „x0”, szary, w lobby pulsuje na czerwono; klik = potrząśnięcie)
+- [ ] W rundzie panel się otwiera, ale zmiana daje „CHANGE LOADOUT IN LOBBY”
+- [ ] Wyjmij hak z loadoutu → klawisz 3 / slot nie wyciąga haka (serwer też nie da)
+- [ ] Pełny loadout + kup item spoza niego → sklep: „ADD IT IN INVENTORY”, na przycisku INVENTORY czerwone „!”
+- [ ] Ustaw loadout, wyjdź, wejdź → ten sam układ
+- [ ] Telefon: tap itemu = DETAILS, drugi tap = do slotu; przeciąganie palcem działa
+
+---
+
 ## 📱 START GRY NA WOLNYM TELEFONIE (paczka 3, 18.10) — NIEPRZETESTOWANE
 - [ ] Wejdź do gry → ekran ładowania pokazuje „Wczytywanie danych gracza...”, a po zejściu kasa, pasek itemów i czas są już prawidłowe (nie „0$”, nie pusty pasek)
 - [ ] Wejdź w **trakcie rundy** → HUD od razu pokazuje ROUND i czas, nie „LOBBY”
@@ -20,6 +37,7 @@ Jak coś wisi w powietrzu — **nie zatrzymuj Play**, napisz Claude'owi: przeska
 ---
 
 ## 🎨 NOWE UI Z FIGMY (10.10)
+- [ ] **(18.10) Pasek itemów**: wybrany slot NIE nachodzi na sąsiada (też w chwili wyciągnięcia); zmiana 1 → 2 → 3 płynna — stary slot opada razem z wjazdem nowego, ikona buja się lekko, bez szarpnięcia. Rzut bombą: slot nie podskakuje przy każdym rzucie
 - [ ] Licznik kasy w lewym dolnym rogu: banknoty + zielona liczba z czarnym cieniem; zmienia się przy zbieraniu/wydawaniu
 - [ ] Zbierz kasę z mapy → banknot wyskakuje na środku ekranu i leci do licznika, licznik podskakuje, liczba płynnie rośnie
 - [ ] Zabójstwo (25$) → 3 banknoty, wygrana (100$) → 6, jeden po drugim

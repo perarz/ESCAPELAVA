@@ -37,6 +37,7 @@ local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local LoadoutState = require(script.Parent.LoadoutState)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 
 local ShopController = {}
@@ -366,11 +367,13 @@ function ShopController.init()
 	end)
 
 	-- Feedback zakupu.
-	Remotes.ShopResult.OnClientEvent:Connect(function(success: boolean, _itemId: string, reason: string?)
+	Remotes.ShopResult.OnClientEvent:Connect(function(success: boolean, itemId: string, reason: string?)
 		if not elStatus then return end
 		if success then
 			elStatus.TextColor3 = Color3.fromRGB(120, 220, 120)
-			elStatus.Text = "Kupiono!"
+			-- Loadout pełny → item leży w ekwipunku; mówimy o tym od razu (18.10). Serwer wysyła
+			-- LoadoutChanged PRZED ShopResult, więc stan jest już aktualny.
+			elStatus.Text = if LoadoutState.slotOf(itemId) then "Kupiono!" else Config.UI.Inventory.ShopFullText
 		else
 			elStatus.TextColor3 = Color3.fromRGB(235, 90, 80)
 			elStatus.Text = (reason and BUY_FAIL_TEXT[reason]) or "Nie udało się"

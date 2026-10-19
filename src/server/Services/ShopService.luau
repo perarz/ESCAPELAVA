@@ -32,6 +32,7 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 
 local CashService = require(script.Parent.CashService)
 local ItemService = require(script.Parent.ItemService)
+local LoadoutService = require(script.Parent.LoadoutService)
 
 local ShopService = {}
 
@@ -195,6 +196,9 @@ local function buy(player: Player, itemId: any): (boolean, string?)
 		return false, "internal_error"
 	end
 
+	-- Wolny slot w loadoucie → item wskakuje sam. Pełny → leży w ekwipunku; klient pokaże
+	-- „ADD IT IN INVENTORY” (zna loadout), serwer niczego za gracza nie podmienia.
+	LoadoutService.addIfFree(player, itemId)
 	return true, nil
 end
 

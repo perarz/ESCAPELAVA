@@ -24,6 +24,7 @@ task.spawn(disableDefaultBackpack)
 
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 
+local LoadoutState = require(script.Controllers.LoadoutState)
 local UIController = require(script.Controllers.UIController)
 local ShopController = require(script.Controllers.ShopController)
 local HotbarController = require(script.Controllers.HotbarController)
@@ -49,6 +50,7 @@ local RoundTransitionController = require(script.Controllers.RoundTransitionCont
 local LadderController = require(script.Controllers.LadderController)
 local TextShadowController = require(script.Controllers.TextShadowController)
 local GradientShimmerController = require(script.Controllers.GradientShimmerController)
+local InventoryController = require(script.Controllers.InventoryController)
 
 -- KAŻDY KONTROLER W OSOBNYM WĄTKU (paczka 3, przegląd 29.09 B-1). Dawniej startowały po
 -- kolei, a kilka czekało na UI — kontroler nr 5 nie podpinał listenerów, dopóki nr 4 nie
@@ -64,6 +66,9 @@ local function start(name: string, controller: { init: () -> () })
 	end)
 end
 
+-- LoadoutState pierwszy: pasek i panel czytają z niego stan, a jego listenery muszą stać
+-- przed `ClientReady`.
+start("LoadoutState", LoadoutState)
 start("UIController", UIController)
 start("ShopController", ShopController)
 start("HotbarController", HotbarController)
@@ -89,23 +94,25 @@ start("RoundTransitionController", RoundTransitionController)
 start("LadderController", LadderController)
 start("TextShadowController", TextShadowController)
 start("GradientShimmerController", GradientShimmerController)
+start("InventoryController", InventoryController)
 
 -- EKRAN ŁADOWANIA czeka na stan startowy (decyzja Kacpra 18.10: „wszystko ma się
 -- załadować w tym UI”). Atrybut jest LOKALNY (klient na własnym Playerze — serwer go nie
 -- widzi) i czyta go `ReplicatedFirst.LoadingScreen`, który nie może requirować modułów.
--- Kasa i inventory przychodzą dopiero po wczytaniu danych gracza; stan gry od razu.
+-- Kasa, inventory i loadout przychodzą dopiero po wczytaniu danych gracza; stan gry od razu.
 local player = Players.LocalPlayer
-local got = { state = false, cash = false, inventory = false }
+local got = { state = false, cash = false, inventory = false, loadout = false }
 local function mark(key: string)
 	if got[key] then return end
 	got[key] = true
-	if got.state and got.cash and got.inventory then
+	if got.state and got.cash and got.inventory and got.loadout then
 		player:SetAttribute("ClientStateReady", true)
 	end
 end
 Remotes.GameStateChanged.OnClientEvent:Connect(function() mark("state") end)
 Remotes.CashChanged.OnClientEvent:Connect(function() mark("cash") end)
 Remotes.InventoryChanged.OnClientEvent:Connect(function() mark("inventory") end)
+Remotes.LoadoutChanged.OnClientEvent:Connect(function() mark("loadout") end)
 
 -- Wszystkie listenery stoją — dopiero teraz serwer wysyła stan startowy (init.server).
 Remotes.ClientReady:FireServer()

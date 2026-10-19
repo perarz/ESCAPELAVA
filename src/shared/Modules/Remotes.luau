@@ -21,6 +21,9 @@ local REMOTE_NAMES = {
 	"CashCollected",      -- FireAllClients: (player: Player, fromPosition: Vector3) — klient animuje pickup
 	"InventoryChanged",   -- FireClient: (inventory: {[itemId: string] = count: number})
 	"BuyItem",            -- klient→server: FireServer(itemId: string) — zakup w sklepie-NPC
+	"SetLoadout",         -- klient→server: FireServer(loadout: {string}) — 3 itemId, "" = pusty slot.
+	                      --   Tylko w LOBBY; serwer czyści (istniejące, bez powtórzeń) — LoadoutService
+	"LoadoutChanged",     -- FireClient: (loadout: {string}) — 3 itemId, "" = pusty (18.10)
 	"ShopResult",         -- FireClient: (success: boolean, itemId: string, reason: string?)
 	"EquipItem",          -- klient→server: FireServer(itemId: string) — dispatch po itemId,
 	                      --   każdy service equipowalnego itemu słucha i reaguje na SWÓJ id

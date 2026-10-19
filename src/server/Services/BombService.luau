@@ -26,6 +26,7 @@ local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 local ItemService = require(script.Parent.ItemService)
+local LoadoutService = require(script.Parent.LoadoutService)
 local PlayerService = require(script.Parent.PlayerService)
 local KillService = require(script.Parent.KillService)
 local DestructionService = require(script.Parent.DestructionService)
@@ -636,6 +637,8 @@ local function onEquipItem(player: Player, itemId: any)
 
 	-- Dispatch po itemId. W przyszłości: shield, bridge_builder, etc.
 	if itemId == "bomb" then
+		-- Tylko item z loadoutu (18.10) — inaczej oszust wyciąga wszystko, co ma.
+		if not LoadoutService.canEquip(player, "bomb") then return end
 		BombService.equip(player, "bomb")
 	else
 		-- Klient przełączył na inny item (np. bridge_builder) — jeśli mieliśmy bomb tool

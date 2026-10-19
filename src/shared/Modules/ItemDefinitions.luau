@@ -12,13 +12,17 @@ ItemDefinitions.bomb = {
 	name = "Bomb", -- 10.10: nazwy itemów po angielsku (decyzja Kacpra)
 	-- Ikona w slocie paska (10.10): z output/inventory-icons-v1, zmniejszona do 512 px (ostra
 	-- przy każdej skali slotu), wgrana na konto Kacpra.
-	icon = "rbxassetid://76350408241384",
+	icon = "rbxassetid://130438008648276", -- 19.10: render modelu z gry + czarny obrys (output/inventory-icons-v2)
 	price = 50,
-	desc = "Rzuć i wysadź ściany, filary oraz graczy. Wybuch niszczy teren.",
+	-- 18.10: opisy po angielsku (decyzja Kacpra) — Fredoka nie ma polskich znaków (ć, ź, ś
+	-- rysowały się zastępczą czcionką). Czyta je sklep i panel INVENTORY.
+	desc = "Throw it to blast walls, pillars and players. The explosion wrecks the map.",
 	-- Nazwa modelu na wystawie w scenie sklepu (Workspace.<Config.Shop.SceneName>
 	-- .<Config.Shop.ItemsFolder>.<sceneModel>). Kamera celuje w ten model; brak modelu
 	-- = item po prostu nie pojawia się w sklepie (z warnem, nie z błędem).
 	sceneModel = "Bomb",
+	-- Paski cech w ekwipunku (18.10, 0-5). Balans liczb: Claude + review Kacpra.
+	stats = { power = 5, range = 3, mobility = 1 },
 	-- Model z ReplicatedStorage używany JAKO PRZEDMIOT: w ręce (Handle Toola) i jako lecący
 	-- pocisk. Jeden model do obu, bo to ta sama bomba — gracz rzuca dokładnie tym, co trzymał.
 	-- Brak modelu = kod buduje starą kulę z kodu (fallback, nic się nie wywala).
@@ -74,10 +78,11 @@ ItemDefinitions.bomb = {
 ItemDefinitions.bridge_builder = {
 	id = "bridge_builder",
 	name = "Bridge",
-	icon = "rbxassetid://133863155182575",
+	icon = "rbxassetid://97542975966293",
 	price = 100,
-	desc = "Postaw kładkę nad lawą albo dziurą. Przejście dla całej ekipy.",
+	desc = "Build a plank over lava or a gap. Anyone can cross it.",
 	sceneModel = "Blueprint",
+	stats = { power = 0, range = 2, mobility = 4 },
 	-- Blueprint trzymany w ręce w trybie budowania (Tool) …
 	toolModel = "Blueprint",
 	-- … a to jest most, który realnie staje na mapie.
@@ -103,13 +108,14 @@ ItemDefinitions.bridge_builder = {
 ItemDefinitions.grapple = {
 	id = "grapple",
 	name = "Grapple",
-	icon = "rbxassetid://102380718280742",
+	icon = "rbxassetid://101471002129173",
 	price = 40,
-	desc = "Celuj w ścianę albo dach — szarpnie Cię prosto tam. Jedno użycie.",
+	desc = "Aim at a wall or roof and get yanked right there. One use.",
 	-- Wystawa w scenie sklepu: model Kacpra stoi już w WeaponShopScene.Decorations.
 	-- Markera kamery przy nim NIE MA, więc kadr liczy się z bounding boxa (AutoCamera*).
 	-- Postawienie markera obok modelu przejmie kadr bez żadnej zmiany w kodzie.
 	sceneModel = "HandHook",
+	stats = { power = 0, range = 5, mobility = 5 },
 	-- Ten sam model trafia do ręki. W przeciwieństwie do bomby hak NIE jest pociskiem —
 	-- nic nie leci, więc Handle jest wyłącznie uchwytem i nie niesie żadnej fizyki.
 	-- ⚠️ Największa bryła tego modelu to płaski Union 0.09 × 1.80 × 1.80, czyli

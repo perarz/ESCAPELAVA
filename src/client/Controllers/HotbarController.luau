@@ -1,6 +1,7 @@
 --!strict
 -- HotbarController.luau
--- Renderuje hotbar (5 slotów) z inventory replicated przez InventoryChanged.
+-- Renderuje hotbar: slot N = N-ty item LOADOUTU (LoadoutState, 18.10) — klawisze 1-2-3 nigdy
+-- się nie przestawiają; item z 0 sztuk zostaje w slocie wyszarzony („x0”) i w lobby pulsuje.
 -- Klient klika slot (albo klawisz 1-5) → EquipItem / UnequipItem; użycie trzymanego itemu
 -- obsługują kontrolery itemów (ToolController, BridgeController, GrappleController).
 --
@@ -29,13 +30,14 @@ local UserInputService = game:GetService("UserInputService")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local LoadoutState = require(script.Parent.LoadoutState)
+local InventoryController = require(script.Parent.InventoryController)
+local RunService = game:GetService("RunService")
 
 local HotbarController = {}
 
 local localPlayer = Players.LocalPlayer
 
--- Inventory nowy schema: { [itemId] = count }
-local inventory: { [string]: number } = {}
 -- Mapping fizycznego slotu (1-5) → itemId (lub nil)
 local slotToItem: { [number]: string? } = {}
 local equippedItem: string? = nil -- odczyt z postaci (patrz nagłówek), nie pamięć kliknięć
@@ -49,15 +51,16 @@ local slotRaised: { [number]: boolean } = {}
 -- Żeton per slot: nowa zmiana stanu unieważnia czekające opadnięcie (patrz `animateSlot`).
 local slotToken: { [number]: number } = {}
 
+local CFG_INV = Config.UI.Inventory
+-- Sloty, których ramką rządzi teraz puls x0 (wtedy `refreshSlot` jej nie tweenuje — walczyłyby).
+local pulsing: { [number]: boolean } = {}
+
 local function rebuildSlotMapping()
-	-- Pierwsze N item types z ItemDefinitions.shopOrder (które gracz ma) → sloty 1..N
+	-- Do 18.10: „pierwsze N posiadanych” — skończone bomby przesuwały most na klawisz 1.
 	slotToItem = {}
-	local slotIndex = 1
-	for _, itemId in ipairs(ItemDefinitions.shopOrder) do
-		if slotIndex > 5 then break end
-		if (inventory[itemId] or 0) > 0 then
-			slotToItem[slotIndex] = itemId
-			slotIndex += 1
+	for slot, itemId in ipairs(LoadoutState.getLoadout()) do
+		if itemId ~= "" then
+			slotToItem[slot] = itemId
 		end
 	end
 end
@@ -79,10 +82,11 @@ local function equipScale(btn: GuiObject): UIScale
 	return scale
 end
 
--- Wyciągnięcie: slot podskakuje (sprężyście), zostaje wyżej i trochę większy, ikona się buja.
--- Schowanie: opada na miejsce — z opóźnieniem `DeselectDelay`, bo auto-re-equip bomby po rzucie
--- zabiera i oddaje Tool w tej samej chwili; bez tego slot podskakiwałby przy każdym rzucie.
-local function animateSlot(slot: number, selected: boolean)
+-- Wyciągnięcie: slot płynnie wjeżdża wyżej i lekko rośnie, ikona się buja. Schowanie: opada.
+-- Zwłoka `DeselectDelay` tylko gdy w ręce nie ma NICZEGO (auto-re-equip bomby po rzucie zabiera
+-- i oddaje Tool w tej samej chwili — bez zwłoki slot podskakiwałby przy każdym rzucie). Przy
+-- zmianie 1 → 2 stary slot opada RAZEM z wjazdem nowego, inaczej przejście się rwie (18.10).
+local function animateSlot(slot: number, selected: boolean, dropNow: boolean)
 	local btn = slotButtons[slot]
 	local base = slotBase[slot]
 	if not btn or not base then return end
@@ -93,29 +97,34 @@ local function animateSlot(slot: number, selected: boolean)
 	if selected then
 		if raised then return end -- żeton już anulował czekające opadnięcie
 		slotRaised[slot] = true
-		TweenService:Create(btn, TweenInfo.new(CFG_EQ.RaiseTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		TweenService:Create(btn, TweenInfo.new(CFG_EQ.RaiseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 			Position = base + UDim2.fromOffset(0, -CFG_EQ.Raise),
 		}):Play()
-		scale.Scale = CFG_EQ.PopScale
-		TweenService:Create(scale, TweenInfo.new(CFG_EQ.PopTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		TweenService:Create(scale, TweenInfo.new(CFG_EQ.ScaleTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 			Scale = CFG_EQ.SelectedScale,
 		}):Play()
 		local icon = btn:FindFirstChild("Icon")
 		if icon and icon:IsA("GuiObject") then
-			icon.Rotation = CFG_EQ.IconWiggle
-			TweenService:Create(icon, TweenInfo.new(CFG_EQ.WiggleTime, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
-				Rotation = 0,
+			icon.Rotation = 0
+			-- reverses = tam i z powrotem jednym tweenem, bez skoku kąta w pierwszej klatce
+			TweenService:Create(icon, TweenInfo.new(CFG_EQ.WiggleTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out, 0, true), {
+				Rotation = CFG_EQ.IconWiggle,
 			}):Play()
 		end
 	else
 		if not raised then return end
-		task.delay(CFG_EQ.DeselectDelay, function()
+		local function drop()
 			if slotToken[slot] ~= token then return end
 			slotRaised[slot] = false
-			local info = TweenInfo.new(CFG_EQ.DropTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			local info = TweenInfo.new(CFG_EQ.DropTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 			TweenService:Create(btn, info, { Position = base }):Play()
 			TweenService:Create(scale, info, { Scale = 1 }):Play()
-		end)
+		end
+		if dropNow then
+			drop()
+		else
+			task.delay(CFG_EQ.DeselectDelay, drop)
+		end
 	end
 end
 
@@ -133,17 +142,19 @@ local function refreshSlot(slot: number)
 
 	if itemId then
 		local def = ItemDefinitions.get(itemId)
-		local count = inventory[itemId] or 0
+		local count = LoadoutState.getCount(itemId)
 		if nameLabel and nameLabel:IsA("TextLabel") then
 			nameLabel.Text = def and def.name or itemId
 		end
 		if countLabel and countLabel:IsA("TextLabel") then
-			countLabel.Text = count > 1 and ("x" .. tostring(count)) or ""
+			-- x0 widać zawsze (slot zostaje, tylko pusty); x1 bez napisu jak dawniej.
+			countLabel.Text = if count == 1 then "" else ("x" .. tostring(count))
 		end
 		if icon and icon:IsA("ImageLabel") then
 			local image = def and def.icon
 			icon.Image = if typeof(image) == "string" then image else ""
 			icon.Visible = icon.Image ~= ""
+			icon.ImageTransparency = if count > 0 then 0 else 0.6
 		end
 	else
 		if nameLabel and nameLabel:IsA("TextLabel") then nameLabel.Text = "" end
@@ -155,12 +166,12 @@ local function refreshSlot(slot: number)
 	end
 
 	local selected = itemId ~= nil and itemId == equippedItem
-	animateSlot(slot, selected)
+	animateSlot(slot, selected, equippedItem ~= nil)
 	local normal = strokeNormal[slot]
-	if stroke and stroke:IsA("UIStroke") and normal then
+	if stroke and stroke:IsA("UIStroke") and normal and not pulsing[slot] then
 		-- Biała ramka = "to trzymasz w ręku". Niezaznaczony slot wraca do ramki ustawionej
 		-- w Studio (od 10.10 projekt z Figmy: czarna, 7).
-		local ti = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		local ti = TweenInfo.new(CFG_EQ.StrokeTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 		TweenService:Create(stroke, ti, {
 			Color = if selected then Color3.fromRGB(255, 255, 255) else normal.color,
 			Thickness = if selected then math.max(normal.thickness, 3) else normal.thickness,
@@ -180,6 +191,17 @@ local function setSelected(slot: number)
 	-- Klik na PUSTY slot = no-op (serwer i tak trzyma poprzedni Tool w ręce).
 	local itemId = slotToItem[slot]
 	if not itemId then return end
+	if LoadoutState.getCount(itemId) <= 0 then
+		-- x0: serwer i tak odmówi — krótkie „nie” zamiast ciszy.
+		local btn = slotButtons[slot]
+		if btn then
+			btn.Rotation = 0
+			TweenService:Create(btn, TweenInfo.new(0.06, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 3, true), {
+				Rotation = 6,
+			}):Play()
+		end
+		return
+	end
 
 	local now = os.clock()
 	if now - lastEquipAt < Config.RateLimits.EquipItem then return end
@@ -229,10 +251,8 @@ end
 
 function HotbarController.init()
 	-- Listener PRZED setupUI (yieldy)
-	Remotes.InventoryChanged.OnClientEvent:Connect(function(newInventory)
-		inventory = newInventory or {}
-		refreshAll()
-	end)
+	-- Stan (inventory + loadout + lobby) trzyma LoadoutState; on ma listenery od startu.
+	LoadoutState.onChanged(refreshAll)
 	localPlayer.CharacterAdded:Connect(hookCharacter)
 	if localPlayer.Character then
 		hookCharacter(localPlayer.Character)
@@ -296,7 +316,28 @@ function HotbarController.init()
 			[Enum.KeyCode.Four] = 4, [Enum.KeyCode.Five] = 5,
 		}
 		local slot = map[key]
-		if slot then setSelected(slot) end
+		-- Otwarty ekwipunek używa 1-3 do wkładania itemów do slotów.
+		if slot and not InventoryController.capturesHotkeys() then setSelected(slot) end
+	end)
+
+	-- x0 w lobby: ramka slotu pulsuje na czerwono — „kup, zanim ruszy runda”. Poza lobby i przy
+	-- trzymanym itemie ramką rządzi `refreshSlot`.
+	RunService.Heartbeat:Connect(function()
+		local lobby = LoadoutState.isLobby()
+		local wave = (math.sin(os.clock() * 2 * math.pi / CFG_INV.EmptyPulsePeriod) + 1) / 2
+		for slot, btn in pairs(slotButtons) do
+			local itemId = slotToItem[slot]
+			local want = lobby and itemId ~= nil and LoadoutState.getCount(itemId) <= 0
+			local stroke = btn:FindFirstChild("SelectStroke")
+			local normal = strokeNormal[slot]
+			if want and stroke and stroke:IsA("UIStroke") and normal then
+				pulsing[slot] = true
+				stroke.Color = normal.color:Lerp(CFG_INV.EmptyColor, wave)
+			elseif pulsing[slot] then
+				pulsing[slot] = nil
+				refreshSlot(slot)
+			end
+		end
 	end)
 
 	refreshAll()

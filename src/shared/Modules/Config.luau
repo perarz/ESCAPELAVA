@@ -347,23 +347,70 @@ Config.UI = {
 	-- wyżej i trochę większy, ikona się buja; po schowaniu opada. Px = px projektu.
 	HotbarEquip = {
 		Raise = 16,           -- px: o ile wybrany slot jest wyżej
-		RaiseTime = 0.28,     -- s: wjazd w górę (sprężyście)
-		PopScale = 1.2,       -- skala w chwili wyciągnięcia…
-		SelectedScale = 1.06, -- …i ta, na której zostaje
-		PopTime = 0.35,
-		IconWiggle = 16,      -- stopnie: bujnięcie ikony przy wyciągnięciu
-		WiggleTime = 0.6,
-		DropTime = 0.18,      -- s: opadnięcie po schowaniu
-		DeselectDelay = 0.12, -- s: zwłoka opadnięcia (auto-re-equip bomby po rzucie nie szarpie slotem)
+		RaiseTime = 0.24,     -- s: wjazd w górę
+		SelectedScale = 1.05, -- skala wybranego slotu (przy odstępie 30 px nie dotyka sąsiada)
+		ScaleTime = 0.3,      -- s: dojście do tej skali (Back = lekkie przestrzelenie)
+		IconWiggle = 8,       -- stopnie: bujnięcie ikony przy wyciągnięciu (tam i z powrotem)
+		WiggleTime = 0.14,    -- s: jedna strona bujnięcia
+		DropTime = 0.24,      -- s: opadnięcie po schowaniu / zmianie slotu
+		StrokeTime = 0.2,     -- s: zmiana ramki (czarna ↔ biała)
+		DeselectDelay = 0.12, -- s: zwłoka opadnięcia, gdy NIC innego nie jest wybrane (auto-re-equip
+		                      --    bomby po rzucie nie szarpie slotem); przy zmianie slotu — od razu
+	},
+
+	-- Ekwipunek / loadout (InventoryController + LoadoutState, 18.10). Kontrakt panelu:
+	-- docs/STUDIO_CONTRACT.md → „Ekwipunek”.
+	Inventory = {
+		ToggleKey = Enum.KeyCode.I,  -- `E` = ProximityPrompt sklepu, `Tab` = lista graczy
+		SendDelay = 0.25,     -- s: szybkie kliknięcia → jedna wysyłka ostatniego stanu
+		-- Wygląd (19.10, trzecia wersja — Kacper: „bardziej klasycznie, czarny obrys wszędzie,
+		-- pasuje do reszty UI”): panel z czarnym obrysem jak sloty paska, nagłówek w gradiencie
+		-- licznika czasu, karty itemów w kolorze itemu ze studsami, sloty loadoutu = klony slotu
+		-- paska na pasie płynącej lawy.
+		OpenTime = 0.3,       -- s: panel wskakuje (Back) i ściemnia tło
+		OpenDrop = 40,        -- px: z jak wysoka panel opada przy otwarciu
+		ClosedScale = 0.9,    -- skala panelu na starcie wskoku
+		BackdropTransparency = 0.45, -- ściemnienie gry pod otwartym panelem
+		HoverScale = 1.07,    -- karta / przycisk pod kursorem
+		FlyTime = 0.28,       -- s: ikona przelatuje z półki do slotu
+		SnapDrop = 40,        -- px: ikona wpada do slotu z tej wysokości…
+		SnapTime = 0.4,       -- …i odbija się (Bounce)
+		DragThreshold = 10,   -- px: od tylu ruch z wciśniętym przyciskiem to przeciąganie, nie klik
+		LavaScroll = { 16, -9 }, -- px/s: przesuw warstw lawy pod loadoutem (Lava1, Lava2)
+		StatMax = 5,          -- pełny pasek cechy = 5 studsów (`ItemDefinitions.<id>.stats`)
+		StatTime = 0.35,      -- s: dojazd pasków przy zmianie itemu
+		ModelSpin = 0.7,      -- rad/s: obrót modelu w DETAILS
+		ModelTilt = 18,       -- stopnie: kamera modelu lekko z góry
+		ModelFill = 1.05,     -- odległość kamery = promień modelu × to (mniej = większy model)
+		ModelLookUp = 0.22,   -- kamera celuje tyle wysokości modelu NAD środek → model stoi na cieniu
+		-- Kolor karty itemu. Nowy item bez wpisu = `DefaultItemColor`; x0 = szara karta.
+		ItemColors = {
+			bomb = Color3.fromRGB(226, 52, 40),
+			bridge_builder = Color3.fromRGB(196, 128, 62),
+			grapple = Color3.fromRGB(35, 120, 230),
+		},
+		DefaultItemColor = Color3.fromRGB(120, 190, 60),
+		EmptyItemColor = Color3.fromRGB(95, 90, 100),
+		SelectedColor = Color3.fromRGB(255, 255, 255), -- obrys wybranej karty / slotu-celu (jak w pasku)
+		EmptyColor = Color3.fromRGB(235, 45, 45), -- x0: puls ramki slotu PASKA w lobby
+		EmptyPulsePeriod = 1.1, -- s: jeden puls
+		LockedText = "CHANGE LOADOUT IN LOBBY",
+		FullText = "LOADOUT FULL — PICK A SLOT",
+		ShopFullText = "ADD IT IN INVENTORY",
 	},
 
 	-- Licznik czasu na górze (UIController, 11.10): wskok napisu przy zmianie stanu i nerwowe
+	-- ScreenGui skalowane tą samą regułą (HudScaleController). 18.10: + panel ekwipunku.
+	ScaledGuis = { "HUD", "Inventory" },
 	-- ostatnie sekundy (czerwony gradient + wskok co sekundę).
 	Timer = {
 		StatePop = 1.25,      -- skala napisu stanu w chwili zmiany (LOBBY → ROUND → ROUND OVER)
 		StatePopTime = 0.4,
 		UrgentSeconds = 10,   -- od ilu sekund do końca odliczanie robi się nerwowe
 		TickPop = 1.22,       -- wskok czasu co sekundę w tej końcówce
+		-- 18.10 (zgłoszenie Kacpra: „sloty lekko nachodzą, przejście ma być płynne jak w grze”):
+		-- bez skoku skali do 1,2 w jednej klatce (to wjeżdżało na sąsiada i szarpało) — skala
+		-- i pozycja jadą jednym płynnym tweenem; sloty w Studio rozsunięte na 30 px odstępu.
 		TickPopTime = 0.3,
 		UrgentTop = Color3.fromRGB(255, 150, 120),   -- gradient czasu w końcówce (góra → dół)
 		UrgentBottom = Color3.fromRGB(215, 25, 25),
@@ -388,6 +435,12 @@ Config.Map = {
 	-- to osobna jednostka. Wszystko inne pod `Workspace.Map` (poza `Locked`) też jest
 	-- jednostką — w całości.
 	RestoreGroups = {
+-- Loadout (18.10): ile itemów gracz bierze na rundę. Zmiana liczby = nowe sloty w HUD.Hotbar
+-- i w panelu Inventory (kontrakt w docs/STUDIO_CONTRACT.md).
+Config.Loadout = {
+	Slots = 3,
+}
+
 		{ "Map", "Map", "Buildings" },
 		{ "Map", "Map", "OutsideDecorations" },
 	},
@@ -993,6 +1046,9 @@ Config.AntiCheat = {
 	GraceAfterImpulseSec = 4,
 }
 
+	-- Zmiana loadoutu w ekwipunku (18.10). Klient zbiera szybkie kliknięcia i wysyła ostatni
+	-- stan po `Config.UI.Inventory.SendDelay`, więc limit nie dotyka człowieka.
+	SetLoadout = 0.2,
 -- Komunikat „YOU KILLED <nick>” dla zabójcy (KillMessageController, 10.10, projekt z Figmy).
 -- Wygląd w Studio (`HUD.KillMessage`); tu tylko czasy i kolor słowa „KILLED”.
 Config.KillMessage = {
@@ -1927,6 +1983,10 @@ table.freeze(Config.Cash.Fly.Notes)
 table.freeze(Config.Cash.Fly)
 table.freeze(Config.Cash.PickupTrail)
 table.freeze(Config.Cash.DigitDisplay)
+table.freeze(Config.UI.Inventory.ItemColors)
+table.freeze(Config.UI.Inventory.LavaScroll)
+table.freeze(Config.UI.Inventory)
+table.freeze(Config.Loadout)
 table.freeze(Config.Cash)
 table.freeze(Config.Bridge)
 table.freeze(Config.Shop)

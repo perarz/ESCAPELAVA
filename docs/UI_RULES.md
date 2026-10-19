@@ -14,6 +14,15 @@ id obrazków) są w `docs/STUDIO_CONTRACT.md` → „UI z Figmy” — tu tylko 
 - **Kolor w Figmie ≠ ostatnie słowo**: Kacper ocenia w grze i zmienia (poświata licznika:
   biała w danych Figmy, czarna w grze). Zawsze pokazać zrzut i czekać na ocenę.
 
+- **Panele: klasycznie, spójnie z HUD, czarny obrys na KAŻDEJ ramce** (19.10, po trzech wersjach
+  ekwipunku). Kacper odrzucił: (1) ciemne półprzezroczyste karty bez charakteru („AI slop”),
+  (2) i (3) udziwnienia — klocki z grubością, przekrzywione elementy, wytłoczone napisy, słupy nad
+  lawą („gówno, bardziej klasycznie, brakuje strokeów”). Działa: układ jak w popularnych grach na
+  Robloxie (nagłówek z tytułem, X na rogu, siatka kart, szczegóły obok, pasek na dole), motyw gry
+  w teksturach (studsy `rbxassetid://6927295847`, lawa `rbxassetid://130840219862324`), a język
+  wizualny z HUD: czarne obrysy, gradient licznika czasu, żółte liczniki, zielona kasa, sloty
+  klonowane z paska. Wzór: `StarterGui.Inventory` (`STUDIO_CONTRACT` → „Ekwipunek”).
+
 ## Twarde zasady Kacpra
 1. **Czcionka zawsze Fredoka** (`FredokaOne`).
 2. **UI to obiekty w Studio** (`StarterGui`) — buduję przez MCP, kod tylko podpina się pod

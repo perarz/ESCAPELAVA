@@ -45,6 +45,7 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 
 local ItemService = require(script.Parent.ItemService)
+local LoadoutService = require(script.Parent.LoadoutService)
 local LavaService = require(script.Parent.LavaService)
 local PlayerService = require(script.Parent.PlayerService)
 local GameLoopService = require(script.Parent.GameLoopService)
@@ -388,6 +389,8 @@ local function onEquipItem(player: Player, itemId: any)
 	lastEquipAt[player] = now
 
 	if itemId == ITEM_ID then
+		-- Tylko item z loadoutu (18.10) — inaczej oszust wyciąga wszystko, co ma.
+		if not LoadoutService.canEquip(player, ITEM_ID) then return end
 		enterBuildMode(player)
 	else
 		-- Klient przełączył na inny slot — wyłącz nasz build mode jeśli był aktywny.

@@ -44,6 +44,7 @@ local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions
 local Destructible = require(ReplicatedStorage.Shared.Modules.Destructible)
 local GrappleArc = require(ReplicatedStorage.Shared.Modules.GrappleArc)
 local ItemService = require(script.Parent.ItemService)
+local LoadoutService = require(script.Parent.LoadoutService)
 local PlayerService = require(script.Parent.PlayerService)
 local AntiCheatService = require(script.Parent.AntiCheatService)
 local GameLoopService = require(script.Parent.GameLoopService)
@@ -261,6 +262,7 @@ local function onEquipItem(player: Player, itemId: any)
 
 	if not PlayerService.isAlive(player) then return end
 	if ItemService.getCount(player, ITEM_ID) <= 0 then return end
+	if not LoadoutService.canEquip(player, ITEM_ID) then return end -- tylko z loadoutu (18.10)
 
 	giveGrappleTool(player)
 end

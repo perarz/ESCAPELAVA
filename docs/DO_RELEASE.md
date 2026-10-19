@@ -18,7 +18,7 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 - [ ] **Kamera przy haku w sklepie** — postawić marker obok modelu haka.
   *dla Claude'a:* `WeaponShopScene.ShopCameras`, kod sam go znajdzie.
 - [ ] **Przyciski dotykowe na telefon** — wygląd przycisków sprint / push / most (logikę podłącza Claude).
-- [ ] **Panel „Ekwipunek"** — tu wybierasz 3 itemy na rundę (decyzja 30.09). Kontrakt nazw i pułapka `ResetOnSpawn` w `docs/ROADMAP.md` → „PLAN: LOADOUT”. Stoisko loadoutu NIE powstaje.
+- [x] **Panel „Ekwipunek"** — zbudowany 18.10 przez MCP (styl HUD); Kacper ocenia wygląd. — tu wybierasz 3 itemy na rundę (decyzja 30.09). Kontrakt nazw i pułapka `ResetOnSpawn` w `docs/ROADMAP.md` → „PLAN: LOADOUT”. Stoisko loadoutu NIE powstaje.
 - [ ] **5 dźwięków destrukcji**: wybuch, szkło, uderzenie, trzask, zawalenie — podaj id.
   *dla Claude'a:* `Config.Destruction.FX`.
 - [ ] **Kill feed i baner zwycięzcy** — dziś zrobione w kodzie; do przeniesienia do Studio? (decyzja)
@@ -39,7 +39,8 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 
 ## 🎒 LOADOUT I WIĘCEJ ITEMÓW
 
-- [ ] **LOADOUT** — masz dużo itemów, na rundę bierzesz 3. Klawisze 1-3 = Twoje 3 itemy, nic się nie przesuwa. **Plan gotowy, decyzja podjęta 30.09: wybór mieszka w EKWIPUNKU** (nie w sklepie, nie na osobnym stoisku).
+- [x] **LOADOUT** — zrobione 18.10 (panel INVENTORY, czeka na test w `docs/TESTY.md`). Opis poniżej historyczny.
+- [ ] ~~LOADOUT~~ — masz dużo itemów, na rundę bierzesz 3. Klawisze 1-3 = Twoje 3 itemy, nic się nie przesuwa. **Plan gotowy, decyzja podjęta 30.09: wybór mieszka w EKWIPUNKU** (nie w sklepie, nie na osobnym stoisku).
   - 🎨 panel „Ekwipunek" w Studio — kontrakt nazw w planie, ⚠️ `ResetOnSpawn = false`
   - 💻 kod (pole w danych gracza, `LoadoutService`, `InventoryController`, blokada equipa po stronie serwera)
   *dla Claude'a:* `docs/ROADMAP.md` → „PLAN: LOADOUT” (koniec pliku). Wchodzi PO paczce 3.
