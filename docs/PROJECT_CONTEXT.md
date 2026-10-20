@@ -2,7 +2,7 @@
 
 > Dokument dla asystenta pomagającego w organizacji pracy (TODO, planowanie, decyzje).
 > Celowo bez szczegółów kodu — od logiki gry jest Claude Code w repo.
-> Stan na: 2026-10-10.
+> Stan na: 2026-10-20.
 
 ---
 
@@ -46,8 +46,10 @@ Zasady współpracy:
 
 ## Co jest GOTOWE (z perspektywy gracza)
 
-- **Pełna pętla rundy**: lobby → odliczanie → runda z lawą przyspieszającą w fazach →
-  nagrody → restart. Mapa naprawia się sama po każdej rundzie.
+- **Pełna pętla rundy** (stan 20.10): lobby 25 s → teleport pod czarną zasłoną → 3-2-1 na
+  mapie (ruch po „1”) → runda z lawą płynnie przyspieszającą (bez faz) → 3 s końca
+  (ocalały widzi „YOU SURVIVED! +100$”) → zasłona → lobby. Mapa naprawia się sama po każdej
+  rundzie (odbudowują się tylko zniszczone budynki).
 - **Bomba** (50$): rzut, odliczanie z migającym lontem, rani i odrzuca graczy (ragdoll),
   zabójstwa nagradzane kasą — a od 11-12.08 **znowu wybucha i niszczy mapę** (system
   destrukcji, patrz TODO punkt 0). Ściany pękają na nieregularne kawałki, duże płyty zostają
@@ -205,7 +207,7 @@ Zasady współpracy:
 
 ## TODO (priorytety)
 
-**Stan 08.10: Kacper TESTUJE w Play** (lista `docs/TESTY.md`) i zgłasza na bieżąco — poprawki z 08.10 opisane w „Stan na 2026-10-08” na końcu. Zostaje: stały test destrukcji T1-T7 dwa razy pod rząd (zamrożenie destrukcji), potem loadout, start klienta, anty-cheat, nowe itemy, telefon. **Wcześniej — TEST NOWEJ DESTRUKCJI w grze (stan 28.09).** Całe miasto jest na nowej destrukcji; do sprawdzenia w Play: zawalanie wszystkich 10 budynków, tory, rekwizyty, auta, spadające TV/deski, kawałki skruszonych ścian i czy bryły dalej „wiszą i znikają” (lista testu: `docs/DESTRUCTION_PLAN.md`, sekcje z 26-28.09). Potem z destrukcji zostaje: sprzątanie starego systemu poza budynkami, dźwięki (5 id od Kacpra) i zapis „mapy konstrukcji” w placu przed launchem. Opis niżej jest historią z 24-25.09.
+**Stan 20.10: aktualna lista „co czeka na test / co otwarte” jest w `CLAUDE.md` → STATUS (punkty 5-7); testy w `docs/TESTY.md`, do wypuszczenia gry w `docs/DO_RELEASE.md`. Niżej starszy zapis.** **Stan 08.10: Kacper TESTUJE w Play** (lista `docs/TESTY.md`) i zgłasza na bieżąco — poprawki z 08.10 opisane w „Stan na 2026-10-08” na końcu. Zostaje: stały test destrukcji T1-T7 dwa razy pod rząd (zamrożenie destrukcji), potem loadout, start klienta, anty-cheat, nowe itemy, telefon. **Wcześniej — TEST NOWEJ DESTRUKCJI w grze (stan 28.09).** Całe miasto jest na nowej destrukcji; do sprawdzenia w Play: zawalanie wszystkich 10 budynków, tory, rekwizyty, auta, spadające TV/deski, kawałki skruszonych ścian i czy bryły dalej „wiszą i znikają” (lista testu: `docs/DESTRUCTION_PLAN.md`, sekcje z 26-28.09). Potem z destrukcji zostaje: sprzątanie starego systemu poza budynkami, dźwięki (5 id od Kacpra) i zapis „mapy konstrukcji” w placu przed launchem. Opis niżej jest historią z 24-25.09.
 
 **Historia 24-25.09 — NOWA DESTRUKCJA (v4): pomarańczowy budynek już w grze, czeka na ponowny test.**
 Stan na 25.09: zbudowane „mapa konstrukcji” pomarańczowego budynku, dziury, osłabianie i kolaps
@@ -339,7 +341,7 @@ Każdy pomysł "a może dodamy..." → odpowiedź brzmi: **po launchu, nie teraz
 
 ## Kluczowe zasady designu (nie łamać)
 
-- **Szybko i dynamicznie**: runda ~80s, lobby 15s. Nie wydłużać bez testów z graczami.
+- **Szybko i dynamicznie**: runda ~80s, lobby 25s (od 19.10). Nie wydłużać bez testów z graczami.
 - **Wszystko clip-friendly** (TikTok): krótkie rundy, efektowne momenty (eksplozje,
   wygrane, wpadki do lawy).
 - **Server ma zawsze rację**: klient niczego nie decyduje (anti-cheat).
@@ -360,6 +362,8 @@ Każdy pomysł "a może dodamy..." → odpowiedź brzmi: **po launchu, nie teraz
 - Zapis graczy: DataStore z pełnym zabezpieczeniem (atomowość, retry, session lock,
   zapis przy zamknięciu serwera).
 - Ragdoll: gotowy toolbox (ARTFVL) — folder w Workspace, nie ruszać.
+- **Kod jest na GitHubie** (`perarz/ESCAPELAVA`, jedna gałąź `main`) — od 20.10 wszystko wypchnięte;
+  Claude pushuje i otwiera PR-y sam (narzędzie GitHuba `gh` zalogowane na Macu Kacpra).
 - **Commitować po każdej skończonej rzeczy.** 13-22.09 dziewięć dni pracy (lawa, oświetlenie,
   upadki, postacie, szyby) leżało tylko na dysku, poza historią — zabezpieczone jednym
   commitem 22.09. Jeden padnięty dysk i nie byłoby czego odtwarzać.
@@ -369,14 +373,20 @@ Każdy pomysł "a może dodamy..." → odpowiedź brzmi: **po launchu, nie teraz
 
 ## Kluczowe liczby (balans)
 
-- Runda: 5s spawn + 20s easy + 20s mid + 20s hard + 15s endgame = 80s. Lobby 15s.
-- Lawa: 0.6 → 1.2 → 2.0 → 3.0 stud/s. Kontakt z lawą zabija po 7 s (nie od razu).
+- Runda: 80 s bez faz (od 11.10) + 3-2-1 na starcie i 3 s na koniec. Lobby 25 s.
+- Lawa: płynnie 0 → 3.0 stud/s przez całą rundę. Kontakt z lawą zabija po 7 s (nie od razu).
   ⚠️ Obecnie testowo: runda 240 s i lawa 3× wolniej — do cofnięcia przed launchem.
 - Bomba 50$ (odpalenie 2.5s, zasięg rażenia graczy 22, niszczenie terenu 24, szyby 35),
   most 100$ (od 08.10 dłuższy: 16 studów), **hak 40$ (zasięg 70)**, push F co 4s.
 - Nagrody: przetrwanie 100$, kill 25$, kasa z mapy 10$/szt. (Daily skasowane 12.09 —
   do zrobienia od nowa.)
 - Start gracza: 100$ na dzień dobry.
+
+## Stan na 2026-10-20
+
+- **Wszystko zapisane i na GitHubie** — kod obu agentów w jednym commicie, jedna gałąź `main`.
+- **Nowe od 10.10 (wszystko czeka na test w Play poza wyjściem z Play)**: ekwipunek — wybór 3 itemów na rundę, tylko w lobby; klasyczny wygląd paneli z czarnym obrysem; ikony itemów z renderu modeli (zaakceptowane); napis SHOP nad sprzedawcą; odliczanie 3-2-1 na mapie i 3 s końca rundy; „YOU SURVIVED! +100$” tylko dla ocalałego (zamiast listy zwycięzców dla wszystkich); żywszy zielony licznik kasy; ekran ładowania (czarne tło, napis, pasek); lobby 25 s; szybsze wyjście z testu w Studio (potwierdzone).
+- **Do decyzji**: przestylowanie sklepu (dziś stary panel po polsku), panel ustawień z Figmy, kolejne itemy (RPG, sticky bomb, energy drink), zamrożenie destrukcji po dwóch zaliczonych testach.
 
 ## Stan na 2026-10-10
 
