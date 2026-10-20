@@ -33,6 +33,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
@@ -424,6 +425,36 @@ function ShopController.init()
 		if not lobby then
 			warnOnce("lobby", "brak Workspace.Lobby — sklep nie otworzy się promptem")
 			return
+		end
+		-- Napis SHOP nad sprzedawcą: kolory lawy płyną przez litery W KÓŁKO. Przesuwany tweenem
+		-- gradient Robloxa na końcu przeskakuje (poza zakresem powtarza skrajny kolor), więc
+		-- gradient liczymy co klatkę z zapętlonej palety. Daleko od lobby (poza MaxDistance) nic
+		-- się nie liczy.
+		local sign = lobby:FindFirstChild(CFG.SignName, true)
+		local label = sign and sign:FindFirstChild("Label", true)
+		local grad = label and label:FindFirstChild("Lava")
+		if sign and sign:IsA("BillboardGui") and grad and grad:IsA("UIGradient") then
+			local palette = CFG.SignFlowColors
+			local n = #palette
+			local function sample(u: number): Color3
+				local x = (u % 1) * n
+				local i = math.floor(x)
+				local a, b = palette[i + 1], palette[(i + 1) % n + 1]
+				return a:Lerp(b, x - i)
+			end
+			local adornee = sign.Parent
+			RunService.Heartbeat:Connect(function()
+				local cam = Workspace.CurrentCamera
+				if not (cam and adornee and adornee:IsA("BasePart")) then return end
+				if (cam.CFrame.Position - adornee.Position).Magnitude > sign.MaxDistance + 10 then return end
+				local phase = os.clock() * CFG.SignFlowSpeed
+				local keys = table.create(7)
+				for k = 0, 6 do
+					local x = k / 6
+					keys[k + 1] = ColorSequenceKeypoint.new(x, sample(x * CFG.SignFlowSpan - phase))
+				end
+				grad.Color = ColorSequence.new(keys)
+			end)
 		end
 		local hooked = false
 		local function hook(inst: Instance)

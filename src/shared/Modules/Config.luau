@@ -51,8 +51,10 @@ Config.Dev = {
 Config.Game = {
 	MinPlayers = 1, -- TODO Day 7: ustaw na 2 przed publishem.
 	MaxPlayers = 20,
-	LobbyDuration = 15,
+	LobbyDuration = 25, -- 19.10: +10 s (prośba Kacpra „10 sekund więcej w lobby na start”)
 	PostRoundDuration = 10,
+	StartCountdown = 3,
+	FinishHold = 3,
 
 	-- ⚠️ WYŁĄCZA DOMYŚLNĄ REGENERACJĘ ŻYCIA (decyzja Kacpra 2026-09-21, razem z lawą
 	-- raniącą zamiast zabijającej na miejscu). Roblox wkłada do każdej postaci skrypt
@@ -277,22 +279,38 @@ Config.Lava = {
 		UpdateHz = 20,
 	},
 
-	-- V4: sześć lokalnych skupisk, stała pula; bez emitterów na całej mapie.
+	-- V5: fixed local pool, 8 vents desktop / 4 touch or low quality.
 	-- Tylko LavaSurfaceController. Damage/Submerged/Swim są niezależne.
 	FX = {
 		MinSurfaceY = 9,
 		MinSurfaceHysteresis = 1.2,
 		Distance = 140,
-		VentCount = 6,
+		VentCount = 8,
+		LowVentCount = 4,
+		LowLightCount = 1,
+		LowParticleScale = 0.55,
+		LowQualityLevel = 3,
+		EmitterLift = 0.18,
+		CoreSeconds = 0.5,
+		CoreStartScale = 0.6,
+		CoreSpread = 0.5,
+		CoreThickness = 0.12,
+		CoreLift = 0.04,
+		CoreTransparency = 0.4,
+		EmberDrag = 1.4,
+		SmokeDrag = 0.6,
+		SmokeDrift = Vector3.new(0.6, 0.35, -0.3),
+		LightBreath = 0.14,
+		LightBreathSpeed = 2.3,
 		VentSpread = 48,
 		VentMinRadius = 10,
 		RelocateDistance = 85,
-		CycleMin = 3.2,
-		CycleMax = 5.2,
+		CycleMin = 4.8,
+		CycleMax = 6.8,
 		GrowFraction = 0.42,
 		PopFadeFraction = 0.08,
-		BubbleMin = 2.8,
-		BubbleMax = 5.8,
+		BubbleMin = 1.8,
+		BubbleMax = 5.2,
 		BubbleHeightRatio = 0.32,
 		BubbleColor = Color3.fromRGB(38, 20, 23),
 		HotColor = Color3.fromRGB(210, 18, 25),
@@ -324,7 +342,7 @@ Config.Lava = {
 		LightCount = 2,
 		LightRange = 11,
 		LightHeight = 1.2,
-		LightColor = Color3.fromRGB(255, 65, 42),
+		LightColor = Color3.fromRGB(255, 42, 30),
 		LightBaseBrightness = 0.8,
 		LightPopBrightness = 1.5,
 		LightFadeSeconds = 0.45,
@@ -340,12 +358,17 @@ Config.UI = {
 	-- (skala = wysokośćEkranu / ReferenceHeight). Wartości projektowe px są "przy 1440",
 	-- ale 1200 daje ~20% większy render — kalibracja pod feel Kacpra (1440 było za małe).
 	ReferenceHeight = 1200,
+	-- ScreenGui skalowane tą samą regułą (HudScaleController). 18.10: + panel ekwipunku.
+	ScaledGuis = { "HUD", "Inventory" },
 	MinScale = 0.5,         -- safety: nie zmniejszaj HUD poniżej połowy (mikro-okna)
 	MaxScale = 2.0,         -- safety: nie rozdmuchuj powyżej 2× (ultra-tall porty)
 
 	-- Wyciągnięcie itemu w pasku (HotbarController, 11.10): wybrany slot podskakuje, zostaje
 	-- wyżej i trochę większy, ikona się buja; po schowaniu opada. Px = px projektu.
 	HotbarEquip = {
+		-- 18.10 (zgłoszenie Kacpra: „sloty lekko nachodzą, przejście ma być płynne jak w grze”):
+		-- bez skoku skali do 1,2 w jednej klatce (to wjeżdżało na sąsiada i szarpało) — skala
+		-- i pozycja jadą jednym płynnym tweenem; sloty w Studio rozsunięte na 30 px odstępu.
 		Raise = 16,           -- px: o ile wybrany slot jest wyżej
 		RaiseTime = 0.24,     -- s: wjazd w górę
 		SelectedScale = 1.05, -- skala wybranego slotu (przy odstępie 30 px nie dotyka sąsiada)
@@ -372,17 +395,42 @@ Config.UI = {
 		ClosedScale = 0.9,    -- skala panelu na starcie wskoku
 		BackdropTransparency = 0.45, -- ściemnienie gry pod otwartym panelem
 		HoverScale = 1.07,    -- karta / przycisk pod kursorem
+		HoverTilt = -3,       -- stopnie: karta pod kursorem lekko się przechyla (19.10, „bardziej zanimuj”)
+		IntroDelay = 0.08,    -- s: po otwarciu karty i sloty wskakują po kolei…
+		IntroStagger = 0.045, -- …co tyle sekund jedna po drugiej
+		IntroTime = 0.32,     -- s: wskok jednej karty (Back)
+		CloseDrop = 50,       -- px: panel opada przy zamykaniu
 		FlyTime = 0.28,       -- s: ikona przelatuje z półki do slotu
 		SnapDrop = 40,        -- px: ikona wpada do slotu z tej wysokości…
 		SnapTime = 0.4,       -- …i odbija się (Bounce)
 		DragThreshold = 10,   -- px: od tylu ruch z wciśniętym przyciskiem to przeciąganie, nie klik
-		LavaScroll = { 16, -9 }, -- px/s: przesuw warstw lawy pod loadoutem (Lava1, Lava2)
+		-- Przeciąganie całej karty / slotu (19.10, prośba Kacpra: „cały slot się porusza i elastycznie
+		-- wraca albo wchodzi na loadout”).
+		DragLift = 1.1,       -- karta „uniesiona” w trakcie przeciągania
+		DragOriginScale = 0.85, -- miejsce, z którego ją wzięto, kurczy się na ten czas
+		DragTiltPerPx = 0.6,  -- stopnie przechyłu na piksel ruchu w klatce…
+		DragTiltMax = 14,     -- …najwyżej tyle
+		DropTime = 0.55,      -- s: sprężysty wskok do slotu (Elastic)
+		ReturnTime = 0.65,    -- s: sprężysty powrót na miejsce (Elastic)
+		LavaScroll = { 16 },  -- px/s: przesuw lawy w panelach (`Lava1`; 19.10: jedna warstwa, druga usunięta)
 		StatMax = 5,          -- pełny pasek cechy = 5 studsów (`ItemDefinitions.<id>.stats`)
 		StatTime = 0.35,      -- s: dojazd pasków przy zmianie itemu
-		ModelSpin = 0.7,      -- rad/s: obrót modelu w DETAILS
-		ModelTilt = 18,       -- stopnie: kamera modelu lekko z góry
-		ModelFill = 1.05,     -- odległość kamery = promień modelu × to (mniej = większy model)
-		ModelLookUp = 0.22,   -- kamera celuje tyle wysokości modelu NAD środek → model stoi na cieniu
+		-- DETAILS (19.10, prośba Kacpra: „kręcenie się itemu i real oświetlenie”): ViewportFrame ma
+		-- uproszczone światło (szarawe), więc item to PRAWDZIWY obiekt w świecie — lokalna,
+		-- pomniejszona kopia tuż przed kamerą, widoczna przez okno w panelu (`Details.Window`),
+		-- z lampami jak na zdjęciach ikon. Liczby względem promienia modelu po pomniejszeniu.
+		ModelSpin = 0.7,      -- rad/s: obrót itemu
+		ModelTilt = 18,       -- stopnie: item pochylony do kamery (widać go lekko z góry)
+		ShowcaseRadius = 0.3, -- studs: promień itemu po pomniejszeniu (blisko kamery = nic ze świata nie wejdzie)
+		ShowcaseFill = 0.85,  -- jaką część wysokości okna zajmuje kula opisana na itemie (margines od ramki)
+		ShowcaseBackDepth = 8, -- tło tyle promieni za itemem (dalej niż lampy — inaczej łapie ich światło)
+		ShowcaseBackColor = Color3.fromRGB(20, 17, 24), -- tło za itemem (Neon = równy kolor, ciemniejszy od panelu)
+		-- lampy: przesunięcie w promieniach (x w prawo, y w górę, z do kamery), jasność, zasięg w promieniach
+		ShowcaseLights = {
+			{ offset = Vector3.new(-3.4, 3.8, 4.2), brightness = 4, range = 12, color = Color3.fromRGB(255, 236, 210), shadows = true },
+			{ offset = Vector3.new(3, 2.1, -3), brightness = 5, range = 8.5, color = Color3.fromRGB(170, 205, 255), shadows = false },
+			{ offset = Vector3.new(3.4, -0.85, 4.2), brightness = 1.2, range = 10, color = Color3.fromRGB(255, 245, 235), shadows = false },
+		},
 		-- Kolor karty itemu. Nowy item bez wpisu = `DefaultItemColor`; x0 = szara karta.
 		ItemColors = {
 			bomb = Color3.fromRGB(226, 52, 40),
@@ -394,27 +442,37 @@ Config.UI = {
 		SelectedColor = Color3.fromRGB(255, 255, 255), -- obrys wybranej karty / slotu-celu (jak w pasku)
 		EmptyColor = Color3.fromRGB(235, 45, 45), -- x0: puls ramki slotu PASKA w lobby
 		EmptyPulsePeriod = 1.1, -- s: jeden puls
-		LockedText = "CHANGE LOADOUT IN LOBBY",
-		FullText = "LOADOUT FULL — PICK A SLOT",
+		-- DETAILS jako osobne okno (19.10, decyzja Kacpra): wysuwa się zza głównego okna po kliknięciu
+		-- itemu, a para zjeżdża razem na środek. Klik = podgląd; do loadoutu przycisk w DETAILS.
+		DetailsGap = 24,      -- px: odstęp między głównym oknem a DETAILS
+		DetailsSlideTime = 0.32, -- s: wysuwanie / chowanie DETAILS (Back przy wysuwaniu)
+		AddText = "ADD TO LOADOUT",
+		RemoveText = "REMOVE",
+		SwapText = "SWAP INTO SLOT",
+		PickSlotText = "PICK A SLOT TO SWAP",
+		AddColors = { Color3.fromRGB(70, 215, 95), Color3.fromRGB(10, 140, 52) },   -- gradient jak kasa
+		RemoveColors = { Color3.fromRGB(255, 95, 80), Color3.fromRGB(200, 30, 25) }, -- jak X
+		SwapColors = { Color3.fromRGB(255, 240, 33), Color3.fromRGB(255, 130, 0) },  -- jak licznik czasu
 		ShopFullText = "ADD IT IN INVENTORY",
 	},
 
 	-- Licznik czasu na górze (UIController, 11.10): wskok napisu przy zmianie stanu i nerwowe
-	-- ScreenGui skalowane tą samą regułą (HudScaleController). 18.10: + panel ekwipunku.
-	ScaledGuis = { "HUD", "Inventory" },
 	-- ostatnie sekundy (czerwony gradient + wskok co sekundę).
 	Timer = {
 		StatePop = 1.25,      -- skala napisu stanu w chwili zmiany (LOBBY → ROUND → ROUND OVER)
 		StatePopTime = 0.4,
 		UrgentSeconds = 10,   -- od ilu sekund do końca odliczanie robi się nerwowe
 		TickPop = 1.22,       -- wskok czasu co sekundę w tej końcówce
-		-- 18.10 (zgłoszenie Kacpra: „sloty lekko nachodzą, przejście ma być płynne jak w grze”):
-		-- bez skoku skali do 1,2 w jednej klatce (to wjeżdżało na sąsiada i szarpało) — skala
-		-- i pozycja jadą jednym płynnym tweenem; sloty w Studio rozsunięte na 30 px odstępu.
 		TickPopTime = 0.3,
 		UrgentTop = Color3.fromRGB(255, 150, 120),   -- gradient czasu w końcówce (góra → dół)
 		UrgentBottom = Color3.fromRGB(215, 25, 25),
 	},
+}
+
+-- Loadout (18.10): ile itemów gracz bierze na rundę. Zmiana liczby = nowe sloty w HUD.Hotbar
+-- i w panelu Inventory (kontrakt w docs/STUDIO_CONTRACT.md).
+Config.Loadout = {
+	Slots = 3,
 }
 
 Config.Spawn = {
@@ -435,12 +493,6 @@ Config.Map = {
 	-- to osobna jednostka. Wszystko inne pod `Workspace.Map` (poza `Locked`) też jest
 	-- jednostką — w całości.
 	RestoreGroups = {
--- Loadout (18.10): ile itemów gracz bierze na rundę. Zmiana liczby = nowe sloty w HUD.Hotbar
--- i w panelu Inventory (kontrakt w docs/STUDIO_CONTRACT.md).
-Config.Loadout = {
-	Slots = 3,
-}
-
 		{ "Map", "Map", "Buildings" },
 		{ "Map", "Map", "OutsideDecorations" },
 	},
@@ -456,6 +508,12 @@ Config.Loadout = {
 -- silnik miał chwilę na zbudowanie oświetlenia wokół kamery (świat renderuje się POD
 -- zasłoną, więc ten czas nie idzie na marne).
 Config.RoundTransition = {
+	ResetCoverTime = 0.6,
+	PrepareMaxHold = 20,
+	ExitHold = 1.2,
+	CountdownScale = 0.63,
+	CountdownPopTime = 0.22,
+	CountdownStartScale = 1.15,
 	FadeInTime = 0.35,      -- ściemnianie pod koniec odliczania lobby
 	FadeOutTime = 0.5,      -- rozjaśnianie na mapie
 	-- Ile trzymać ciemno PO tym, jak gracz stoi na mapie — czas dla oświetlenia i cieni.
@@ -1022,6 +1080,9 @@ Config.RateLimits = {
 	-- EquipItem+UnequipItem: klik hotbar slot. Spam clickowanie = flickering Tool
 	-- w rękach innych klientów + bandwidth. 0.15s = ~7 kliknięć/s max, ludzki reflex OK.
 	EquipItem = 0.15,
+	-- Zmiana loadoutu w ekwipunku (18.10). Klient zbiera szybkie kliknięcia i wysyła ostatni
+	-- stan po `Config.UI.Inventory.SendDelay`, więc limit nie dotyka człowieka.
+	SetLoadout = 0.2,
 	-- Zakupy w sklepie: SUFIT na spam remote'a, nie cooldown (przegląd 29.09). Człowiek nie
 	-- kliknie KUP 10 razy na sekundę; limit 0,5 s między zakupami usunięto wcześniej, bo
 	-- blokował zwykłe klikanie — nie wracać do niego.
@@ -1046,9 +1107,6 @@ Config.AntiCheat = {
 	GraceAfterImpulseSec = 4,
 }
 
-	-- Zmiana loadoutu w ekwipunku (18.10). Klient zbiera szybkie kliknięcia i wysyła ostatni
-	-- stan po `Config.UI.Inventory.SendDelay`, więc limit nie dotyka człowieka.
-	SetLoadout = 0.2,
 -- Komunikat „YOU KILLED <nick>” dla zabójcy (KillMessageController, 10.10, projekt z Figmy).
 -- Wygląd w Studio (`HUD.KillMessage`); tu tylko czasy i kolor słowa „KILLED”.
 Config.KillMessage = {
@@ -1057,6 +1115,16 @@ Config.KillMessage = {
 	PopScale = 1.35,  -- wskok: start z tej skali do 1
 	PopTime = 0.3,
 	KilledColor = Color3.fromRGB(159, 0, 0), -- Figma: #9F0000
+}
+
+-- Komunikat „YOU SURVIVED!” + nagroda dla ocalałego (WinMessageController, 20.10).
+-- Wygląd w Studio (`HUD.WinMessage`); tu tylko czasy. Pokaz + wygaszanie mieszczą się
+-- w `Game.FinishHold` (3 s) — potem zasłania go ciemne przejście do lobby.
+Config.WinMessage = {
+	ShowTime = 2.4,
+	FadeTime = 0.35,
+	PopScale = 1.35,
+	PopTime = 0.3,
 }
 
 Config.Rewards = {
@@ -1105,6 +1173,18 @@ Config.Shop = {
 	-- Nazwa promptu to JEDYNE, co łączy serwer z klientem w tej sprawie: serwer go
 	-- tworzy (albo zastaje Twój), klient szuka pod tą nazwą i nie musi znać ścieżki NPC.
 	PromptName = "ShopPrompt",
+	-- Napis „SHOP” nad sprzedawcą (19.10, wybór Kacpra: „płynąca lawa”): BillboardGui `ShopSign`
+	-- w głowie NPC (MaxDistance 90 = widać tylko w lobby — mapa jest 300+ studów dalej). Kolory
+	-- lawy płyną przez litery w kółko (`Body.Label.Lava`, kod przelicza gradient co klatkę).
+	SignName = "ShopSign",
+	SignFlowSpeed = 0.35, -- cykle palety na sekundę (szybkość płynięcia)
+	SignFlowSpan = 1.0,   -- ile cykli palety mieści się na szerokości napisu
+	SignFlowColors = {    -- zapętlona paleta: czerwony → pomarańczowy → żółty → pomarańczowy → …
+		Color3.fromRGB(255, 60, 20),
+		Color3.fromRGB(255, 170, 30),
+		Color3.fromRGB(255, 245, 120),
+		Color3.fromRGB(255, 170, 30),
+	},
 	PromptActionText = "Sklep",
 	PromptObjectText = "Sprzedawca",
 	PromptKeyCode = Enum.KeyCode.E,
@@ -1959,6 +2039,15 @@ table.freeze(Config.Dev)
 table.freeze(Config.Game)
 table.freeze(Config.PlayerData)
 table.freeze(Config.UI.HotbarEquip)
+table.freeze(Config.UI.Inventory.ItemColors)
+table.freeze(Config.UI.Inventory.LavaScroll)
+table.freeze(Config.UI.Inventory.AddColors)
+table.freeze(Config.UI.Inventory.RemoveColors)
+table.freeze(Config.UI.Inventory.SwapColors)
+for _, l in ipairs(Config.UI.Inventory.ShowcaseLights) do table.freeze(l) end
+table.freeze(Config.UI.Inventory.ShowcaseLights)
+table.freeze(Config.UI.Inventory)
+table.freeze(Config.Loadout)
 table.freeze(Config.UI.Timer)
 table.freeze(Config.UI)
 -- Spawn ma Vector3 fields — freeze tylko po:
@@ -1983,12 +2072,9 @@ table.freeze(Config.Cash.Fly.Notes)
 table.freeze(Config.Cash.Fly)
 table.freeze(Config.Cash.PickupTrail)
 table.freeze(Config.Cash.DigitDisplay)
-table.freeze(Config.UI.Inventory.ItemColors)
-table.freeze(Config.UI.Inventory.LavaScroll)
-table.freeze(Config.UI.Inventory)
-table.freeze(Config.Loadout)
 table.freeze(Config.Cash)
 table.freeze(Config.Bridge)
+table.freeze(Config.Shop.SignFlowColors)
 table.freeze(Config.Shop)
 table.freeze(Config.Movement.Stamina)
 table.freeze(Config.Movement.StaminaBar)
@@ -2004,6 +2090,7 @@ table.freeze(Config.Push)
 table.freeze(Config.RateLimits)
 table.freeze(Config.AntiCheat)
 table.freeze(Config.KillMessage)
+table.freeze(Config.WinMessage)
 table.freeze(Config.Rewards)
 table.freeze(Config.Destruction.Categories.Wall)
 table.freeze(Config.Destruction.Categories.Glass)

@@ -63,6 +63,12 @@ id obrazków) są w `docs/STUDIO_CONTRACT.md` → „UI z Figmy” — tu tylko 
   w kodzie z rozmiaru (pasek staminy), padding w skali.
 - **`UIScale` skaluje wokół `AnchorPoint`** — element, który ma „wskakiwać” ze środka,
   potrzebuje kotwicy 0,5/0,5.
+- **Dwa układy współrzędnych (19.10, ekwipunek: w Edit dobrze, w Play wszystko wyżej o pasek
+  Robloxa)**: `AbsolutePosition` i `InputObject.Position` liczą od miejsca POD paskiem, a GUI z
+  `IgnoreGuiInset` / `DeviceSafeInsets` ustawia dzieci od górnego brzegu ekranu. Pozycja w takim
+  GUI = punkt − `ScreenGui.AbsolutePosition` (zapas: + `GuiService:GetGuiInset()`), promień kamery
+  z punktu GUI = `Camera:ScreenPointToRay` (NIE `ViewportPointToRay`). W Edit pasek ma 0 px —
+  podgląd tego nie złapie.
 - **Słabe tabele (`__mode = "k"`) z Instance jako kluczem gubią wpisy** — stan UI trzymać w
   zwykłych tabelach (ramka slotu nie znikała, połysk stawał).
 

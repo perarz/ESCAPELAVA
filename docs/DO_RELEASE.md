@@ -21,7 +21,7 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
 - [x] **Panel „Ekwipunek"** — zbudowany 18.10 przez MCP (styl HUD); Kacper ocenia wygląd. — tu wybierasz 3 itemy na rundę (decyzja 30.09). Kontrakt nazw i pułapka `ResetOnSpawn` w `docs/ROADMAP.md` → „PLAN: LOADOUT”. Stoisko loadoutu NIE powstaje.
 - [ ] **5 dźwięków destrukcji**: wybuch, szkło, uderzenie, trzask, zawalenie — podaj id.
   *dla Claude'a:* `Config.Destruction.FX`.
-- [ ] **Kill feed i baner zwycięzcy** — dziś zrobione w kodzie; do przeniesienia do Studio? (decyzja)
+- [x] **Kill feed i baner zwycięzcy** — oba w Studio: `HUD.KillMessage` (10.10) i `HUD.WinMessage` „YOU SURVIVED!” tylko dla ocalałego (20.10).
 
 ---
 

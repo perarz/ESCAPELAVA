@@ -63,9 +63,8 @@ function LoadoutState.slotOf(itemId: string): number?
 	return table.find(loadout, itemId)
 end
 
--- Zmiana z panelu. Zwraca false poza lobby (panel pokazuje wtedy komunikat).
+-- Zmiana z panelu — w każdej chwili, też w rundzie (decyzja Kacpra 19.10).
 function LoadoutState.set(newLoadout: { string }): boolean
-	if not LoadoutState.isLobby() then return false end
 	loadout = clean(newLoadout)
 	notify()
 	sendToken += 1

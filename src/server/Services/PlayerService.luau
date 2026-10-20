@@ -35,6 +35,14 @@ local diedConns: { [Player]: RBXScriptConnection } = {}
 -- który zastanie inny żeton, nic nie robi — gracza przejął już inny spawn. Koniec rundy
 -- zostawia martwych z timerem jemu; martwego BEZ timera odradza sam.
 local respawnPending: { [Player]: {} } = {}
+local startLocks: { [BasePart]: boolean } = {}
+
+local function releaseStartLocks()
+	for root, anchored in pairs(startLocks) do
+		if root.Parent then root.Anchored = anchored end
+	end
+	table.clear(startLocks)
+end
 -- Spawn w toku (LoadCharacter + teleport). Dwa spawny jednego gracza naraz kończą się
 -- w nieznanej kolejności: zostaje postać, która załadowała się OSTATNIA, a teleport
 -- drugiego trafia nie w tę postać. Realne od 26.09 (odradzanie także poza rundą): ktoś
@@ -184,7 +192,7 @@ local function getAliveCount(): number
 end
 
 function PlayerService.isAlive(player: Player): boolean
-	return aliveSet[player] == true
+	return aliveSet[player] == true and GameLoopService.getState() == GameLoopService.STATE.ROUND
 end
 
 function PlayerService.getAliveList(): { Player }
@@ -318,6 +326,7 @@ end
 local LOBBY_NEAR_THRESHOLD = 25 -- stud; ponad = teleport, poniżej = zostaw w lobby
 
 local function sendSurvivorsToLobby()
+	releaseStartLocks()
 	-- POST_ROUND/LOBBY: teleportuj TYLKO graczy fizycznie daleko od lobby spota.
 	-- Martwi spectator'zy są już w lobby po onDeath — nie chcemy ich znowu LoadCharacter.
 	-- Martwy, który jeszcze leży jako ragdoll (DeathRagdollTime), wróci sam — bez tego
@@ -350,6 +359,7 @@ local function sendSurvivorsToLobby()
 end
 
 local function sendEveryoneToRound()
+	releaseStartLocks()
 	-- Pre-populate aliveSet SYNCHRONICZNIE przed jakimkolwiek yield, żeby
 	-- GameLoop.shouldEndRound widział alive>0 zanim my zdążymy zrobić LoadCharacter.
 	aliveSet = {}
@@ -399,8 +409,17 @@ local function sendEveryoneToRound()
 	-- wariant rozciągał spawn na ~20 klatek i część graczy była w rundzie wcześniej niż reszta.
 	task.wait()
 	for _, entry in ipairs(spawned) do
-		if entry.char.Parent then
+		local hum = entry.char:FindFirstChildOfClass("Humanoid")
+		if entry.player.Parent and entry.player.Character == entry.char and entry.char.Parent
+			and hum and hum.Health > 0 and aliveSet[entry.player] then
 			entry.char:PivotTo(CFrame.new(entry.pos))
+			local root = entry.char:FindFirstChild("HumanoidRootPart")
+			if root and root:IsA("BasePart") then
+				startLocks[root] = root.Anchored
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
+				root.Anchored = true
+			end
 			-- PO teleporcie (07.10): klient traktuje to jako „stoisz na mapie” i dopiero
 			-- wtedy zdejmuje ciemne przejście (RoundTransitionController). Wysłane przed
 			-- PivotTo przychodziło, gdy postać stała jeszcze w lobby.
@@ -449,6 +468,7 @@ function PlayerService.init()
 	anchorSpawnMarkers()
 
 	GameLoopService.setAliveCountProvider(getAliveCount)
+	GameLoopService.setRoundPreparer(sendEveryoneToRound)
 
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(onPlayerRemoving)
@@ -459,7 +479,7 @@ function PlayerService.init()
 
 	GameLoopService.StateChanged:Connect(function(newState: string)
 		if newState == GameLoopService.STATE.ROUND then
-			sendEveryoneToRound()
+			releaseStartLocks()
 		elseif newState == GameLoopService.STATE.LOBBY
 			or newState == GameLoopService.STATE.POST_ROUND then
 			sendSurvivorsToLobby()

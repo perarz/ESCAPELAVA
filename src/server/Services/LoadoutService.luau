@@ -8,7 +8,8 @@
 --   * Slot trzyma item także przy 0 sztuk — klawisze 1-2-3 nigdy się nie przestawiają.
 --   * Nowy item z wolnym slotem wskakuje sam (`addIfFree`, woła sklep) — nowy gracz nigdy nie
 --     musi otwierać ekwipunku, żeby zagrać.
---   * Zmiana tylko w LOBBY — inaczej „3 z 6” nic nie znaczy. Sprawdza serwer, nie tylko UI.
+--   * Zmiana tylko w LOBBY (19.10, ostatnia decyzja Kacpra: „usuń inventory podczas rundy” —
+--     panel i przycisk znikają poza lobby). Sprawdza serwer, nie tylko UI.
 --   * Wyciągnąć można tylko item z loadoutu (`canEquip` w Bomb/Bridge/GrappleService).
 --
 -- API:
@@ -96,7 +97,7 @@ end
 
 function LoadoutService.addIfFree(player: Player, itemId: string): boolean
 	local loadout = current(player)
-	if not loadout then return false end
+	if not loadout or GameLoopService.getState() ~= GameLoopService.STATE.LOBBY then return false end
 	if table.find(loadout, itemId) then return true end
 	local free = table.find(loadout, "")
 	if not free then return false end
@@ -123,7 +124,7 @@ local function onSetLoadout(player: Player, raw: any)
 	lastSetAt[player] = now
 
 	local loadout = sanitize(raw)
-	if not loadout or GameLoopService.getState() ~= GameLoopService.STATE.LOBBY then
+	if not loadout then
 		LoadoutService.replicateTo(player)
 		return
 	end

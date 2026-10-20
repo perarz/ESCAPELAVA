@@ -11,7 +11,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local REMOTE_NAMES = {
-	"GameStateChanged",   -- (stateName: string, payload: table?)
+	"GameStateChanged",   -- (stateName: string, remainingSeconds: number, endsAtServerTime: number)
+	                      -- LOBBY/PREPARING/COUNTDOWN/ROUND/FINISHING/RESETTING/POST_ROUND
 	"PlayerDied",         -- (player: Player, reason: string)
 	"RoundEnded",         -- (survivors: {Player}, payload: table?)
 	"ClientReady",        -- klient→server: FireServer() bez payloadu — klient podpiął listenery
@@ -20,10 +21,10 @@ local REMOTE_NAMES = {
 	"CashChanged",        -- FireClient: (balance: number, delta: number?, reason: string?)
 	"CashCollected",      -- FireAllClients: (player: Player, fromPosition: Vector3) — klient animuje pickup
 	"InventoryChanged",   -- FireClient: (inventory: {[itemId: string] = count: number})
-	"BuyItem",            -- klient→server: FireServer(itemId: string) — zakup w sklepie-NPC
 	"SetLoadout",         -- klient→server: FireServer(loadout: {string}) — 3 itemId, "" = pusty slot.
 	                      --   Tylko w LOBBY; serwer czyści (istniejące, bez powtórzeń) — LoadoutService
 	"LoadoutChanged",     -- FireClient: (loadout: {string}) — 3 itemId, "" = pusty (18.10)
+	"BuyItem",            -- klient→server: FireServer(itemId: string) — zakup w sklepie-NPC
 	"ShopResult",         -- FireClient: (success: boolean, itemId: string, reason: string?)
 	"EquipItem",          -- klient→server: FireServer(itemId: string) — dispatch po itemId,
 	                      --   każdy service equipowalnego itemu słucha i reaguje na SWÓJ id
@@ -37,7 +38,7 @@ local REMOTE_NAMES = {
 	"BridgeResult",       -- FireClient: (success: boolean, reason: string?) — feedback build
 	"HeadAim",            -- klient→server: FireServer(yaw: number, pitch: number) — radianach, throttled ~10Hz
 	                      -- server→klient: FireClient(sourcePlayer: Player, yaw: number, pitch: number) — broadcast do innych
-	"RoundWon",           -- FireAllClients: (winners: {Player}, rewardPerPlayer: number) — banner "NAME WON $X"
+	"RoundWon",           -- FireAllClients: (winners: {Player}, rewardPerPlayer: number) — „YOU SURVIVED! +X$” tylko u ocalałych (WinMessageController)
 	"PlayerKilled",       -- FireClient(zabójca): (killer: Player, victim: Player, weapon: string, reward: number) — komunikat „YOU KILLED”
 	"AliveChanged",       -- FireClient: (isAlive: boolean) — server-side aliveSet zmiana (round spawn=true, death=false)
 	                      --   `true` idzie PO teleporcie na mapę (07.10) — RoundTransitionController

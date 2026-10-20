@@ -4,6 +4,7 @@
 -- Height hysteresis intentionally replaces exposure raycasts (streaming ambiguity).
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local FX = Config.Lava.FX
@@ -14,11 +15,12 @@ local wave = nil
 local rng = Random.new()
 
 type Vent = {
-	anchor: Part, bubble: Part,
+	anchor: Part, bubble: Part, core: Part,
 	embers: ParticleEmitter, smoke: ParticleEmitter,
 	sparks: ParticleEmitter, drops: ParticleEmitter,
 	light: PointLight?, age: number, duration: number,
 	x: number, z: number, size: number, popped: boolean, active: boolean,
+	strength: number, rotation: number,
 }
 type Layer = { texture: Texture, u: number, v: number, alpha: number, amount: number, period: number }
 local vents: { Vent } = {}
@@ -27,6 +29,9 @@ local surface: BasePart? = nil
 local lavaFolder: Instance? = nil
 local effects: Folder? = nil
 local childConnections: { RBXScriptConnection } = {}
+local ventLimit = FX.VentCount
+local lightLimit = FX.LightCount
+local particleScale = 1
 local initialized = false
 local heightAllowed = false
 local running = false
@@ -67,12 +72,16 @@ local function buildPool()
 	folder.Name = "LavaFX"
 	folder.Parent = Workspace
 	effects = folder
-	for i = 1, FX.VentCount do
+	for i = 1, ventLimit do
 		local anchor = cosmeticPart("Vent" .. i, folder)
 		local bubble = cosmeticPart("CrustBubble" .. i, folder)
 		bubble.Shape = Enum.PartType.Ball
 		bubble.Material = Enum.Material.Neon
 		bubble.Color = FX.BubbleColor
+		local core = cosmeticPart("MoltenCore" .. i, folder)
+		core.Shape = Enum.PartType.Ball
+		core.Material = Enum.Material.Neon
+		core.Color = FX.HotColor
 		local embers = emitter("Embers", anchor, FX.SparkTexture)
 		embers.Color = ColorSequence.new(FX.HotColor, FX.CoolColor)
 		embers.Size = NumberSequence.new(0.18, 0.04)
@@ -81,7 +90,8 @@ local function buildPool()
 		embers.Speed = NumberRange.new(FX.EmberSpeedMin, FX.EmberSpeedMax)
 		embers.SpreadAngle = Vector2.new(25, 25)
 		embers.LightEmission = 0.7
-		embers.Rate = FX.EmberRate
+		embers.Rate = FX.EmberRate * particleScale
+		embers.Drag = FX.EmberDrag
 		local smoke = emitter("Smoke", anchor, FX.SmokeTexture)
 		smoke.Color = ColorSequence.new(FX.SmokeColor, FX.SmokeEndColor)
 		smoke.Size = NumberSequence.new(FX.SmokeSizeMin, FX.SmokeSizeMax)
@@ -94,7 +104,9 @@ local function buildPool()
 		smoke.SpreadAngle = Vector2.new(28, 28)
 		smoke.Rotation = NumberRange.new(-180, 180)
 		smoke.RotSpeed = NumberRange.new(-18, 18)
-		smoke.Rate = FX.SmokeRate
+		smoke.Rate = FX.SmokeRate * particleScale
+		smoke.Acceleration = FX.SmokeDrift
+		smoke.Drag = FX.SmokeDrag
 		local sparks = emitter("PopSparks", anchor, FX.SparkTexture)
 		sparks.Color = ColorSequence.new(FX.HotColor, FX.CoolColor)
 		sparks.Size = NumberSequence.new(0.3, 0.04)
@@ -117,7 +129,7 @@ local function buildPool()
 		drops.Acceleration = Vector3.new(0, -FX.DropGravity, 0)
 		drops.LightEmission = 0.5
 		local light: PointLight? = nil
-		if i <= FX.LightCount then
+		if i <= lightLimit then
 			local attachment = Instance.new("Attachment")
 			attachment.Position = Vector3.new(0, FX.LightHeight, 0)
 			attachment.Parent = anchor
@@ -128,15 +140,16 @@ local function buildPool()
 			light.Brightness = 0
 			light.Parent = attachment
 		end
-		table.insert(vents, {anchor=anchor, bubble=bubble, embers=embers, smoke=smoke,
+		table.insert(vents, {anchor=anchor, bubble=bubble, core=core, embers=embers, smoke=smoke,
 			sparks=sparks, drops=drops, light=light, age=0, duration=1,
-			x=0, z=0, size=1, popped=false, active=false})
+			x=0, z=0, size=1, popped=false, active=false, strength=1, rotation=0})
 	end
 end
 
 local function stopVent(v: Vent)
 	v.active = false
 	v.bubble.Transparency = 1
+	v.core.Transparency = 1
 	v.embers.Enabled = false
 	v.smoke.Enabled = false
 	v.embers:Clear()
@@ -160,6 +173,14 @@ local function beginCycle(v: Vent, cameraPos: Vector3, delay: number)
 	v.age = -delay
 	v.duration = rng:NextNumber(FX.CycleMin, FX.CycleMax)
 	v.size = rng:NextNumber(FX.BubbleMin, FX.BubbleMax)
+	v.strength = v.size / FX.BubbleMax
+	v.rotation = rng:NextNumber(0, math.pi*2)
+	local p = surface
+	if p then
+		v.bubble.Material = p.Material
+		v.bubble.MaterialVariant = p.MaterialVariant
+		v.bubble.Color = p.Color
+	end
 	v.popped = false
 	v.active = true
 end
@@ -174,40 +195,56 @@ local function tickVent(v: Vent, dt: number, y: number, cameraPos: Vector3)
 		stopVent(v)
 		beginCycle(v, cameraPos, 0)
 	end
-	v.anchor.Position = Vector3.new(v.x, y + 0.08, v.z)
+	-- The wave mesh no longer follows the physical plate's whole-part bob.
+	if wave then y = wave:surfaceY(v.x, v.z) or y end
+	v.anchor.Position = Vector3.new(v.x, y + FX.EmitterLift, v.z)
 	if v.age < 0 then return end
 	local phase = math.clamp(v.age / v.duration, 0, 1)
 	local grow = FX.GrowFraction
 	local fadeEnd = grow + FX.PopFadeFraction
 	local growing = phase < grow
 	-- Disable continuous emission early enough for the pool to move without trails.
-	local emitting = phase < grow * 0.8
+	local emitting = v.age < math.max(0, v.duration - FX.SmokeLifeMax)
 	v.embers.Enabled = emitting
 	v.smoke.Enabled = emitting
+	local t = math.clamp(phase / grow, 0, 1)
+	local swell = t*t*(3-2*t)
+	local collapse = math.clamp((phase-grow) / FX.PopFadeFraction, 0, 1)
+	local width = v.size * (0.25 + swell * 0.75)
+	local height = v.size * FX.BubbleHeightRatio
 	if phase < fadeEnd then
-		local t = math.clamp(phase / grow, 0, 1)
-		local swell = math.sin(t * math.pi * 0.5)
-		local width = v.size * (0.25 + swell * 0.75)
-		local height = v.size * FX.BubbleHeightRatio
-		v.bubble.Size = Vector3.new(width, height, width * 0.85)
-		-- Track the live surface, rather than tweening toward an obsolete Y.
-		v.bubble.Position = Vector3.new(v.x, y - height * 0.48 + swell * height * 0.6, v.z)
-		v.bubble.Transparency = if growing then 0 else (phase - grow) / FX.PopFadeFraction
+		-- The cap sinks and flattens at rupture instead of a complete ball fading out.
+		local capHeight = height * (1-collapse*0.9)
+		v.bubble.Size = Vector3.new(width, math.max(0.05,capHeight), width * 0.85)
+		v.bubble.CFrame = CFrame.new(v.x, y - capHeight*0.5 + swell*capHeight*0.72, v.z)
+			* CFrame.Angles(0,v.rotation,0)
+		v.bubble.Transparency = collapse
 	else
 		v.bubble.Transparency = 1
 	end
+	local sincePop = v.age - grow*v.duration
+	if sincePop >= 0 and sincePop < FX.CoreSeconds then
+		local fade = sincePop/FX.CoreSeconds
+		local coreWidth = v.size*(FX.CoreStartScale+fade*FX.CoreSpread)
+		v.core.Size = Vector3.new(coreWidth,FX.CoreThickness,coreWidth*0.85)
+		v.core.CFrame = CFrame.new(v.x,y+FX.CoreLift,v.z)*CFrame.Angles(0,v.rotation,0)
+		v.core.Transparency = FX.CoreTransparency+(1-FX.CoreTransparency)*fade
+	else
+		v.core.Transparency = 1
+	end
 	if not growing and not v.popped then
 		v.popped = true
-		v.sparks:Emit(FX.SparkBurst)
-		v.drops:Emit(FX.DropBurst)
-		v.smoke:Emit(FX.SmokeBurst)
+		local dose = particleScale * v.strength
+		v.sparks:Emit(math.max(1,math.floor(FX.SparkBurst*dose)))
+		v.drops:Emit(math.max(1,math.floor(FX.DropBurst*dose)))
+		v.smoke:Emit(math.max(1,math.floor(FX.SmokeBurst*dose)))
 	end
 	if v.light then
 		local fadeIn = math.clamp(v.age / FX.LightFadeSeconds, 0, 1)
 		local fadeOut = math.clamp((v.duration - v.age) / FX.LightFadeSeconds, 0, 1)
-		local sincePop = v.age - grow * v.duration
 		local flash = if sincePop >= 0 then math.max(0, 1 - sincePop / FX.LightFadeSeconds) else 0
-		v.light.Brightness = (FX.LightBaseBrightness + FX.LightPopBrightness * flash) * fadeIn * fadeOut
+		local breathe = 1 + FX.LightBreath * math.sin(v.age*FX.LightBreathSpeed+v.rotation)
+		v.light.Brightness = (FX.LightBaseBrightness*breathe + FX.LightPopBrightness*flash*v.strength) * fadeIn * fadeOut
 	end
 end
 
@@ -271,12 +308,16 @@ local function update(dt: number)
 		if running then stopPool() end
 		return
 	end
-	local y = p.Position.Y + p.Size.Y/2
-	if y >= FX.MinSurfaceY + FX.MinSurfaceHysteresis then heightAllowed = true
-	elseif y <= FX.MinSurfaceY - FX.MinSurfaceHysteresis then heightAllowed = false end
+	local physicalY = p.Position.Y + p.Size.Y/2
+	local baseY = p:GetAttribute("LavaVisualBaseY")
+	local y = physicalY
+	local gateY = if typeof(baseY) == "number" then baseY else physicalY
+	if gateY >= FX.MinSurfaceY + FX.MinSurfaceHysteresis then heightAllowed = true
+	elseif gateY <= FX.MinSurfaceY - FX.MinSurfaceHysteresis then heightAllowed = false end
 	local pos = camera.CFrame.Position
 	local nearest = Vector3.new(math.clamp(pos.X,minX,maxX), y, math.clamp(pos.Z,minZ,maxZ))
-	local surfaceVisible = pos.Y >= y and (nearest - pos).Magnitude <= FX.Distance
+	local cameraSurfaceY = if wave then wave:surfaceY(pos.X,pos.Z) or y else y
+	local surfaceVisible = pos.Y >= math.max(physicalY,cameraSurfaceY) and (nearest - pos).Magnitude <= FX.Distance
 	local allowed = heightAllowed and surfaceVisible
 	-- The street-height gate prevents smoke crossing roads; the surface itself
 	-- must already deform in canals before the lava reaches street level.
@@ -287,7 +328,7 @@ local function update(dt: number)
 	else
 		if not running then
 			running = true
-			for i, v in ipairs(vents) do beginCycle(v, pos, (i-1) * FX.CycleMin / FX.VentCount) end
+			for i, v in ipairs(vents) do beginCycle(v, pos, (i-1) * FX.CycleMin / ventLimit) end
 		end
 		for _, v in ipairs(vents) do tickVent(v, dt, y, pos) end
 	end
@@ -307,6 +348,13 @@ function Controller.init()
 	if initialized then return end
 	initialized = true
 	if not SURF.Enabled then return end
+	local quality = UserSettings():GetService("UserGameSettings").SavedQualityLevel.Value
+	local low = UserInputService.TouchEnabled or (quality > 0 and quality <= FX.LowQualityLevel)
+	if low then
+		ventLimit = FX.LowVentCount
+		lightLimit = FX.LowLightCount
+		particleScale = FX.LowParticleScale
+	end
 	task.spawn(function()
 		local folder = Workspace:WaitForChild("Lava", 30)
 		if not folder then warn("[LavaSurface] missing Workspace.Lava"); return end

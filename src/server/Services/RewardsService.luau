@@ -1,7 +1,7 @@
 --!strict
 -- RewardsService.luau
 -- Wypłaca nagrodę za wygraną rundę: WSZYSCY ocaleli po Endgame dostają Config.Rewards.Win $.
--- Fires Remotes.RoundWon(winners, reward) — klient wyświetla banner "NAME WON $X".
+-- Fires Remotes.RoundWon(winners, reward) — ocalały widzi „YOU SURVIVED! +X$” (WinMessageController).
 --
 -- Kill rewards są w KillService (per-hit trigger). RewardsService tylko o survival bonus.
 
@@ -18,9 +18,7 @@ local RewardsService = {}
 local initialized = false
 
 local function onRoundEnded()
-	-- Listener odpala się na deferred queue PRZED PlayerService.sendSurvivorsToLobby
-	-- (bo roundEnded:Fire() wykonane przed setState(POST_ROUND) → stateChanged:Fire()).
-	-- Więc aliveSet nadal ma prawidłowych winners.
+	-- Snapshot at FINISHING, before the 3-second hold and cleanup can change survivors.
 	local winners = PlayerService.getAliveList()
 	if #winners == 0 then
 		Remotes.RoundWon:FireAllClients({}, 0)
@@ -44,7 +42,7 @@ function RewardsService.init()
 	if initialized then return end
 	initialized = true
 
-	GameLoopService.RoundEnded:Connect(onRoundEnded)
+	GameLoopService.RoundFinished:Connect(onRoundEnded)
 end
 
 return RewardsService

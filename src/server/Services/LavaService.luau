@@ -458,6 +458,8 @@ function LavaService.init()
 		if newState == GameLoopService.STATE.ROUND then
 			roundStartedAt = os.clock()
 			startGrowth()
+		elseif newState == GameLoopService.STATE.FINISHING then
+			stopGrowth() -- freeze height; reset only after the transition curtain
 		elseif newState == GameLoopService.STATE.LOBBY
 			or newState == GameLoopService.STATE.POST_ROUND then
 			stopGrowth()

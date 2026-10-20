@@ -105,10 +105,29 @@ function Wave:_deform(now: number)
 	local k1,k2 = math.pi*2/cfg.Wavelength,math.pi*2/cfg.CrossWavelength
 	for _, v in ipairs(self.points) do
 		local y = a1*(v.s1*c1+v.c1*s1) + a2*(v.s2*c2+v.c2*s2)
+		v.y = y
 		local slope1,slope2 = a1*k1*(v.c1*c1-v.s1*s1),a2*k2*(v.c2*c2-v.s2*s2)
 		self.mesh:SetPosition(v.id,Vector3.new(v.x,y,v.z))
 		self.mesh:SetNormal(v.normal,Vector3.new(-slope1+slope2*cfg.CrossDirectionX,1,-slope1*cfg.DirectionZ-slope2).Unit)
 	end
+end
+
+-- Sample the actual rendered triangles, not a second independently timed wave.
+-- Cosmetic consumers only: damage continues to use the server surface.
+function Wave:surfaceY(x: number, z: number): number?
+	local part = self.part
+	if not part or not self.hidden then return nil end
+	local localPoint = part.CFrame:PointToObjectSpace(Vector3.new(x, part.Position.Y, z))
+	local cells = self.cfg.Cells
+	local gx = math.clamp((localPoint.X / self.size.X + 0.5) * cells, 0, cells)
+	local gz = math.clamp((localPoint.Z / self.size.Z + 0.5) * cells, 0, cells)
+	local ix, iz = math.min(math.floor(gx), cells-1), math.min(math.floor(gz), cells-1)
+	local u, v = gx-ix, gz-iz
+	local i = iz*(cells+1)+ix+1
+	local a,b,c,d = self.points[i],self.points[i+1],self.points[i+cells+1],self.points[i+cells+2]
+	local y = if u+v <= 1 then a.y*(1-u-v)+b.y*u+c.y*v
+		else b.y*(1-v)+c.y*(1-u)+d.y*(u+v-1)
+	return part.CFrame:PointToWorldSpace(Vector3.new(localPoint.X,y,localPoint.Z)).Y
 end
 
 function Wave:update(dt: number, allowed: boolean)

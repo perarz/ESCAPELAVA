@@ -1,0 +1,37 @@
+{
+  "triangles": {
+    "Handle": 226,
+    "FaceBlack": 656,
+    "Purple": 52,
+    "PumpkinShade": 568
+  },
+  "total": 1502,
+  "palette": {
+    "Handle": [
+      242,
+      113,
+      24
+    ],
+    "PumpkinShade": [
+      205,
+      72,
+      17
+    ],
+    "FaceBlack": [
+      25,
+      20,
+      32
+    ],
+    "Purple": [
+      115,
+      49,
+      176
+    ]
+  },
+  "attachment": "HatAttachment",
+  "origin_head": [
+    0,
+    0.6,
+    0
+  ]
+}

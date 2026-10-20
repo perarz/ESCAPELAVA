@@ -1,37 +1,15 @@
 --!strict
--- RoundTransitionController.luau (07.10)
--- Ciemne przejście przy teleporcie z lobby na mapę.
---
--- Zgłoszenie Kacpra: po teleporcie budynki są, ale cienie i właściwe oświetlenie dochodzą
--- 10-20 s. Silnik buduje oświetlenie wokół KAMERY, a ta przez całą przerwę stała w lobby
--- ~640 studów od mapy. Dwie poprawki idą razem: streaming wyłączony (cała mapa jest u
--- klienta od wejścia — `default.project.json`) i ta zasłona: ekran ściemnia się pod koniec
--- odliczania lobby (od 11.10 — wcześniej odliczania GET READY, które usunięto), a rozjaśnia,
--- gdy gracz STOI już na mapie i silnik miał `SettleTime` na
--- oświetlenie. Świat renderuje się POD zasłoną, więc ten czas pracuje na wygląd.
---
--- Sygnał „stoisz na mapie” = `Remotes.AliveChanged(true)`, wysyłany przez serwer PO
--- `PivotTo` (PlayerService.sendEveryoneToRound). Nie zgadujemy z pozycji postaci.
---
--- WYGLĄD NALEŻY DO KACPRA: `StarterGui.RoundTransition` (ScreenGui) — jeśli istnieje, kod
--- go użyje i będzie ściemniał/rozjaśniał wszystkie jego elementy (ich przezroczystość z
--- Properties = stan „w pełni widoczny”). Bez niego: czarny prostokąt (placeholder, jak
--- ekran ładowania).
---
--- Przypadki brzegowe:
---   - odliczanie lobby przerwane (za mało graczy → LOBBY od nowa) → żeton unieważnia
---     zaplanowane ściemnienie, zasłona schodzi;
---   - dev skip lobby → ROUND bez ściemnienia → runRoundEntry zaciemnia od razu;
---   - gracz dołącza w trakcie rundy → widzi ROUND bez LOBBY przed nim → nic nie robimy
---     (zakrywa go ekran ładowania);
---   - gracz nie trafił do rundy (dołączał w odliczaniu) → brak sygnału przez
---     `SpawnSignalTimeout` → zasłona schodzi;
---   - wszystko ma twardy sufit `MaxHold` — wiszący czarny ekran jest gorszy od cieni.
+-- Round transitions: cover teleport during PREPARING, show shared-clock 3/2/1,
+-- cover cleanup after FINISHING, unveil lobby after POST_ROUND settles.
+-- Visual templates live in StarterGui; flow tokens cancel obsolete sequences.
+-- No camera manipulation. AliveChanged(true) confirms the round teleport.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local ContentProvider = game:GetService("ContentProvider")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
@@ -49,8 +27,66 @@ local targets: { Target } = {}
 local alpha = 0 -- 0 = niewidoczna, 1 = w pełni zakrywa
 local fadeToken = 0 -- nowy fade unieważnia poprzedni
 local flowToken = 0 -- nowy stan gry unieważnia poprzednią sekwencję
-local lastState = ""
 local aliveAt = -math.huge
+local countdownGui: ScreenGui? = nil
+local countdownTween: Tween? = nil
+local countdownConnection: RBXScriptConnection? = nil
+
+local function hideCountdown()
+	if countdownTween then countdownTween:Cancel(); countdownTween = nil end
+	if countdownConnection then countdownConnection:Disconnect(); countdownConnection = nil end
+	if countdownGui then countdownGui.Enabled = false end
+end
+
+local function showCountdown(endsAt: number)
+	hideCountdown()
+	local pg = player:FindFirstChildOfClass("PlayerGui")
+	local sg = pg and pg:FindFirstChild("RoundCountdown")
+	if not (sg and sg:IsA("ScreenGui")) then warn("[RoundTransition] missing StarterGui.RoundCountdown"); return end
+	countdownGui = sg
+	local holder = sg:FindFirstChild("Digits")
+	local pop = holder and holder:FindFirstChild("Pop")
+	if not (holder and holder:IsA("Frame") and pop and pop:IsA("UIScale")) then return end
+	local lastDigit = -1
+	sg.Enabled = true
+	local function draw()
+		local remaining = math.clamp(math.ceil(endsAt-Workspace:GetServerTimeNow()),0,Config.Game.StartCountdown)
+		if remaining == 0 then hideCountdown(); return end
+		local camera = Workspace.CurrentCamera
+		if camera then
+			local side = math.min(camera.ViewportSize.X,camera.ViewportSize.Y)*CFG.CountdownScale
+			holder.Size = UDim2.fromOffset(side,side)
+		end
+		local image = holder:FindFirstChild(tostring(remaining))
+		local ready = image and image:IsA("ImageLabel") and ContentProvider:GetAssetFetchStatus(image.Image) == Enum.AssetFetchStatus.Success
+		for _,child in holder:GetChildren() do
+			if child:IsA("ImageLabel") then child.Visible = ready == true and child == image end
+		end
+		local fallback = holder:FindFirstChild("Fallback")
+		if fallback and fallback:IsA("TextLabel") then
+			fallback.Visible = not ready
+			fallback.Text = tostring(remaining)
+			if image and image:IsA("ImageLabel") then fallback.TextColor3 = image.ImageColor3 end
+			local fit = fallback:FindFirstChild("Fit")
+			if fit and fit:IsA("UIScale") then fit.Scale = holder.Size.X.Offset/100 end
+		end
+		local shadow = holder:FindFirstChild("FallbackShadow")
+		if shadow and shadow:IsA("TextLabel") and fallback and fallback:IsA("TextLabel") then
+			shadow.Visible = fallback.Visible
+			shadow.Text = fallback.Text
+			local fit = shadow:FindFirstChild("Fit")
+			if fit and fit:IsA("UIScale") then fit.Scale = holder.Size.X.Offset/100 end
+		end
+		if remaining == lastDigit then return end
+		lastDigit = remaining
+		if countdownTween then countdownTween:Cancel() end
+		pop.Scale = CFG.CountdownStartScale
+		countdownTween = TweenService:Create(pop,TweenInfo.new(CFG.CountdownPopTime,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1})
+		countdownTween:Play()
+	end
+	countdownConnection = RunService.RenderStepped:Connect(draw)
+	draw()
+end
 
 local function ensureGui(): boolean
 	if gui and gui.Parent then return true end
@@ -63,17 +99,8 @@ local function ensureGui(): boolean
 		-- w środku przejścia (hard rule 10).
 		sg.ResetOnSpawn = false
 	else
-		local fallback = Instance.new("ScreenGui")
-		fallback.Name = "RoundTransition"
-		fallback.ResetOnSpawn = false
-		local frame = Instance.new("Frame")
-		frame.Name = "Curtain"
-		frame.Size = UDim2.fromScale(1, 1)
-		frame.BackgroundColor3 = Color3.new(0, 0, 0)
-		frame.BorderSizePixel = 0
-		frame.Parent = fallback
-		fallback.Parent = pgui
-		sg = fallback
+		warn("[RoundTransition] missing StarterGui.RoundTransition")
+		return false
 	end
 	local screen = sg :: ScreenGui
 	screen.IgnoreGuiInset = true
@@ -146,10 +173,10 @@ end
 -- Start rundy: zakryj (jeśli odliczanie nie zdążyło), poczekaj na teleport i oświetlenie.
 local function runRoundEntry(token: number)
 	local roundAt = os.clock()
-	local deadline = roundAt + CFG.MaxHold
+	local deadline = roundAt + CFG.PrepareMaxHold
 	fadeTo(1, 0)
 
-	local signalDeadline = math.min(roundAt + CFG.SpawnSignalTimeout, deadline)
+	local signalDeadline = deadline
 	-- `aliveAt` ≥ chwila ROUND minus margines: sygnał mógł przyjść tuż przed tym wątkiem.
 	while aliveAt < roundAt - 0.5 and os.clock() < signalDeadline do
 		task.wait(0.05)
@@ -174,11 +201,10 @@ local function runRoundEntry(token: number)
 	fadeTo(0, CFG.FadeOutTime)
 end
 
-local function onState(newState: string, duration: number?)
+local function onState(newState: string, duration: number?, endsAt: number?)
+	hideCountdown()
 	flowToken += 1
 	local token = flowToken
-	local previous = lastState
-	lastState = newState
 
 	if newState == "LOBBY" and (duration or 0) > 0 then
 		-- Lobby z odliczaniem: ściemnianie tak, żeby skończyło się razem z nim. Zasłona z
@@ -192,8 +218,18 @@ local function onState(newState: string, duration: number?)
 				fadeTo(1, CFG.FadeInTime)
 			end
 		end)
-	elseif newState == "ROUND" and previous == "LOBBY" then
+	elseif newState == "PREPARING" then
 		task.spawn(runRoundEntry, token)
+	elseif newState == "COUNTDOWN" then
+		fadeTo(0, 0)
+		showCountdown(endsAt or (Workspace:GetServerTimeNow()+(duration or Config.Game.StartCountdown)))
+	elseif newState == "RESETTING" then
+		fadeTo(1, CFG.FadeInTime)
+	elseif newState == "POST_ROUND" then
+		fadeTo(1,0)
+		task.delay(CFG.ExitHold,function()
+			if token == flowToken then fadeTo(0,CFG.FadeOutTime) end
+		end)
 	elseif alpha > 0 then
 		-- Odliczanie przerwane albo inny stan — nie zostawiamy ciemnego ekranu.
 		fadeTo(0, CFG.FadeOutTime)
@@ -206,9 +242,15 @@ function RoundTransitionController.init()
 	initialized = true
 
 	-- Listenery od razu (hard rule 9) — GUI dopiero, gdy będzie potrzebne.
-	Remotes.GameStateChanged.OnClientEvent:Connect(function(newState: any, duration: any)
+	Remotes.GameStateChanged.OnClientEvent:Connect(function(newState: any, duration: any, endsAt: any)
 		if typeof(newState) ~= "string" then return end
-		onState(newState, if typeof(duration) == "number" then duration else nil)
+		onState(newState, if typeof(duration) == "number" then duration else nil,
+			if typeof(endsAt) == "number" then endsAt else nil)
+	end)
+	task.spawn(function()
+		local pg = player:WaitForChild("PlayerGui")
+		local digits = pg:WaitForChild("RoundCountdown",10)
+		if digits then pcall(function() ContentProvider:PreloadAsync({digits}) end) end
 	end)
 	Remotes.AliveChanged.OnClientEvent:Connect(function(isAlive: any)
 		if isAlive == true then

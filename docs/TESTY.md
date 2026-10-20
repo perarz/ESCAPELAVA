@@ -8,16 +8,33 @@ Jak coś wisi w powietrzu — **nie zatrzymuj Play**, napisz Claude'owi: przeska
 
 ---
 
+## 🏆 „YOU SURVIVED!” + KASA (20.10) — NIEPRZETESTOWANE
+- [ ] Przeżyj rundę (klawisz O = koniec rundy) → na środku, w miejscu komunikatu zabójstwa, wskakuje złote „YOU SURVIVED!”, pod nim zielone „+100$”; po ~2,5 s gaśnie, zanim ekran ściemnieje do lobby. Starego żółtego „NICK WON $100” nie ma
+- [ ] Zgiń w rundzie (lawa) i poczekaj do końca → NIC się nie pokazuje (komunikat tylko dla ocalałych)
+- [ ] Ekran telefonu / małe okno Studio → napis mniejszy razem z resztą HUD, nie wychodzi poza ekran
+- [ ] Zabij kogoś tuż przed końcem rundy → „YOU KILLED” znika, gdy wskakuje „YOU SURVIVED!” (nie nakładają się)
+- [ ] Licznik kasy w lewym dolnym rogu: żywszy gradient — jasna limonka u góry, ciemna zieleń na dole (jak banknoty w ikonie); połysk przy zbieraniu kasy dalej przejeżdża
+
+## 🛒 NAPIS SHOP (19.10) — NIEPRZETESTOWANE
+- [ ] Wysoko nad straganem wisi „SHOP” w kolorach lawy, kolory płyną przez napis w kółko (bez przeskoku); widać go przez ściany straganu; z mapy w trakcie rundy go nie widać; po śmierci w lobby znowu widać
+
 ## 🎒 EKWIPUNEK / LOADOUT (18.10) — NIEPRZETESTOWANE
+- [ ] **(19.10) Lawa w panelach ma jedną warstwę** (płynie w jedną stronę)
+- [ ] **(19.10) Dwa okna**: `I` → na środku samo okno INVENTORY + LOADOUT. Klik w item → okno odjeżdża w lewo, z prawej wysuwa się DETAILS (z nazwą, kręcącym się itemem, opisem, cechami), para stoi razem na środku. Klik w inny item = podmiana treści; ten sam item drugi raz albo mały X = DETAILS chowa się, okno wraca na środek
+- [ ] DETAILS → **ADD TO LOADOUT** (zielony) wkłada item do wolnego slotu (ikona przelatuje); przy itemie z loadoutu przycisk to **REMOVE** (czerwony); przy pełnym loadoucie **SWAP INTO SLOT** (żółty) → sloty się trzęsą, napis „PICK A SLOT TO SWAP”, klik w slot = podmiana
+- [ ] Klik w slot z itemem = pokazuje go w DETAILS; klik w pusty slot przy otwartym DETAILS = wkłada tam pokazany item
 - [ ] **(19.10) Nowe ikony** (render z gry + czarny obrys) w pasku i w ekwipunku: bomba, most, hak czytelne
+- [ ] **(19.10) Animacje**: po otwarciu karty i sloty wskakują po kolei; karta pod kursorem rośnie i lekko się przechyla; nazwa i licznik w DETAILS podskakują przy zmianie itemu; nowy numer slotu na karcie podskakuje; przy zamknięciu panel opada. Przycisk INVENTORY większy, bez „I”
+- [ ] **(19.10, poprawka) Item w DETAILS mieści się w okienku** (nie wystaje nad ramkę, jest na środku); przeciągnięty klocek upuszczony na slot trafia w ten slot; lecąca ikona startuje z karty, nie wyżej. **Lobby trwa 25 s** (było 15)
+- [ ] **(19.10) DETAILS = prawdziwy item**: w okienku DETAILS kręci się item z prawdziwym światłem (odblaski, cień), na ciemnym tle; zmienia się przy najechaniu na inny item; nie przesuwa się względem okna, gdy kamera się rusza (bieg, obrót); nic ze świata nie wchodzi w okno; po zamknięciu panelu znika. Telefon: to samo
 - [ ] **(19.10) Wygląd klasyczny**: czarny obrys na wszystkim, pomarańczowy nagłówek, karty itemów w kolorach (x0 szara z zieloną ceną), sloty loadoutu wyglądają jak pasek na dole i stoją na płynącej lawie; karta rośnie pod kursorem, ikona wpada do slotu z odbiciem; model w DETAILS się kręci
-- [ ] `I` albo przycisk INVENTORY (lewa strona) → panel spada na miejsce, tło ciemnieje; `I` / X / klik w ciemne tło zamyka. Klik w puste miejsce PANELU go NIE zamyka
+- [ ] `I` albo przycisk INVENTORY (lewa strona) → panel spada na miejsce, tło ciemnieje; `I` / X zamyka. **(20.10) Klik w ciemne tło NIE zamyka** (i nie rzuca bomby / nie strzela hakiem pod spodem); klik w puste miejsce panelu też nie
 - [ ] Najechanie na item → DETAILS: model 3D się kręci, opis, paski POWER / RANGE / MOBILITY dojeżdżają
 - [ ] Klik itemu → ikona przelatuje do slotu; klik itemu z zielonym numerkiem → wyjmuje go ze slotu
-- [ ] Przeciągnij item na slot; slot na slot (zamiana); slot poza sloty (wyjęcie); prawy klik slotu (wyjęcie)
+- [ ] **(19.10) Przeciąganie**: jedzie CAŁA karta / cały slot (lekko większa, przechyla się w stronę ruchu), miejsce po niej się kurczy. Upuszczona na slot — wskakuje do niego sprężyście, slot podskakuje. Upuszczona obok — wraca sprężyście na miejsce. Slot upuszczony obok slotów — kurczy się z obrotem i znika (wyjęty). Slot na slot = zamiana; prawy klik slotu = wyjęcie
 - [ ] Najedź na item i wciśnij 2 → item w slocie 2, a pasek NIE wyciąga itemu
 - [ ] Pasek na dole = sloty loadoutu, nic się nie przestawia, gdy skończą się bomby (slot „x0”, szary, w lobby pulsuje na czerwono; klik = potrząśnięcie)
-- [ ] W rundzie panel się otwiera, ale zmiana daje „CHANGE LOADOUT IN LOBBY”
+- [ ] **(19.10) Ekwipunek tylko w lobby**: po starcie rundy przycisk INVENTORY znika, klawisz I nic nie robi, otwarty panel sam się zamyka; w lobby wszystko wraca
 - [ ] Wyjmij hak z loadoutu → klawisz 3 / slot nie wyciąga haka (serwer też nie da)
 - [ ] Pełny loadout + kup item spoza niego → sklep: „ADD IT IN INVENTORY”, na przycisku INVENTORY czerwone „!”
 - [ ] Ustaw loadout, wyjdź, wejdź → ten sam układ
@@ -25,8 +42,15 @@ Jak coś wisi w powietrzu — **nie zatrzymuj Play**, napisz Claude'owi: przeska
 
 ---
 
+## 🖥️ EKRAN ŁADOWANIA (20.10) — NIEPRZETESTOWANE
+- [ ] Wejście do gry: od razu czarne tło, napis ESCAPE LAVA i pasek pod nim (nie ma szarego ekranu Robloxa ani starego z małym pomarańczowym paskiem)
+- [ ] Pasek rośnie płynnie (bez skoków w tył), procent liczy razem z nim, napisy po angielsku: CONNECTING → LOADING ASSETS → LOADING MAP → LOADING PLAYER → LIGHTING UP → READY!
+- [ ] Na końcu pasek dobiega do 100% i cały ekran płynnie znika (z czarnymi obrysami — nie zostają same ramki na chwilę)
+- [ ] Telefon / małe okno: napis i pasek mieszczą się, nic nie wystaje
+- [ ] W Output **NIE MA** `[LoadingScreen] brak ReplicatedFirst.LoadingGui` — jeśli jest, plac nie był zapisany po zmianie (Cmd+S)
+
 ## 📱 START GRY NA WOLNYM TELEFONIE (paczka 3, 18.10) — NIEPRZETESTOWANE
-- [ ] Wejdź do gry → ekran ładowania pokazuje „Wczytywanie danych gracza...”, a po zejściu kasa, pasek itemów i czas są już prawidłowe (nie „0$”, nie pusty pasek)
+- [ ] Wejdź do gry → ekran ładowania pokazuje „LOADING PLAYER...”, a po zejściu kasa, pasek itemów i czas są już prawidłowe (nie „0$”, nie pusty pasek)
 - [ ] Wejdź w **trakcie rundy** → HUD od razu pokazuje ROUND i czas, nie „LOBBY”
 - [ ] Kup coś, wyjdź, wejdź → kasa i itemy widać od razu po zejściu ekranu ładowania
 - [ ] Studio: Network → wolna sieć (throttling), wejdź → to samo co wyżej
@@ -100,8 +124,10 @@ Jak coś wisi w powietrzu — **nie zatrzymuj Play**, napisz Claude'owi: przeska
 - [ ] Bomba tuż przy latarni / sygnalizatorze → rozpada się na kawałki, nic nie wisi
 - [ ] Bomba kilka studów dalej → przewraca się w całości (nie zostaje pół słupa ani sama głowica w powietrzu)
 
-### ⏱️ Wyjście z Play w Studio (08.10)
-- [ ] Stop → Studio odwiesza się w ~1-2 s, nie po 25-30 s; w Output `BindToClose done po X s` z małym X
+### ⏱️ Wyjście z Play w Studio (08.10, poprawione 19.10) — NIEPRZETESTOWANE
+- ❌ 19.10: poprawka z 08.10 nie działała — każde wyjście trwało ~27 s (log Studio)
+- [ ] **(19.10)** Stop → Studio odwiesza się w ~1-2 s; w Output `BindToClose done po X s` z X poniżej 2
+- [ ] Kup coś, Stop, Play → kasa i itemy zostały (zapis dalej działa)
 - [ ] Jeśli dalej wisi: wklej linię `BindToClose: limit … minął — …` (mówi, co trzyma)
 
 ### 🚪 Drzwi (08.10)
@@ -230,3 +256,13 @@ Na prośbę Kacpra usunięto DirectionalLocomotionController, jego zależność/
 ### Default + custom push R15 — 11.10
 
 Aktywne: oryginalny Animate + `ReplicatedStorage.PushAnimations.Push_TwoHands_R15` (Action, 0.7 s, kontakt0.15, tylko 8 stawów górnej części ciała). `PushController` odtwarza na F, czyści track na respawn i przerywa przy śmierci/ragdollu/końcu rundy. `PushService` rezerwuje cooldown2.5 na próbę, po `Config.Push.Windup=0.15` ponownie sprawdza postać/rundę/zdrowie/ragdoll i wybiera cel. Remote Push bez payloadu; Pushed bez zmian. Koniec rundy unieważnia oczekujące próby. Config.Push.AnimationId=0, AnimationStudioPreview=true — lokalny podgląd, publikacja assetu nadal wymagana. Cofnięcie gestu AnimationEnabled=false, opóźnienia Windup=0. Szczegóły i lista prób Kacpra: `artifacts/animations/push_r15/README.md`. Kompilacja/synchronizacja i czysta logika sprawdzone, Play nieuruchamiany.
+
+## Round transition / 3-2-1 — 18.10.2026 (do sprawdzenia przez Kacpra)
+
+- Start: teleport pod czernią → mapa → wielkie 3,2,1 Fredoka/studs; ruch, F, bomba, hak i most dopiero po 1; lawa też startuje wtedy.
+- Ostatnia śmierć: 3s bez znikania lawy/mapy; powrót martwego do lobby jak wcześniej; reset pod zasłoną.
+- Wygrana po czasie: nagroda raz, przed resetem; zasłona schodzi w lobby.
+- Dwie osoby: wspólne odliczanie i brak przewagi przy pierwszym spawnie.
+- Dołączenie podczas odliczania: pozostała liczba, nie nowa pełna trójka; nowy gracz jest widzem do kolejnej rundy.
+- Dev K z lobby: nadal pełne 3,2,1; K podczas countdown nie kończy następnej rundy.
+- Telefon i szeroki ekran: cyfry mieszczą się w ekranie; następna runda i respawn nie dublują UI.

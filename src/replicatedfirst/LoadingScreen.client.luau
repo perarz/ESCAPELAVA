@@ -1,24 +1,25 @@
 --!strict
 -- LoadingScreen.client.luau — ReplicatedFirst
 --
--- Czarny ekran z paskiem, który trzyma gracza, DOPÓKI świat naprawdę się nie załaduje.
+-- Ekran ładowania, który trzyma gracza, DOPÓKI świat naprawdę się nie załaduje.
 -- Powstał ze zgłoszenia „jak wejdę do gry, to cienie i światła się w pełni nie ładują":
 -- Roblox pokazuje grę, zanim tekstury, materiały i geometria dojadą do klienta, więc
 -- pierwsze sekundy widać gołe kolory i doskakujące cienie.
 --
 -- DLACZEGO `ReplicatedFirst`, A NIE `StarterGui`:
--- skrypty z ReplicatedFirst startują PRZED resztą replikacji, więc czarny ekran zdąży się
+-- skrypty z ReplicatedFirst startują PRZED resztą replikacji, więc ekran zdąży się
 -- pojawić, zanim gracz zobaczy niedoładowany świat. StarterGui dojeżdża za późno.
 --
 -- ⚠️ DLATEGO TEŻ NIE MA TU `require(Config)` — `ReplicatedStorage.Shared` w momencie
 -- startu tego skryptu może jeszcze nie istnieć. Wszystkie liczby są lokalne, świadomie.
 --
--- WYGLĄD NALEŻY DO KACPRA: jeśli w `ReplicatedFirst` położysz własne `ScreenGui`
--- o nazwie `LoadingScreen`, kod użyje jego zamiast budować swój. Napędza tylko nazwy:
---   `Fill`        (Frame)     — pasek postępu, kod ustawia `Size.X.Scale` 0..1
---   `StatusLabel` (TextLabel) — opcjonalny, kod wpisuje co teraz robi
---   `Percent`     (TextLabel) — opcjonalny, kod wpisuje "42%"
--- Poniższy ekran to PLACEHOLDER — brzydki z założenia, do podmiany.
+-- WYGLĄD = obiekty w placu (20.10, zasada UI Kacpra): `ReplicatedFirst.LoadingGui` (ScreenGui).
+-- `default.project.json` ma przy ReplicatedFirst `$ignoreUnknownInstances`, inaczej Rojo by go
+-- skasował. Nazwa ≠ nazwa tego skryptu (`LoadingScreen`) — inaczej FindFirstChild trafiał w skrypt.
+-- Kod napędza nazwy (opis: docs/STUDIO_CONTRACT.md → „Ekran ładowania”):
+--   `Center` + UIScale `HudScale` — skala jak w HUD (px przy wysokości 1200)
+--   `Fill` (Frame, Size.X.Scale 0..1), `Percent`, `StatusLabel` (+ `<Nazwa>Shadow`)
+-- Bez `LoadingGui` zostaje domyślny ekran Robloxa — kod nie buduje UI sam.
 
 local ContentProvider = game:GetService("ContentProvider")
 local Lighting = game:GetService("Lighting")
@@ -51,11 +52,26 @@ local STREAM_TIMEOUT = 10
 local STATE_TIMEOUT = 15
 local STATE_ATTRIBUTE = "ClientStateReady"
 
--- Zdejmujemy domyślny ekran Robloxa OD RAZU, zanim cokolwiek innego zdąży się wydarzyć.
-ReplicatedFirst:RemoveDefaultLoadingScreen()
+local TEMPLATE_NAME = "LoadingGui"
+local TEMPLATE_WAIT = 5
+-- Skala jak `HudScaleController` (Config.UI.ReferenceHeight / MinScale / MaxScale) — kopia,
+-- bo tu nie ma `require`. Zmieniając tamte, zmienić i te.
+local REF_HEIGHT = 1200
+local MIN_SCALE = 0.5
+local MAX_SCALE = 2
+local FILL_SPEED = 8          -- jak szybko pasek dogania postęp (1/s): płynnie, bez skoków
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+
+-- Zawartość ReplicatedFirst przychodzi razem z tym skryptem, więc zwykle bez czekania.
+local template = ReplicatedFirst:WaitForChild(TEMPLATE_NAME, TEMPLATE_WAIT)
+if not (template and template:IsA("ScreenGui")) then
+	warn("[LoadingScreen] brak ReplicatedFirst." .. TEMPLATE_NAME .. " — zostaje domyślny ekran Robloxa")
+	return
+end
+-- Domyślny ekran Robloxa zdejmujemy dopiero, gdy mamy czym go zastąpić.
+ReplicatedFirst:RemoveDefaultLoadingScreen()
 
 -- ============================================================================
 -- GUI
@@ -63,107 +79,83 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 type Screen = {
 	gui: ScreenGui,
-	fill: Frame?,
+	fill: GuiObject?,
 	status: TextLabel?,
 	percent: TextLabel?,
-	fadeTargets: { GuiObject },
+	fadeTargets: { Instance },
 }
 
-local function collectFadeTargets(root: Instance): { GuiObject }
-	local out: { GuiObject } = {}
+local function collectFadeTargets(root: Instance): { Instance }
+	local out: { Instance } = {}
 	for _, d in ipairs(root:GetDescendants()) do
-		if d:IsA("GuiObject") then
+		if d:IsA("GuiObject") or d:IsA("UIStroke") then
 			table.insert(out, d)
 		end
 	end
 	return out
 end
 
-local function buildFallback(): ScreenGui
-	local gui = Instance.new("ScreenGui")
-	gui.Name = "LoadingScreen"
+local gui = (template :: ScreenGui):Clone()
+-- Ma przykryć absolutnie wszystko, łącznie z paskiem systemowym Robloxa.
+gui.IgnoreGuiInset = true
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 2147483647
+gui.Enabled = true
+gui.Parent = playerGui
 
-	local backdrop = Instance.new("Frame")
-	backdrop.Name = "Backdrop"
-	backdrop.Size = UDim2.fromScale(1, 1)
-	backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
-	backdrop.BorderSizePixel = 0
-	backdrop.Parent = gui
+local screen: Screen = {
+	gui = gui,
+	fill = gui:FindFirstChild("Fill", true) :: GuiObject?,
+	status = gui:FindFirstChild("StatusLabel", true) :: TextLabel?,
+	percent = gui:FindFirstChild("Percent", true) :: TextLabel?,
+	fadeTargets = collectFadeTargets(gui),
+}
 
-	local track = Instance.new("Frame")
-	track.Name = "Bar"
-	track.AnchorPoint = Vector2.new(0.5, 0.5)
-	track.Position = UDim2.fromScale(0.5, 0.62)
-	track.Size = UDim2.new(0, 340, 0, 8)
-	track.BackgroundColor3 = Color3.fromRGB(40, 40, 44)
-	track.BorderSizePixel = 0
-	track.Parent = backdrop
+-- Skala środka jak w HUD (tło jest na cały ekran i skali nie potrzebuje).
+local center = gui:FindFirstChild("Center")
+local hudScale = center and center:FindFirstChild("HudScale") :: UIScale?
 
-	local fill = Instance.new("Frame")
-	fill.Name = "Fill"
-	fill.Size = UDim2.fromScale(0, 1)
-	fill.BackgroundColor3 = Color3.fromRGB(235, 90, 25)
-	fill.BorderSizePixel = 0
-	fill.Parent = track
-
-	local status = Instance.new("TextLabel")
-	status.Name = "StatusLabel"
-	status.AnchorPoint = Vector2.new(0.5, 0)
-	status.Position = UDim2.new(0.5, 0, 0.62, 18)
-	status.Size = UDim2.new(0, 340, 0, 18)
-	status.BackgroundTransparency = 1
-	status.Font = Enum.Font.Gotham
-	status.TextSize = 13
-	status.TextColor3 = Color3.fromRGB(150, 150, 155)
-	status.Text = ""
-	status.Parent = backdrop
-
-	return gui
-end
-
-local function setupScreen(): Screen
-	local template = ReplicatedFirst:FindFirstChild("LoadingScreen")
-	local gui: ScreenGui
-	if template and template:IsA("ScreenGui") then
-		gui = template:Clone()
-	else
-		gui = buildFallback()
+local function applyScale()
+	if hudScale then
+		hudScale.Scale = math.clamp(gui.AbsoluteSize.Y / REF_HEIGHT, MIN_SCALE, MAX_SCALE)
 	end
+end
+applyScale()
+gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyScale)
 
-	-- Ma przykryć absolutnie wszystko, łącznie z paskiem systemowym Robloxa.
-	gui.IgnoreGuiInset = true
-	gui.ResetOnSpawn = false
-	gui.DisplayOrder = 2147483647
-	gui.Enabled = true
-	gui.Parent = playerGui
-
-	return {
-		gui = gui,
-		fill = gui:FindFirstChild("Fill", true) :: Frame?,
-		status = gui:FindFirstChild("StatusLabel", true) :: TextLabel?,
-		percent = gui:FindFirstChild("Percent", true) :: TextLabel?,
-		fadeTargets = collectFadeTargets(gui),
-	}
+local function setText(label: TextLabel?, text: string)
+	if not label then return end
+	label.Text = text
+	local shadow = label.Parent and label.Parent:FindFirstChild(label.Name .. "Shadow")
+	if shadow and shadow:IsA("TextLabel") then
+		shadow.Text = text
+	end
 end
 
-local screen = setupScreen()
-
--- Postęp nigdy nie cofa się i nie skacze do tyłu — pasek, który drga, wygląda na zepsuty.
+-- Postęp nigdy nie cofa się — pasek, który drga, wygląda na zepsuty. `target` to stan
+-- ładowania, `shown` to to, co widać: dogania go płynnie co klatkę.
+local target = 0
 local shown = 0
 local function setProgress(value: number, text: string?)
-	shown = math.clamp(math.max(shown, value), 0, 1)
-	if screen.fill then
-		screen.fill.Size = UDim2.fromScale(shown, 1)
-	end
-	if screen.percent then
-		screen.percent.Text = string.format("%d%%", math.floor(shown * 100))
-	end
-	if text and screen.status then
-		screen.status.Text = text
+	target = math.clamp(math.max(target, value), 0, 1)
+	if text then
+		setText(screen.status, text)
 	end
 end
 
-setProgress(0, "Łączenie...")
+local function render(dt: number)
+	shown += (target - shown) * (1 - math.exp(-FILL_SPEED * dt))
+	if target - shown < 0.001 then shown = target end
+	if screen.fill then
+		screen.fill.Size = UDim2.fromScale(shown, 1)
+		-- Za wąski pasek z zaokrągleniem rysuje się jak kropka.
+		screen.fill.Visible = shown > 0.03
+	end
+	setText(screen.percent, string.format("%d%%", math.floor(shown * 100 + 0.5)))
+end
+RunService:BindToRenderStep("LoadingScreen", Enum.RenderPriority.Last.Value, render)
+
+setProgress(0, "CONNECTING...")
 
 -- ============================================================================
 -- Ładowanie
@@ -230,7 +222,7 @@ local function preload(assets: { Instance }, fromProgress: number, toProgress: n
 			ContentProvider:PreloadAsync(batch)
 		end)
 		setProgress(fromProgress + (toProgress - fromProgress) * (last / count),
-			string.format("Wczytywanie zasobów... %d/%d", last, count))
+			string.format("LOADING ASSETS %d/%d", last, count))
 		if os.clock() > deadline then
 			break
 		end
@@ -253,9 +245,9 @@ local function waitForCharacter(): BasePart?
 	return char:WaitForChild("HumanoidRootPart", 5) :: BasePart?
 end
 
--- StreamingEnabled = true w tym miejscu: świat NIE przychodzi cały naraz, tylko dociąga
--- się wokół gracza. Bez tego czekania czarny ekran znikałby, zanim pod postacią w ogóle
--- pojawi się podłoga — czyli dokładnie ten objaw, który zgłosił Kacper.
+-- Przy StreamingEnabled = true świat NIE przychodzi cały naraz, tylko dociąga się wokół
+-- gracza — bez tego czekania ekran znikałby, zanim pod postacią pojawi się podłoga.
+-- (Od 07.10 plac ma StreamingEnabled = false — wtedy funkcja od razu wraca.)
 local function waitForWorldAround(hrp: BasePart)
 	if not Workspace.StreamingEnabled then
 		return
@@ -297,19 +289,30 @@ local finished = false
 local function finish()
 	if finished then return end
 	finished = true
-	setProgress(1, "Gotowe")
+	setProgress(1, "READY!")
+	-- Chwila, żeby pasek dobiegł do 100% i było to widać.
+	local waitUntil = os.clock() + 0.4
+	while shown < 0.995 and os.clock() < waitUntil do
+		RunService.RenderStepped:Wait()
+	end
 	local info = TweenInfo.new(FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	for _, obj in ipairs(screen.fadeTargets) do
-		if obj.BackgroundTransparency < 1 then
-			TweenService:Create(obj, info, { BackgroundTransparency = 1 }):Play()
+		if obj:IsA("UIStroke") then
+			TweenService:Create(obj, info, { Transparency = 1 }):Play()
+			continue
 		end
-		if obj:IsA("TextLabel") then
-			TweenService:Create(obj, info, { TextTransparency = 1 }):Play()
-		elseif obj:IsA("ImageLabel") then
-			TweenService:Create(obj, info, { ImageTransparency = 1 }):Play()
+		local g = obj :: GuiObject
+		if g.BackgroundTransparency < 1 then
+			TweenService:Create(g, info, { BackgroundTransparency = 1 }):Play()
+		end
+		if g:IsA("TextLabel") then
+			TweenService:Create(g, info, { TextTransparency = 1 }):Play()
+		elseif g:IsA("ImageLabel") then
+			TweenService:Create(g, info, { ImageTransparency = 1 }):Play()
 		end
 	end
 	task.wait(FADE_TIME)
+	RunService:UnbindFromRenderStep("LoadingScreen")
 	screen.gui:Destroy()
 end
 
@@ -320,25 +323,25 @@ task.delay(math.max(deadline - os.clock(), 0), finish)
 
 task.spawn(function()
 	-- 1) Podstawowa replikacja
-	setProgress(0.04, "Łączenie...")
+	setProgress(0.04, "CONNECTING...")
 	if not game:IsLoaded() then
 		game.Loaded:Wait()
 	end
-	setProgress(0.12, "Wczytywanie zasobów...")
+	setProgress(0.12, "LOADING ASSETS...")
 
 	-- 2) Assety: tekstury, materiały, dźwięki, meshe
 	local assets = collectAssets()
 	preload(assets, 0.12, 0.68)
 
 	-- 3) Postać i świat wokół niej
-	setProgress(0.7, "Wczytywanie mapy...")
+	setProgress(0.7, "LOADING MAP...")
 	local hrp = waitForCharacter()
 	if hrp then
 		waitForWorldAround(hrp)
 	end
-	setProgress(0.8, "Wczytywanie danych gracza...")
+	setProgress(0.8, "LOADING PLAYER...")
 	waitForClientState()
-	setProgress(0.88, "Oświetlenie...")
+	setProgress(0.88, "LIGHTING UP...")
 
 	-- 4) Cienie i oświetlenie potrzebują kilku klatek PO tym, jak geometria jest na
 	--    miejscu — to jest ta część, której nie da się "poczekać" żadnym eventem.

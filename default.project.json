@@ -77,7 +77,8 @@
       }
     },
     "ReplicatedFirst": {
-      "$path": "src/replicatedfirst"
+      "$path": "src/replicatedfirst",
+      "$ignoreUnknownInstances": true
     },
     "ReplicatedStorage": {
       "Shared": {

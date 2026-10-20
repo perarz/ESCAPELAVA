@@ -69,7 +69,13 @@ local function computeText(): (string, string, number?)
 	local remaining = math.max(stateDuration - (os.clock() - stateStartedAt), 0)
 	if stateName == "ROUND" then
 		return "ROUND", Utils.formatTime(remaining), remaining
-	elseif stateName == "POST_ROUND" then
+	elseif stateName == "COUNTDOWN" then
+		return "GET READY", tostring(math.ceil(remaining)), remaining
+	elseif stateName == "PREPARING" then
+		return "GET READY", "", nil
+	elseif stateName == "RESETTING" then
+		return "ROUND OVER", "", nil
+	elseif stateName == "FINISHING" or stateName == "POST_ROUND" then
 		return "ROUND OVER", Utils.formatTime(remaining), remaining
 	else
 		-- LOBBY: countdown do startu rundy; duration=0 = czekamy na MinPlayers.

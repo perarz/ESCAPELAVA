@@ -58,13 +58,10 @@ local subscribers: { (string, Player, any, any) -> () } = {}
 -- Zapisy do DataStore w toku (także final save z PlayerRemoving i zwolnienie locka) —
 -- BindToClose czeka, aż spadnie do zera (przegląd 29.09, A-6).
 local pendingWrites = 0
--- KOŃCOWY ZAPIS = JEDEN na gracza (08.10, zgłoszenie Kacpra: „wychodzę z Play i mija 30 s,
--- zanim Studio się odwiesi”). Przy zamykaniu ten sam gracz był zapisywany DWA razy pod rząd:
--- przez BindToClose i przez PlayerRemoving (Studio usuwa gracza w trakcie zamykania), a czasem
--- jeszcze przez auto-zapis. Roblox kolejkuje drugi zapis tego samego klucza w ciągu ~6 s,
--- a w trakcie zamykania taki zapis wisi aż do limitu — BindToClose czekał na niego pełne
--- `CloseWaitMax` (log: zapis po 0,7 s, „done” po 25 s). Teraz drugi wywołujący CZEKA na
--- pierwszy końcowy zapis, zamiast pisać od nowa. "running" | "done"; nil = jeszcze nie było.
+-- KOŃCOWY ZAPIS = JEDEN na gracza (08.10): przy zamykaniu ten sam gracz był zapisywany dwa
+-- razy pod rząd — przez BindToClose i przez PlayerRemoving. Drugi wywołujący CZEKA na pierwszy
+-- końcowy zapis, zamiast pisać od nowa. "running" | "done"; nil = jeszcze nie było albo się
+-- nie udał. BindToClose czeka na TEN stan, nie na wątki — opis przy BindToClose (19.10).
 local finalSaveState: { [Player]: string } = {}
 -- Od startu BindToClose auto-zapis nie dokłada zapisów — końcowy zapis każdego i tak idzie.
 local closing = false
@@ -420,40 +417,45 @@ function PlayerDataService.init()
 	-- Mamy ~30s zanim Roblox zabije proces — save wszystkich w parallel. Po `cache`, nie po
 	-- Players: gracz, którego Roblox już usunął, może być w trakcie final save z PlayerRemoving
 	-- (cache czyścimy dopiero po nim) — wcześniej BindToClose go nie widział i kończył się,
-	-- zanim ten zapis doszedł (przegląd 29.09, A-6). Czekamy na OBA warunki: nasze wątki
-	-- (final save czeka najpierw na trwający auto-zapis i dopiero potem liczy się w
-	-- `pendingWrites` — sam licznik chwilowo spadałby do zera) i `pendingWrites` = 0.
+	-- zanim ten zapis doszedł (przegląd 29.09, A-6).
+	--
+	-- CZEKAMY NA DANE, NIE NA WĄTKI (19.10, zmierzone w logu Studio: każde wyjście z Play
+	-- 26,7-27,2 s, a sam zapis 0,7 s). W Studio klient rozłącza się ~0,6 s PRZED BindToClose,
+	-- więc końcowy zapis robi PlayerRemoving, a wątek BindToClose tylko czeka na niego w pętli
+	-- `task.wait`. Do 19.10 czekaliśmy, aż ten wątek się skończy — a on w trakcie zamykania nie
+	-- budził się wcale (dlaczego silnik go nie wznawia — nieustalone), więc BindToClose stał
+	-- pełne `CloseWaitMax` przy zerze zapisów w toku. Ta pętla budzi się normalnie (doliczała do
+	-- 25,1 s), więc patrzy tylko na stan: `finalSaveState` "running" ustawia się PRZED pierwszym
+	-- yieldem `savePlayer`, a gracz z udanym zapisem z PlayerRemoving znika z `cache`.
 	game:BindToClose(function()
 		closing = true
 		print("[PlayerData] BindToClose — saving all players")
-		local threads: { thread } = {}
 		for p in pairs(cache) do
-			table.insert(threads, task.spawn(savePlayer, p, true))
+			task.spawn(savePlayer, p, true)
 		end
-		local function busy(): boolean
-			if pendingWrites > 0 then return true end
-			for _, t in ipairs(threads) do
-				if coroutine.status(t) ~= "dead" then return true end
+		local function stillSaving(): { string }
+			local names = {}
+			for p in pairs(cache) do
+				if finalSaveState[p] == "running" then table.insert(names, p.Name) end
 			end
-			return false
+			return names
 		end
 		local deadline = os.clock() + PD.CloseWaitMax
 		local started = os.clock()
-		while busy() and os.clock() < deadline do
+		while (pendingWrites > 0 or #stillSaving() > 0) and os.clock() < deadline do
 			task.wait(0.1)
 		end
-		if busy() then
+		local waiting = stillSaving()
+		if pendingWrites > 0 or #waiting > 0 then
 			-- Diagnostyka: co trzyma zamknięcie, gdyby wiszenie wróciło (lekcja 11 — log, nie zgadywanie).
-			local alive = 0
-			for _, t in ipairs(threads) do
-				if coroutine.status(t) ~= "dead" then alive += 1 end
-			end
 			local inFlight = {}
 			for p, f in pairs(saveInFlight) do
 				if f then table.insert(inFlight, p.Name) end
 			end
-			warn(("[PlayerData] BindToClose: limit %d s minął — zapisów w toku %d, wątków końcowego zapisu żywych %d, w locie: %s"):format(
-				PD.CloseWaitMax, pendingWrites, alive, if #inFlight > 0 then table.concat(inFlight, ", ") else "—"))
+			warn(("[PlayerData] BindToClose: limit %d s minął — zapisów w toku %d, końcowy zapis niezakończony: %s, w locie: %s"):format(
+				PD.CloseWaitMax, pendingWrites,
+				if #waiting > 0 then table.concat(waiting, ", ") else "—",
+				if #inFlight > 0 then table.concat(inFlight, ", ") else "—"))
 		end
 		print(("[PlayerData] BindToClose done po %.1f s (zapisów w toku: %d)"):format(os.clock() - started, pendingWrites))
 	end)

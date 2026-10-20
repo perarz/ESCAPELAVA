@@ -1,0 +1,28 @@
+{
+  "Handle": {
+    "triangles": 204,
+    "non_manifold_edges": 0
+  },
+  "Pocket": {
+    "triangles": 296,
+    "non_manifold_edges": 0
+  },
+  "Hardware": {
+    "triangles": 204,
+    "non_manifold_edges": 0
+  },
+  "Bottle": {
+    "triangles": 56,
+    "non_manifold_edges": 0
+  },
+  "BottleCap": {
+    "triangles": 28,
+    "non_manifold_edges": 0
+  },
+  "fit": {
+    "leg_surface_intersections": 0,
+    "pose": "standing",
+    "reference": "14 original R15 meshes, head dimension proxy",
+    "note": "Side return straps may touch arms in tight block stance; not an animation test."
+  }
+}

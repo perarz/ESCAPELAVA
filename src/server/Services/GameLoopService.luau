@@ -1,7 +1,6 @@
 --!strict
 -- GameLoopService.luau
--- State machine rund: LOBBY → ROUND → POST_ROUND → LOBBY. Runda bez faz od 11.10, bez
--- odliczania GET READY (COUNTDOWN) od 11.10 — lobby przechodzi prosto w rundę.
+-- State machine: LOBBY → PREPARING → COUNTDOWN → ROUND → FINISHING → RESETTING → POST_ROUND.
 --
 -- (lawa przyspiesza płynnie — LavaService liczy prędkość z czasu od startu rundy).
 -- Emituje stany przez BindableEventy (dla serwisów) i RemoteEventy (dla klientów).
@@ -11,12 +10,17 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 
 local STATE = {
 	LOBBY = "LOBBY",
+	PREPARING = "PREPARING",
+	COUNTDOWN = "COUNTDOWN",
+	FINISHING = "FINISHING",
+	RESETTING = "RESETTING",
 	ROUND = "ROUND",
 	POST_ROUND = "POST_ROUND",
 }
@@ -26,6 +30,8 @@ GameLoopService.STATE = STATE
 
 local stateChanged = Instance.new("BindableEvent")
 local roundEnded = Instance.new("BindableEvent")
+local roundFinished = Instance.new("BindableEvent")
+GameLoopService.RoundFinished = roundFinished.Event -- result snapshot before transition/cleanup
 GameLoopService.StateChanged = stateChanged.Event   -- (newState: string)
 GameLoopService.RoundEnded = roundEnded.Event       -- ()
 
@@ -35,6 +41,12 @@ local currentStateStartedAt: number = 0
 local started = false
 
 local aliveProvider: () -> number = function() return 0 end
+local prepareRound: (() -> ())? = nil
+local stateEndsAt = 0
+
+function GameLoopService.setRoundPreparer(fn: () -> ())
+	prepareRound = fn
+end
 
 -- TRYB DEV (Config.Dev): pomijanie czekania. `skipRequested` jest JEDNORAZOWY — każdy
 -- wait konsumuje go i czyści, więc jedno naciśnięcie klawisza = jeden pominięty etap (w rundzie = koniec rundy),
@@ -85,8 +97,9 @@ local function setState(newState: string, duration: number?)
 	local dur = duration or 0
 	currentStateDuration = dur
 	currentStateStartedAt = os.clock()
+	stateEndsAt = Workspace:GetServerTimeNow() + dur
 	stateChanged:Fire(newState, dur)
-	Remotes.GameStateChanged:FireAllClients(newState, dur)
+	Remotes.GameStateChanged:FireAllClients(newState, dur, stateEndsAt)
 	print(("[GameLoop] state → %s (dur=%ds)"):format(newState, dur))
 end
 
@@ -96,7 +109,7 @@ end
 function GameLoopService.replicateTo(player: Player)
 	local stateElapsed = os.clock() - currentStateStartedAt
 	local stateRemaining = math.max(currentStateDuration - stateElapsed, 0)
-	Remotes.GameStateChanged:FireClient(player, currentState, stateRemaining)
+	Remotes.GameStateChanged:FireClient(player, currentState, stateRemaining, stateEndsAt)
 end
 
 local function waitWithEarlyEnd(duration: number, endCheck: (() -> boolean)?): boolean
@@ -153,18 +166,28 @@ local function runLobby()
 	end
 end
 
+local function runCountdown()
+	setState(STATE.PREPARING, 0)
+	assert(prepareRound, "PlayerService round preparer missing")
+	prepareRound()
+	-- Spawns finish before countdown; clients get time to settle lighting and unveil.
+	task.wait(Config.RoundTransition.SettleTime + Config.RoundTransition.FadeOutTime)
+	setState(STATE.COUNTDOWN, Config.Game.StartCountdown)
+	-- Never skip the visible countdown: every participant shares the same start.
+	task.wait(Config.Game.StartCountdown)
+	skipRequested = false
+end
+
 local function runRound()
 	-- Świeży start: żądanie "zakończ rundę" z poprzedniej rundy nie może ubić tej.
 	forceEndRound = false
 	setState(STATE.ROUND, Config.Lava.RoundDuration)
 
-	-- Daj PlayerService.sendEveryoneToRound szansę odpalić (BindableEvent deferred mode
-	-- queuuje listenery do następnej klatki) i pre-populować aliveSet zanim startujemy
-	-- czekanie. Bez tego pierwsze sprawdzenie widzi alive=0 i kończy rundę natychmiast.
+	-- Let deferred ROUND listeners release root locks and start the lava before checks.
 	task.wait()
 
 	-- Runda w OSOBNYM pcall, bo na roundEnded wiszą: restore mapy (MapService),
-	-- wypłata nagród (RewardsService), cleanup cashu i mostów.
+	-- cleanup cashu i mostów. Wyniki publikuje wcześniejszy RoundFinished.
 	-- Gdyby błąd w rundzie przeleciał do pcall'a całej pętli gry, żadna
 	-- z tych rzeczy by się nie wykonała i kolejna runda startowałaby w rozjebanym świecie
 	-- (mapa w gruzach, aliveSet pełen duchów → runda kończy się natychmiast albo wcale).
@@ -178,6 +201,12 @@ local function runRound()
 	end
 
 	forceEndRound = false
+	setState(STATE.FINISHING, Config.Game.FinishHold)
+	roundFinished:Fire()
+	-- Leave the lava/map in place while the last death and result are readable.
+	task.wait(Config.Game.FinishHold)
+	setState(STATE.RESETTING, Config.RoundTransition.ResetCoverTime)
+	task.wait(Config.RoundTransition.ResetCoverTime)
 	roundEnded:Fire()
 	Remotes.RoundEnded:FireAllClients()
 end
@@ -191,11 +220,13 @@ local function gameLoop()
 	while true do
 		local ok, err = pcall(function()
 			runLobby()
+			runCountdown()
 			runRound()
 			runPostRound()
 		end)
 		if not ok then
 			warn(("[GameLoop] crash w pętli: %s — restartuję za 5s"):format(tostring(err)))
+			setState(STATE.LOBBY, 0) -- releases any preparation locks on failure
 			task.wait(5)
 		end
 	end

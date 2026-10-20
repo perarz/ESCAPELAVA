@@ -184,7 +184,7 @@ Zasady współpracy:
   się obok Twojej postaci w świecie — widzi go **tylko właściciel**. Pokazuje się sam przy
   sprincie i chowa po naładowaniu, ze sprężystą animacją; kolor idzie od niebieskiego przez
   żółty do czerwonego w miarę ubywania sił.
-- **HUD**: killfeed, banner zwycięzców, paski cooldownów; **pełne skalowanie na każdy
+- **HUD**: komunikat „YOU KILLED <nick> +25$” dla zabójcy i „YOU SURVIVED! +100$” dla każdego ocalałego (na środku, tylko dla siebie), paski cooldownów; **pełne skalowanie na każdy
   monitor** (projekt w px przy 1440p, reszta skaluje się automatycznie, elementy przypięte
   do krawędzi/rogów ekranu).
 - **Zaplecze**: zapis postępu graczy (kasa/itemy/winy/wygląd) odporny na awarie,
