@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local CooldownBarController = require(script.Parent.CooldownBarController)
+local ItemEquipController = require(script.Parent.ItemEquipController)
 
 local ToolController = {}
 
@@ -54,6 +55,7 @@ local function hookTool(tool: Tool)
 		if direction.Magnitude < 0.1 then return end
 
 		lastThrowAt = now
+		ItemEquipController.cancel()
 		Remotes.ThrowBomb:FireServer(direction.Unit)
 		CooldownBarController.trigger("bomb", cd)
 	end)

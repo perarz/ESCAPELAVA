@@ -15,6 +15,7 @@
 -- się OD kursora w kierunku gdzie obrócony, a kursor nigdy nie musi być nad przepaścią.
 -- Klient wysyła do serwera anchorPos + rotationY; server liczy centrum tym samym wzorem.
 
+local ItemEquipController = require(script.Parent.ItemEquipController)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -313,6 +314,7 @@ local function enterBuildMode()
 			if now - lastBuildAt < cd then return end
 			lastBuildAt = now
 			-- Server dostaje ANCHOR (bliższa krawędź) + rotationY, sam wylicza centrum.
+			ItemEquipController.cancel()
 			Remotes.BuildBridge:FireServer(anchorPos, rotationY)
 			CooldownBarController.trigger("bridge", cd)
 		end

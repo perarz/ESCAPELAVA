@@ -257,8 +257,29 @@ end
 -- (wyrzucona bryła, płyta bez podparcia) — nie może przepaść na suficie payloadu, bo
 -- zostałaby w świecie mimo decyzji, że jej nie ma. Drobnica ponad sufitem po prostu
 -- ZOSTAJE na miejscu (lepsze niż zniknąć bez animacji).
+-- Beczka (model z folderu `Cars.FallIgnites`), do której należy przekazywana rzecz — albo nil.
+local function fallingBarrel(inst: Instance): Model?
+	local part = if inst:IsA("BasePart") then inst else inst:FindFirstChildWhichIsA("BasePart", true)
+	local model = part and Destructible.carOf(part :: BasePart)
+	local folder = model and model.Parent
+	if model and folder and Config.Destruction.Cars.FallIgnites[folder.Name] then
+		return model
+	end
+	return nil
+end
+
 local function handOff(h: Handoff, inst: Instance, launch: boolean, force: boolean?): boolean
 	if h.seen[inst] then return true end
+	-- Beczka przy zawaleniu (21.10): NIE do klientów — spada fizyką serwera i wybucha przy
+	-- uderzeniu (CarService.drop). `pending`, żeby żadna inna ścieżka jej już nie ruszała.
+	local barrel = fallingBarrel(inst)
+	if barrel then
+		h.seen[inst] = true
+		h.seen[barrel] = true
+		markPending(barrel)
+		CarService.drop(barrel)
+		return true
+	end
 	-- Wieszaki i drobne rekwizyty ZAWSZE znikają z obłokiem — także te spadające z dziurą albo
 	-- z walącym się stropem (decyzja Kacpra 26.09). Jedno miejsce dla wszystkich ścieżek.
 	if Destructible.propCategory(inst) == "vaporize" then

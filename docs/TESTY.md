@@ -8,6 +8,66 @@ Jak coś wisi w powietrzu — **nie zatrzymuj Play**, napisz Claude'owi: przeska
 
 ---
 
+## RPG OBURĄCZ / WYCIĄGANIE (21.10) — NIEPRZETESTOWANE
+- [ ] RPG: wyciąganie zza prawego ramienia trwa 0,7 s; lewa dłoń podchodzi pod lufę i zostaje tam w staniu, biegu i skoku
+- [ ] Strzał od razu przerywa wyciąganie; przy zapasie rakiet obie ręce dalej trzymają RPG
+- [ ] F z RPG: pełne pchnięcie, potem powrót do chwytu oburącz
+- [ ] Ragdoll / drabina / siedzenie: ręce swobodne, po powrocie do zwykłego ruchu chwyt wraca
+- [ ] Zmiana itemu, ostatnia rakieta i respawn: lewa ręka nie zostaje przy starej lufie; drugi gracz widzi chwyt oburącz
+- [ ] Bomba, hak i blueprint: wyciąganie krótsze, 0,3 s
+
+## 🛢️ BECZKI WYBUCHOWE (21.10) — NIEPRZETESTOWANE
+Beczki: 9 na budowie (Construction), 4 przy ulicy.
+- [ ] Bomba albo RPG tuż przy beczce → beczka wybucha od razu, rozlatuje się, chwilę płonie; wybuch WIĘKSZY niż bomba (większa dziura, dalej rzuca graczy)
+- [ ] Beczki stojące obok siebie → wybuchają łańcuchowo
+- [ ] F (pchnięcie) w beczkę przed sobą → od razu wybucha (pchający też obrywa, jeśli nie ucieknie)
+- [ ] F, gdy gracz stoi bliżej niż beczka → zwykłe pchnięcie gracza, beczka zostaje
+- [ ] Drugi gracz zginie od wybuchu beczki → „YOU KILLED” i 25$ dla tego, kto ją odpalił (bombą, RPG albo F)
+- [ ] Pełne HP w samym środku wybuchu beczki → przeżywa z małą ilością HP (78% obrażeń)
+- [ ] Następna runda → wszystkie beczki stoją z powrotem
+- [ ] **(21.10) Zawalenie**: zawal budowę (Construction) pod beczkami (piętro ~45 i parter) → beczki SPADAJĄ w całości i wybuchają przy uderzeniu o ziemię/gruz (nie znikają, nie wiszą). Za szybko/za późno → `Config.Destruction.Cars.Fall`
+- [ ] Beczka spadnie i się zaklinuje → wybucha najpóźniej po ~6 s
+- [ ] Za mocno / za słabo → liczby w `Config.Destruction.Cars.Profiles.Barrels`
+
+## ⚡ ENERGY DRINK (20.10 wieczór) — NIEPRZETESTOWANE
+- [ ] **21.10 — poprawka picia:** na stojąco i w biegu wieczko podchodzi przed usta, puszka lekko się przechyla i ręka opada; nie przykłada puszki do prawego ucha. Sprawdzić też przy obrocie kamery.
+**Najpierw:** Rojo w Studio połączone (Connect) i plac zapisany (Cmd+S) — puszka do ręki to nowy model w `ReplicatedStorage`.
+- [ ] Sklep: jest „Energy Drink” za 25$, z ikoną puszki z błyskawicą; kupno działa
+- [ ] Ekwipunek: karta fioletowa z ikoną, w DETAILS kręci się puszka; da się włożyć do loadoutu (zamiast innego itemu — sloty są 3)
+- [ ] Wyciągnięcie w rundzie: puszka w dłoni stoi PIONOWO, wieczkiem do góry. Jeśli leży albo stoi do góry dnem → napisz, poprawię jedną liczbę (`Config.EnergyDrink.GripRotation`)
+- [ ] Biegniesz z shiftem i klikasz → ręka podnosi puszkę do ust (~pół sekundy), bieg się NIE zatrzymuje
+- [ ] **(21.10)** Po łyku przez 10 s: sprint bez końca; zwykły chód wyraźnie szybszy (+3), sprint bez zmian; kamera trochę szersza (+5 FOV); pasek staminy: obrys wyraźnie GRUBSZY, obrys i środek płynnie przechodzą przez różne odcienie ZŁOTA (każdy w innym momencie), w ostatnich 2 s szybciej; na KRAWĘDZIACH ekranu winieta jak czerwona przy obrażeniach, tylko złota, pulsuje (środek ekranu czysty; wchodzi i schodzi płynnie); widać pasek też, gdy stoisz; potem wszystko wraca do normy, także po śmierci
+- [ ] Pijesz z pustą staminą (wyczerpany, sprint zablokowany) i trzymasz shift → od razu biegniesz dalej
+- [ ] Drugi napój w trakcie działania → czas liczy się od nowa do 10 s (nie sumuje się)
+- [ ] Ostatnia puszka: znika z ręki po łyku; z kilkoma sztukami puszka zostaje w ręce
+- [ ] Drugi gracz (jeśli jest): widzi, jak pijesz (ręka do ust)
+- [ ] Śmierć albo koniec rundy w trakcie działania → w lobby pasek normalny, bez kolorów
+- [ ] Ruch ręki przy łyku wygląda głupio (za nisko / za wysoko / ręka w głowie) → opisz, stroję liczby w `Config.EnergyDrink.Sip`
+
+## 🚀 RPG — ETAP 1 (20.10 wieczór) — NIEPRZETESTOWANE
+Strzał, wybuch, odrzut (21.10). Rocket jump zrobiony i usunięty 21.10 (Kacper: „po prostu jak bomba”). Zostaje dźwięk strzału.
+- [ ] Sklep: „RPG” za 75$ z ikoną; ekwipunek: karta oliwkowa, w DETAILS kręci się wyrzutnia
+- [ ] Wyciągnięcie: wyrzutnia w dłoni trzymana POZIOMO, głowicą do przodu, ręka na rękojeści pod lufą. Jeśli jest krzywo / tyłem → zrzut ekranu
+- [ ] Klik → rakieta (zielona głowica) leci prosto tam, gdzie celujesz, szybko, z białą smugą, bez opadania
+- [ ] Trafia ścianę / dach / ulicę → wybuch jak bomba, ale wyraźnie mniejsza dziura i mniejszy zasięg
+- [ ] Trafia drugiego gracza → wybuch na nim, rani i odrzuca; zabójstwo = „YOU KILLED” i 25$
+- [ ] **(21.10, rocket jump usunięty)** Strzał pod własne nogi → rani i wywraca jak każdego, bez wyrzutu w górę
+- [ ] **(21.10) Wybuchy ranią KAŻDEGO, też odpalającego** — także na prawdziwym serwerze: własna bomba, RPG, beczka, auto. Śmierć od własnego wybuchu = bez nagrody; jeśli ktoś cię wcześniej trafił, zabójstwo zostaje dla niego
+- [ ] Strzał w lawę → wybucha na tafli lawy, nie pod nią
+- [ ] Strzał w niebo → rakieta znika daleko z wybuchem w powietrzu (~300 studów)
+- [ ] 1 rakieta = 1 strzał: po strzale wyrzutnia znika z ręki (przy kilku sztukach zostaje)
+- [ ] Koniec rundy (O) z rakietą w locie → nic nie wybucha na odbudowanej mapie
+- [ ] W Output przy strzale `[Rpg] … strzał`, bez czerwonych błędów
+- [ ] **(21.10) Odrzut, „mocno”**: u strzelca kamera NIE zmienia kierunku (celujesz dalej w to samo miejsce) — tylko krótko się trzęsie i oddala (zoom-out) i wraca; z przodu wyrzutni błysk ognia i dym, z tyłu kłąb dymu (backblast); ręka z wyrzutnią kopie do góry/do tyłu i wraca (~0,5 s)
+- [ ] Drugi gracz widzi błysk, dym i kop ręki strzelca (kamera trzęsie się tylko u strzelca)
+- [ ] Ostatnia rakieta (wyrzutnia znika z ręki) → błysk i dym dalej w dobrym miejscu, przy ramieniu
+- [ ] Za mocno / za słabo / dym w złym miejscu → liczby w `Config.Rpg.Recoil`
+
+## 🖥️ EKRAN ŁADOWANIA v2 + NAPIS SHOP WYŻEJ (20.10 wieczór) — NIEPRZETESTOWANE
+- [ ] Wejście do gry: mały szary „LOADING...”, pod nim duże żółte „ESCAPE LAVA” (LAVA pomarańczowe), nowa czcionka (prostsza); pasek ciemnopomarańczowy ze studsami w wypełnieniu, puste tło paska bez studsów
+- [ ] Na końcu wszystko płynnie znika (studsy też)
+- [ ] Lobby: napis SHOP wyraźnie wyżej nad sprzedawcą niż wcześniej
+
 ## 🏆 „YOU SURVIVED!” + KASA (20.10) — NIEPRZETESTOWANE
 - [ ] Przeżyj rundę (klawisz O = koniec rundy) → na środku, w miejscu komunikatu zabójstwa, wskakuje złote „YOU SURVIVED!”, pod nim zielone „+100$”; po ~2,5 s gaśnie, zanim ekran ściemnieje do lobby. Starego żółtego „NICK WON $100” nie ma
 - [ ] Zgiń w rundzie (lawa) i poczekaj do końca → NIC się nie pokazuje (komunikat tylko dla ocalałych)

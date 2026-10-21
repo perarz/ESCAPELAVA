@@ -16,16 +16,19 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
+local Destructible = require(ReplicatedStorage.Shared.Modules.Destructible)
 local PlayerService = require(script.Parent.PlayerService)
 local KillService = require(script.Parent.KillService)
 local AntiCheatService = require(script.Parent.AntiCheatService)
 
 local GameLoopService = require(script.Parent.GameLoopService)
 local RagdollService = require(script.Parent.RagdollService)
+local CarService = require(script.Parent.CarService)
 
 local PushService = {}
 local roundEpoch = 0
@@ -68,6 +71,34 @@ local function pickTarget(pusher: Player, pusherHRP: BasePart): Player?
 	return bestPlayer
 end
 
+-- Beczka (21.10, decyzja Kacpra „F w beczkę = od razu wybucha”): najbliższy model z folderu
+-- `Cars.PushIgnites` w zasięgu i w stożku przed pchającym. Zasięg liczony do BRYŁ beczki
+-- (zapytanie przestrzenne), kierunek — do jej środka. Zwraca też odległość do środka, żeby
+-- porównać z graczem w stożku.
+local PUSH_IGNITES = Config.Destruction.Cars.PushIgnites
+
+local function pickBarrel(pusherHRP: BasePart): (Model?, number)
+	local look = pusherHRP.CFrame.LookVector
+	local origin = pusherHRP.Position
+	local best: Model? = nil
+	local bestDist = math.huge
+	local seen: { [Model]: boolean } = {}
+	for _, part in ipairs(Workspace:GetPartBoundsInRadius(origin, MAX_RANGE)) do
+		local model = Destructible.carOf(part)
+		if not model or seen[model] then continue end
+		seen[model] = true
+		local folder = model.Parent
+		if not (folder and PUSH_IGNITES[folder.Name]) or CarService.hasExploded(model) then continue end
+		local offset = model:GetBoundingBox().Position - origin
+		local flat = Vector3.new(offset.X, 0, offset.Z)
+		if flat.Magnitude > 0.1 and look:Dot(flat.Unit) < CONE_DOT then continue end
+		if offset.Magnitude < bestDist then
+			best, bestDist = model, offset.Magnitude
+		end
+	end
+	return best, bestDist
+end
+
 local function canPush(pusher: Player): boolean
 	local hum = pusher.Character and pusher.Character:FindFirstChildOfClass("Humanoid")
 	return GameLoopService.getState() == "ROUND" and PlayerService.isAlive(pusher)
@@ -80,6 +111,14 @@ local function resolvePush(pusher: Player)
 	if not pusherHRP then return end
 
 	local target = pickTarget(pusher, pusherHRP)
+	local barrel, barrelDist = pickBarrel(pusherHRP)
+	local targetRoot = target and Utils.getRoot(target)
+	if barrel and (not targetRoot or barrelDist < (targetRoot.Position - pusherHRP.Position).Magnitude) then
+		-- Wybuch tą samą ścieżką co auto trafione bombą: kill dla pchającego, łańcuch beczek.
+		CarService.ignite(barrel, pusher)
+		print(("[Push] %s odpalił beczkę %s"):format(pusher.Name, barrel:GetFullName()))
+		return
+	end
 	if not target then return end  -- cooldown już zużyty, brak celu = miss
 
 	local targetHRP = Utils.getRoot(target)

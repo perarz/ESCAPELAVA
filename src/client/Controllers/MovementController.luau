@@ -69,6 +69,21 @@ local function speedFactor(): number
 	return f
 end
 
+-- Energy drink (20.10): okno działania przychodzi od serwera w atrybutach gracza (czas
+-- serwera, EnergyDrinkService). W oknie sprint nie zużywa staminy, a pasek mieni się kolorami.
+-- `energyNow` liczy updateLoop raz na klatkę; zbocze włączenia dolewa staminę do pełna.
+local CFG_ENERGY = Config.EnergyDrink
+local energyNow = false
+local energyEndsIn = 0 -- s do końca działania (miganie paska w końcówce)
+
+local function readEnergy(): (boolean, number)
+	local s = localPlayer:GetAttribute(CFG_ENERGY.StartAttribute)
+	local e = localPlayer:GetAttribute(CFG_ENERGY.EndAttribute)
+	if type(s) ~= "number" or type(e) ~= "number" then return false, 0 end
+	local now = Workspace:GetServerTimeNow()
+	return now >= s and now < e, e - now
+end
+
 -- Head tracking (Etap 5) — per-player joint cache + aim state.
 type AimState = {
 	targetYaw: number,    -- gdzie chcemy żeby głowa była (z kamery dla self, z remote dla innych)
@@ -134,6 +149,8 @@ local barBaseTransparency: { [GuiObject]: { bg: number, text: number?, img: numb
 -- UIStroke NIE jest GuiObject — bez osobnej listy czarna obramówka zostawałaby w pełni
 -- widoczna, gdy reszta paska już wyblakła (pasek "znika", a ramka wisi w powietrzu).
 local barStrokeBase: { [UIStroke]: number } = {}
+-- Kolor obrysu ze Studio — wraca po energy drinku (w trakcie obrys miga na niebiesko).
+local barStrokeColor: { [UIStroke]: Color3 } = {}
 local barAlpha: number = 0 -- 0 = ukryty, 1 = w pełni widoczny (ramp liniowy)
 local barScale: UIScale? = nil -- UIScale "Anim" z template — elastic pop 0↔1
 local barTween: Tween? = nil
@@ -295,6 +312,17 @@ function MovementController.screenShake(intensity: number, duration: number)
 	shakeDuration = duration
 end
 
+-- Public API (21.10, odrzut RPG): kamera podbija w górę o `degrees` i wraca wykładniczo
+-- (`decay` 1/s). Mocniejszy kop w trakcie trwającego wygrywa.
+local kickPitch = 0       -- rad, aktualne podbicie
+local kickDecay = 8
+function MovementController.cameraKick(degrees: number, decay: number?)
+	if type(degrees) ~= "number" then return end
+	local rad = math.rad(degrees)
+	if rad > kickPitch then kickPitch = rad end
+	kickDecay = if type(decay) == "number" and decay > 0 then decay else kickDecay
+end
+
 function MovementController.fovKick(amount: number)
 	-- Public API — chwilowy FOV punch (zoom out → wraca). Bomba woła przez Remotes.BombHit.
 	if type(amount) ~= "number" then return end
@@ -335,6 +363,7 @@ end
 local function captureBarBaselines(bar: BillboardGui)
 	table.clear(barBaseTransparency)
 	table.clear(barStrokeBase)
+	table.clear(barStrokeColor)
 	for _, d in ipairs(bar:GetDescendants()) do
 		if d:IsA("GuiObject") then
 			local entry: { bg: number, text: number?, img: number? } = { bg = d.BackgroundTransparency }
@@ -347,6 +376,7 @@ local function captureBarBaselines(bar: BillboardGui)
 			barBaseTransparency[d] = entry
 		elseif d:IsA("UIStroke") then
 			barStrokeBase[d] = d.Transparency
+			barStrokeColor[d] = d.Color
 		end
 	end
 end
@@ -440,6 +470,67 @@ local function staminaColor(frac: number): Color3
 	return lerpHSV(CFG_BAR.ColorLow, CFG_BAR.ColorMid, frac * 2)
 end
 
+-- Energy drink: obrys i środek paska płyną po palecie niebieskich (każdy w innej fazie),
+-- w ostatnich `WarnTime` s szybciej — gracz skaczący po dachach widzi, że zaraz koniec.
+local energyPhase = 0
+local function paletteColor(phase: number): Color3
+	local pal = CFG_ENERGY.Palette
+	local n = #pal
+	local x = (phase % 1) * n
+	local i = math.floor(x)
+	local a, b = pal[i + 1], pal[(i + 1) % n + 1]
+	local t = x - i
+	t = t * t * (3 - 2 * t)
+	return a:Lerp(b, t)
+end
+
+-- Winieta na krawędziach ekranu w trakcie działania (21.10, jak czerwone krawędzie przy
+-- obrażeniach, tylko w kolorach napoju). Wygląd w Studio: `StarterGui.EnergyVignette` → `Edges`
+-- → ramki z gradientem przezroczystości. Kod tylko włącza, wygasza, pulsuje i zmienia kolor
+-- ramek. Bez GUI w placu — nic (UI nie budujemy w kodzie).
+local vignetteGui: ScreenGui? = nil
+local vignetteEdges: { GuiObject } = {}
+local vignetteAlpha = 0
+local function findVignette(): ScreenGui?
+	if vignetteGui and vignetteGui.Parent then return vignetteGui end
+	local pg = localPlayer:FindFirstChildOfClass("PlayerGui")
+	local gui = pg and pg:FindFirstChild("EnergyVignette")
+	if not (gui and gui:IsA("ScreenGui")) then return nil end
+	table.clear(vignetteEdges)
+	local holder = gui:FindFirstChild("Edges")
+	for _, e in ipairs(if holder then holder:GetChildren() else {}) do
+		if e:IsA("GuiObject") then table.insert(vignetteEdges, e) end
+	end
+	vignetteGui = gui
+	return gui
+end
+
+local function updateEnergyTint(dt: number)
+	local target = if energyNow and isAlive() then 1 else 0
+	local step = dt / math.max(CFG_ENERGY.VignetteFade, 1e-3)
+	vignetteAlpha = math.clamp(vignetteAlpha + (if target > vignetteAlpha then step else -step), 0, 1)
+	local gui = findVignette()
+	if not gui then return end
+	if vignetteAlpha <= 0 then
+		gui.Enabled = false
+		return
+	end
+	gui.Enabled = true
+	local now = os.clock()
+	local pulse = CFG_ENERGY.VignetteMin + (1 - CFG_ENERGY.VignetteMin)
+		* (0.5 + 0.5 * math.sin(now * CFG_ENERGY.VignettePulseHz * 2 * math.pi))
+	local cols = CFG_ENERGY.VignetteColors
+	local x = (now * CFG_ENERGY.VignetteColorSpeed % 1) * #cols
+	local i = math.floor(x)
+	local t = x - i
+	t = t * t * (3 - 2 * t)
+	local color = cols[i + 1]:Lerp(cols[(i + 1) % #cols + 1], t)
+	for _, e in ipairs(vignetteEdges) do
+		e.BackgroundColor3 = color
+		e.BackgroundTransparency = 1 - vignetteAlpha * pulse
+	end
+end
+
 local BAR_FULL_EPSILON = 0.999 -- powyżej = "pełna" → chowaj
 
 local function updateStaminaBar(dt: number)
@@ -461,7 +552,8 @@ local function updateStaminaBar(dt: number)
 
 	-- Widoczny WYŁĄCZNIE przy sprincie albo gdy stamina się odbudowuje (< max).
 	-- `activeSprintNow` łapie pierwszą klatkę biegu, zanim stamina zdąży spaść.
-	local wantVisible = isAlive() and (activeSprintNow or frac < BAR_FULL_EPSILON)
+	-- Energy drink: widoczny przez całe działanie, też w miejscu — kolory mówią „działa”.
+	local wantVisible = isAlive() and (activeSprintNow or frac < BAR_FULL_EPSILON or energyNow)
 
 	-- ZBOCZE widoczności → elastic pop na UIScale. Tween startuje tylko przy ZMIANIE
 	-- stanu, nie co klatkę — inaczej restartowałby się w kółko i nigdy nie doszedł końca.
@@ -497,6 +589,7 @@ local function updateStaminaBar(dt: number)
 	-- billboardu (nie `Root`), bo na `Root` siedzi UIScale wskoku, który i tak mnoży obrys.
 	if bar.Enabled then
 		local thickness = math.max(1, bar.AbsoluteSize.X * CFG_BAR.BorderToWidth)
+			* (if energyNow then CFG_ENERGY.BorderThickness else 1)
 		for stroke in pairs(barStrokeBase) do
 			stroke.Thickness = thickness
 		end
@@ -515,7 +608,19 @@ local function updateStaminaBar(dt: number)
 	fill.Size = UDim2.new(sz.X.Scale, sz.X.Offset, frac, 0)
 
 	-- Reaktywny kolor — na ImageLabel tint przez ImageColor3, inaczej BackgroundColor3.
+	local borderCol: Color3? = nil
 	local col = staminaColor(frac)
+	if energyNow then
+		local speed = CFG_ENERGY.PaletteSpeed * (if energyEndsIn < CFG_ENERGY.WarnTime then CFG_ENERGY.WarnSpeedMul else 1)
+		energyPhase += dt * speed
+		borderCol = paletteColor(energyPhase)
+		col = paletteColor(energyPhase + CFG_ENERGY.FillPhase)
+	end
+	for stroke, base in pairs(barStrokeColor) do
+		if stroke.Parent then
+			stroke.Color = borderCol or base
+		end
+	end
 	if fill:IsA("ImageLabel") or fill:IsA("ImageButton") then
 		(fill :: any).ImageColor3 = col
 	else
@@ -532,6 +637,7 @@ end
 local function updateLoop(dt: number)
 	if not currentHumanoid then
 		activeSprintNow = false
+		updateEnergyTint(dt) -- filtr ekranu gaśnie także po śmierci
 		updateStaminaBar(dt)
 		return
 	end
@@ -541,16 +647,35 @@ local function updateLoop(dt: number)
 	if not isAlive() then
 		isSprintingHeld = false
 		activeSprintNow = false
+		updateEnergyTint(dt)
 		updateStaminaBar(dt)
 		return
 	end
+
+	-- Energy drink: zbocze włączenia = pełna stamina i koniec wyczerpania. Wyczerpanie puszcza
+	-- sprint, więc shift trzymany dalej rusza bieg od razu — gracz pił w biegu, nie ma
+	-- puszczać i wciskać klawisza drugi raz.
+	local energy, endsIn = readEnergy()
+	if energy and not energyNow then
+		currentStamina = CFG_STAM.Max
+		if exhausted then
+			exhausted = false
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+				isSprintingHeld = true
+			end
+		end
+	end
+	energyNow, energyEndsIn = energy, endsIn
+	updateEnergyTint(dt)
 
 	local activeSprint = shouldActivelySprintThisFrame()
 	activeSprintNow = activeSprint
 
 	-- Stamina drain / regen
 	if activeSprint then
-		currentStamina = math.max(0, currentStamina - CFG_STAM.DrainRate * dt)
+		if not energyNow then
+			currentStamina = math.max(0, currentStamina - CFG_STAM.DrainRate * dt)
+		end
 		lastSprintActiveTime = os.clock()
 		if currentStamina <= 0 then
 			-- Wyczerpanie → force release + flag exhausted. Gracz musi puścić i poczekać
@@ -573,7 +698,9 @@ local function updateLoop(dt: number)
 
 	-- WalkSpeed lerp (framerate-independent). alpha = dt/lerpTime z clampem.
 	-- Snap do target gdy bardzo blisko (uniknięcie infinitesimal residuum).
-	local targetSpeed = (activeSprint and CFG.SprintSpeed or CFG.WalkSpeed) * speedFactor()
+	-- Energy drink: +WalkBonus tylko do chodu (decyzja Kacpra 21.10: „speed bez sprinta”).
+	local walk = CFG.WalkSpeed + (if energyNow then CFG_ENERGY.WalkBonus else 0)
+	local targetSpeed = (activeSprint and CFG.SprintSpeed or walk) * speedFactor()
 	local alpha = math.clamp(dt / CFG.SpeedLerpTime, 0, 1)
 	currentWalkSpeed = currentWalkSpeed + (targetSpeed - currentWalkSpeed) * alpha
 	if math.abs(currentWalkSpeed - targetSpeed) < 0.05 then
@@ -589,7 +716,8 @@ local function updateLoop(dt: number)
 	-- Workspace.CurrentCamera może być nil bardzo krótko przy charakter swap — guard.
 	local camera = Workspace.CurrentCamera
 	if camera then
-		local targetFOV = activeSprint and CFG.SprintFOV or CFG.BaseFOV
+		local targetFOV = (activeSprint and CFG.SprintFOV or CFG.BaseFOV)
+			+ (if energyNow then CFG_ENERGY.FOVBonus else 0)
 		local fovAlpha = math.clamp(dt / CFG.FOVLerpTime, 0, 1)
 		currentFOV = currentFOV + (targetFOV - currentFOV) * fovAlpha
 		if math.abs(currentFOV - targetFOV) < 0.05 then
@@ -868,6 +996,7 @@ local function onCharacterAdded(character: Model)
 	currentStamina = CFG_STAM.Max
 	isSprintingHeld = false
 	exhausted = false
+	energyNow = false
 	lastSprintActiveTime = 0
 	currentWalkSpeed = CFG.WalkSpeed
 	currentFOV = CFG.BaseFOV
@@ -1090,14 +1219,23 @@ local function onRenderStepCamera(dt: number)
 	local offset = shoulder + computeShakeOffset() + computeSprintShake(dt)
 	-- 4. Przechył przy ruchu w bok (11.10) — obrót wokół osi patrzenia.
 	local roll = computeLean(camera, dt)
+	-- 5. Podbicie w górę (odrzut RPG, 21.10) — gaśnie samo.
+	local pitch = kickPitch
+	if kickPitch > 0 then
+		kickPitch *= math.exp(-kickDecay * dt)
+		if kickPitch < 1e-3 then kickPitch = 0 end
+	end
 
 	-- Ustaw CFrame tylko gdy faktycznie coś modyfikujemy — inaczej zostaw default camera
 	-- w spokoju (mniej redundantnych setów, brak konfliktu gdy efekty wyłączone/idle).
 	-- Każda NASZA kamera przechodzi przez `keepLineOfSight` — to on gwarantuje brak x-raya.
-	if cfg.Enabled or offset ~= Vector3.zero or roll ~= 0 then
+	if cfg.Enabled or offset ~= Vector3.zero or roll ~= 0 or pitch ~= 0 then
 		local cf = if offset ~= Vector3.zero then base * CFrame.new(offset) else base
 		if roll ~= 0 then
 			cf *= CFrame.Angles(0, 0, roll)
+		end
+		if pitch ~= 0 then
+			cf *= CFrame.Angles(pitch, 0, 0)
 		end
 		camera.CFrame = keepLineOfSight(camera, cf)
 	end

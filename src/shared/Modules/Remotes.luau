@@ -97,6 +97,20 @@ local REMOTE_NAMES = {
 	                      --   cały lot. Czysta kosmetyka rysowana lokalnie; idzie do WSZYSTKICH,
 	                      --   żeby inni widzieli, skąd kolegę ciągnie, a nie samo odlecenie.
 	                      --   Strzelec IGNORUJE własny — swoją linę ma już z Remotes.Grappled
+	"DrinkEnergy",        -- klient→server: FireServer() bez payloadu — łyk energy drinka trzymanego
+	                      --   w ręce (20.10). Serwer odpowiada atrybutami gracza `EnergyStart` /
+	                      --   `EnergyEnd` (czas serwera, Config.EnergyDrink), nie remote'em —
+	                      --   widzą je wszyscy klienci, także ci, którzy dołączą w trakcie
+	"FireRpg",            -- klient→server: FireServer(targetPos: Vector3) — punkt, w który celuje
+	                      --   RPG (20.10). Serwer bierze stąd WYŁĄCZNIE kierunek; start lotu liczy
+	                      --   sam z pozycji gracza, lot prowadzi własnymi promieniami
+	"RocketFired",        -- FireAllClients: (id: number, shooter: Player, origin: Vector3,
+	                      --   direction: Vector3, speed: number, firedAt: number, maxTime: number)
+	                      --   — klienci rysują rakietę u siebie po tej prostej; `firedAt` to czas
+	                      --   serwera, więc kopia nie spóźnia się o ping
+	"RocketExploded",     -- FireAllClients: (id: number, position: Vector3?) — koniec lotu;
+	                      --   `nil` = rakieta znikła bez wybuchu (koniec rundy). Sam wybuch
+	                      --   (VFX, gruz) idzie zwykłą drogą bomby: Remotes.BlastFX
 }
 
 local function getRemotesFolder(): Folder

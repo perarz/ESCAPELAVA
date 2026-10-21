@@ -15,6 +15,7 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local CooldownBarController = require(script.Parent.CooldownBarController)
 local MovementController = require(script.Parent.MovementController)
+local ItemEquipController = require(script.Parent.ItemEquipController)
 
 local RunService = game:GetService("RunService")
 local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
@@ -79,11 +80,12 @@ local function attachAnimation(character: Model)
 	pushTrack, pushHumanoid = loaded, hum
 end
 
-local function playPushAnimation()
+local function playPushAnimation(): number
 	local track, hum = pushTrack, pushHumanoid
-	if not track or not hum or hum.Health <= 0 or RagdollState.isRagdolled(hum) then return end
+	if not track or not hum or hum.Health <= 0 or RagdollState.isRagdolled(hum) then return 0 end
 	local speed = if CFG.Windup > 0 then CFG.AnimationImpactTime / CFG.Windup else 1
 	track:Play(CFG.AnimationFadeIn, 1, speed)
+	return track.Length / speed + CFG.AnimationFadeOut
 end
 
 local lastPushAt = 0
@@ -127,7 +129,7 @@ function PushController.init()
 		if now - lastPushAt < cd then return end
 		lastPushAt = now
 
-		playPushAnimation()
+		ItemEquipController.cancel(playPushAnimation())
 		Remotes.Push:FireServer()
 		CooldownBarController.trigger("push", cd)
 		-- Feedback popychającego (11.10): szarpnięcie kamery i mały zoom w chwili uderzenia.

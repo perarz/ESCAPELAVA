@@ -177,6 +177,52 @@ function Utils.weldModel(model: Instance, primary: BasePart)
 	end
 end
 
+-- Przedmiot w ręce z modelu Kacpra (20.10 — energy drink, RPG; ten sam wzorzec mają ręcznie
+-- GrappleService i BridgeService): kopia spłaszczona do Toola, zweldowana do największej
+-- bryły (`Handle`), bez kolizji i masy — 20+ partów o realnej masie przechyla postać.
+-- `gripFor(model, handle)` (opcjonalne) liczy `Tool.Grip`, dopóki model stoi jeszcze w całości
+-- i w pozie z wystawy — po spłaszczeniu nie da się już znaleźć jego części po nazwie.
+-- Zwraca Tool BEZ rodzica (wkłada go wołający) albo nil, gdy model nie ma żadnej bryły.
+function Utils.makeHeldTool(template: Model, toolName: string, itemId: string,
+	gripFor: ((Model, BasePart) -> CFrame)?): Tool?
+	local model = template:Clone()
+	local primary = model.PrimaryPart or Utils.largestPart(model)
+	if not primary then
+		model:Destroy()
+		return nil
+	end
+
+	local tool = Instance.new("Tool")
+	tool.Name = toolName
+	tool.RequiresHandle = true
+	tool.CanBeDropped = false
+	tool:SetAttribute("ItemId", itemId)
+	if gripFor then
+		tool.Grip = gripFor(model, primary)
+	end
+
+	primary.Name = "Handle"
+	local parts: { BasePart } = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CanCollide = false
+			d.Massless = true
+			table.insert(parts, d)
+		end
+	end
+	-- Weld PRZED przeniesieniem do Toola (inaczej klatka luźnych części); `weldModel` sam
+	-- zdejmuje `Anchored` — modele przychodzą z wystawy zakotwiczone.
+	Utils.weldModel(model, primary)
+	for _, p in ipairs(parts) do
+		p.Parent = tool
+	end
+	for _, leftover in ipairs(model:GetChildren()) do
+		leftover.Parent = tool
+	end
+	model:Destroy()
+	return tool
+end
+
 -- Wierzch stosu lawy (najwyższa warstwa w `Workspace.Lava`) albo nil, gdy lawy nie ma. Dla
 -- klienta — serwer ma `LavaService.getSurfaceY`. Czytane za każdym razem, bo tafla rośnie
 -- i faluje co klatkę; warstw jest dwie-trzy, więc to kilka porównań.

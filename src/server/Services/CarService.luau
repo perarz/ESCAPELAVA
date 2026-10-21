@@ -12,6 +12,8 @@
 --      się — pożary jako mechanika są poza v1.0),
 --   3. wybucha tą samą ścieżką co bomba (`BombService.explodeAt`: otoczenie + gracze, kill dla
 --      rzucającego), tylko słabiej (`Cars.Blast`). Auto obok w zasięgu dziury — łańcuchowo.
+-- 21.10: BECZKI (folder `Barrels`) idą tym samym torem z własnym profilem (`Cars.Profiles`):
+-- mocniejszy wybuch (1,3× bomby), krótszy ogień; odpala je też pchnięcie (PushService).
 -- Każde auto wybucha RAZ. Po rundzie MapService podmienia mapę na świeże klony, a słabe
 -- klucze czyszczą się same.
 --
@@ -19,9 +21,11 @@
 -- CarService, a BombService woła DestructionService — bezpośredni require = cykl.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 
 local CarService = {}
 
@@ -35,6 +39,16 @@ export type Injected = {
 }
 
 local deps: Injected? = nil
+
+-- Siła wybuchu i czas ognia dla modelu: profil folderu (beczki) albo domyślny (auta).
+local function profileOf(model: Instance): (any, number)
+	local parent = model.Parent
+	local profile = parent and (CARS.Profiles :: any)[parent.Name]
+	if profile then
+		return profile.Blast, profile.FireTime
+	end
+	return CARS.Blast, CARS.FireTime
+end
 local exploded: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 
 function CarService.hasExploded(car: Instance): boolean
@@ -52,13 +66,54 @@ function CarService.ignite(car: Model, attacker: Player?)
 		if not car.Parent or not deps then
 			return
 		end
+		local blast, fireTime = profileOf(car)
 		local cf, size = car:GetBoundingBox()
 		local center = cf.Position
 		-- Najpierw auto do klientów: jego części są wtedy „w przekazaniu” i własny wybuch ich
 		-- nie liczy (ani jako osłony, ani jako celu).
 		deps.shatter({ car }, center)
-		Remotes.CarFire:FireAllClients(cf, size, CARS.FireTime)
-		deps.explode(center, CARS.Blast, attacker)
+		Remotes.CarFire:FireAllClients(cf, size, fireTime)
+		deps.explode(center, blast, attacker)
+	end)
+end
+
+-- Beczka przy zawaleniu (21.10, Kacper: „spada i przy kontakcie wybucha”). DestructionService
+-- zamiast przekazać ją klientom woła to: model spina się w jedną bryłę i spada FIZYKĄ SERWERA
+-- (serwer musi znać miejsce i chwilę uderzenia), a wybucha, gdy po spadku `MinDrop` przestaje
+-- lecieć w dół — czyli uderzyła. Po prędkości, nie po Touched: na starcie beczka dotyka własnej,
+-- też spadającej podłogi. Sufit `MaxTime` (zaklinowana, wpadła w lawę bez dna) = wybuch i tak.
+-- Bez sprawcy: zawalenie nie przenosi informacji, kto je spowodował.
+local falling: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+function CarService.drop(model: Model)
+	if exploded[model] or falling[model] or not model.Parent then
+		return
+	end
+	local primary = model.PrimaryPart or Utils.largestPart(model)
+	if not primary then
+		CarService.ignite(model, nil)
+		return
+	end
+	falling[model] = true
+	Utils.weldModel(model, primary) -- spina i odkotwicza
+	pcall(function()
+		primary:SetNetworkOwner(nil) -- fizyka serwera: klient nie decyduje, gdzie uderzyła
+	end)
+	local FALL = CARS.Fall
+	local startY = primary.Position.Y
+	local startedAt = os.clock()
+	local conn: RBXScriptConnection? = nil
+	conn = RunService.Heartbeat:Connect(function()
+		if not model.Parent or not primary.Parent or exploded[model] then
+			if conn then conn:Disconnect() end
+			return
+		end
+		local dropped = startY - primary.Position.Y
+		local landed = dropped >= FALL.MinDrop and primary.AssemblyLinearVelocity.Y > -FALL.StopSpeed
+		if landed or os.clock() - startedAt > FALL.MaxTime then
+			if conn then conn:Disconnect() end
+			CarService.ignite(model, nil)
+		end
 	end)
 end
 

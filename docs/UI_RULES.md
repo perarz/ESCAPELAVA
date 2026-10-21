@@ -24,7 +24,7 @@ id obrazków) są w `docs/STUDIO_CONTRACT.md` → „UI z Figmy” — tu tylko 
   klonowane z paska. Wzór: `StarterGui.Inventory` (`STUDIO_CONTRACT` → „Ekwipunek”).
 
 ## Twarde zasady Kacpra
-1. **Czcionka zawsze Fredoka** (`FredokaOne`).
+1. **Czcionka zawsze Fredoka** (`FredokaOne`). Jedyny wyjątek: ekran ładowania — **Montserrat Heavy** (decyzja Kacpra 20.10: „inny font, żeby było widać, że to loading screen”).
 2. **UI to obiekty w Studio** (`StarterGui`) — buduję przez MCP, kod tylko podpina się pod
    nazwy i animuje. Wzory do klonowania (`*Template`) też w Studio, `Visible = false`.
 3. **Pod każdym tekstem cień**: etykieta `<Nazwa>Shadow` obok `<Nazwa>` (ten sam rodzic),

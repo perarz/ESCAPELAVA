@@ -19,7 +19,6 @@ local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
@@ -258,10 +257,11 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 	-- Damage server-side (authority). Ragdoll + knockback CLIENT-SIDE przez RemoteEvent
 	-- bo character ma network ownership = klient. Server changes Motor6D są nadpisywane
 	-- przez klient prediction — dlatego sztywno wyglądał ragdoll.
-	-- W Studio damage'ujemy też rzucającego (testowanie); production: thrower exempt.
-	local exemptThrower = not RunService:IsStudio()
+	-- Rani KAŻDEGO w zasięgu, także rzucającego / strzelca — również na żywym serwerze (21.10,
+	-- decyzja Kacpra: bomba, RPG, beczki i auta „dają damage każdemu”). Do 21.10 rzucający był
+	-- oszczędzany poza Studio. `thrower` zostaje sprawcą (kill i log), nie wyjątkiem.
+	local weapon = if type(def.id) == "string" then def.id else "bomb"
 	for _, p in ipairs(Players:GetPlayers()) do
-		if exemptThrower and p == thrower then continue end
 		local char = p.Character
 		if not char then continue end
 		local hum = char:FindFirstChildOfClass("Humanoid")
@@ -303,7 +303,11 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 		-- Tag attacker PRZED damage — jeśli ten hit kill'uje, credit thrower.
 		-- Także jeśli tylko rani a target zginie w oknie X sekund (np. bomba wybije w lawę
 		-- → ragdoll → lava kill), wciąż credit dla thrower.
-		KillService.tag(hum, thrower, "bomb")
+		-- Własny wybuch NIE taguje: nadpisałby zabójstwo komuś, kto chwilę wcześniej trafił
+		-- rzucającego (bomba / push), a samobójstwo i tak nie daje nagrody (KillService).
+		if p ~= thrower then
+			KillService.tag(hum, thrower, weapon)
+		end
 
 		-- 1. Damage server-side (klient nie może modyfikować HP — anti-cheat)
 		hum:TakeDamage(hum.MaxHealth * def.damagePercent * damageT)
@@ -373,17 +377,18 @@ end
 -- Wybuch bez pocisku (27.09 — auto, CarService): ta sama ścieżka co bomba — destrukcja
 -- otoczenia PRZED obrażeniami (osłona), błąd destrukcji nie zjada obrażeń. `def` ma pola jak
 -- ItemDefinitions.bomb. Bez sprawcy (nikt nie rzucał) tylko otoczenie: tag zabójstwa
--- i log potrzebują gracza.
+-- i log potrzebują gracza. 20.10: woła to też RpgService (rakieta) i beczki (21.10).
 function BombService.explodeAt(center: Vector3, def: any, attacker: Player?)
 	local ok, err = xpcall(DestructionService.detonate, function(e: any): string
 		return tostring(e) .. "\n" .. debug.traceback()
 	end, center, def.destruction, attacker)
 	if not ok then
-		warn(("[Bomb] BŁĄD destrukcji przy wybuchu auta %s: %s"):format(tostring(center), tostring(err)))
+		warn(("[Bomb] BŁĄD destrukcji przy wybuchu %s (%s): %s"):format(
+			tostring(center), tostring(def.id or "auto"), tostring(err)))
 	end
 	if attacker and attacker.Parent then
 		applyDamageAndKnockback(center, attacker, def)
-		log(attacker, "car", "pos=" .. tostring(center))
+		log(attacker, if type(def.id) == "string" then def.id else "car", "pos=" .. tostring(center))
 	end
 end
 

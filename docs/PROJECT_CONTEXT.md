@@ -318,7 +318,7 @@ dalej ma sens — teraz wiadomo, na co patrzeć.
    (popup kasy, paski cooldownów — do ostylowania).
 3. **Monetyzacja (Day 5)**: gamepass VIP, dev producty (kup kasę za Robuxy) — do
    zaprojektowania oferta i ceny, potem implementacja.
-4. **Pozostałe itemy z szóstki**: RPG, sticky bomb, energy drink — modele już stoją na
+4. **Pozostałe itemy z szóstki** (20.10: energy drink gotowy — wypijasz w biegu i przez 10 s biegniesz bez końca, pasek staminy mieni się kolorami; RPG w pierwszej wersji — rakieta leci prosto tam, gdzie celujesz, i wybucha słabiej niż bomba, własna rakieta strzelca nie rani, rocket jump w następnym kroku; zostaje sticky bomb): RPG, sticky bomb, energy drink — modele już stoją na
    wystawie, kod dokłada się według wzorca bomby/mostu/haka. Każdy kolejny item to też
    kolejny slot w pasku (Twoja robota w UI).
 5. **Polish przed launchem (Day 6)**: dźwięki (assety = Kacper), eventy losowe
@@ -407,3 +407,18 @@ Kacper zaczął test w Play (`docs/TESTY.md`). Zrobione 07-08.10, wszystko **cze
 ## Stan na 2026-09-30
 
 Przegląd kodu 29.09 i naprawy w paczkach — wszystko czeka na test Kacpra w Play (`docs/TESTY.md`). Co zostało do wypuszczenia gry: `docs/DO_RELEASE.md`. Decyzje: destrukcja zostaje na prawdziwej fizyce, gruz nie rani; loadout 3 itemy na rundę; anty-cheat cofa gracza; na telefon przyciski dotykowe.
+
+
+## Wyciąganie itemów — 20.10.2026
+
+Dodane krótkie, subtelne gesty 0,35 s: bomba i hak przy kieszeni/biodrze, blueprint zza pleców. Nakładają się na dotychczasowy ruch, bez blokowania biegu i skoku. Użycie itemu i push natychmiast przerywają lokalny gest. Bez dodatkowych assetów do publikacji i bez pracy przy modelach. Kod zsynchronizowany i skompilowany w Studio; wygląd czeka na test Kacpra w Play: wszystkie trzy itemy z miejsca, w biegu i skoku, użycie od razu, szybkie przełączanie, ragdoll/respawn i widok u drugiego gracza.
+
+**21.10 — wyciąganie itemów (czeka na test):** RPG wyciągane zza prawego ramienia przez 0,7 s; bomba, hak i blueprint krócej — 0,3 s. Strzał/użycie dostępne natychmiast i przerywa gest. Lista sprawdzeń: `docs/ITEM_EQUIP_PLAN.md`.
+
+**21.10 — RPG oburącz (czeka na test):** po wyciągnięciu lewa ręka podpiera lufę, prawa zostaje na uchwycie. Podparcie zostaje po strzale, jeśli są kolejne rakiety; pchnięcie i ragdoll czasowo zwalniają ręce.
+
+**21.10 — poprawka RPG po teście:** zwykłe stanie/bieg błędnie zwalniały pozę oburącz wskutek warunku rozpoznającego animacje akcji. Poprawione; ponowny test w grze pozostaje otwarty.
+
+**21.10 — naturalniejszy chwyt RPG (czeka na test):** poprawione ułożenie obu rąk po zgłoszeniu, że wyrzutnia przechodzi przez brzuch. Tył lufy omija prawy bok postaci; pomiar geometrii nie pokazuje nachodzenia na tułów. Wyciąganie nadal zza ramienia, 0,7 s.
+
+**21.10 — picie (czeka na test):** puszka podnoszona przed usta z lekkim przechyleniem zamiast do prawego ucha. Czas gestu i działanie napoju bez zmian.

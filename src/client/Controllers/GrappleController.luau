@@ -15,6 +15,7 @@
 -- trzech odrzuconych modeli przy Config.Grapple. `LinearVelocity` przy okazji przebija
 -- kontroler Humanoida, który na ziemi zjada poziomą prędkość, zanim postać się oderwie.
 
+local ItemEquipController = require(script.Parent.ItemEquipController)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -334,6 +335,7 @@ local function hookTool(tool: Tool)
 		if (target - hrp.Position).Magnitude < 1 then return end
 
 		lastFireAt = now
+		ItemEquipController.cancel()
 		Remotes.FireGrapple:FireServer(target)
 	end)
 end

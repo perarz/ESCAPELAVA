@@ -44,9 +44,10 @@ Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czyta
   - 🎨 panel „Ekwipunek" w Studio — kontrakt nazw w planie, ⚠️ `ResetOnSpawn = false`
   - 💻 kod (pole w danych gracza, `LoadoutService`, `InventoryController`, blokada equipa po stronie serwera)
   *dla Claude'a:* `docs/ROADMAP.md` → „PLAN: LOADOUT” (koniec pliku). Wchodzi PO paczce 3.
-- [ ] **RPG** 💻 (model już stoi na wystawie)
+- [ ] **RPG** 💻 — etap 1 zrobiony 20.10 (strzał, lot, wybuch, czeka na test); etap 2: rocket jump + dym/dźwięk/odrzut.
+  *dla Claude'a:* rocket jump = wyrzut przez `Remotes.Pushed` + `AntiCheatService.grantGrace` + nowe „bez obrażeń przy lądowaniu” w `FallDamageService` (dziś jest tylko `suppressMidairRagdoll`).
 - [ ] **STICKY BOMB** 💻 (model już stoi)
-- [ ] **ENERGY DRINK** 💻 (model już stoi)
+- [x] **ENERGY DRINK** 💻 — zrobiony 20.10, czeka na test w `docs/TESTY.md` (🎨 opcjonalnie: id dźwięku łyku).
 - [ ] **HAK** 💻 — kliknięcie pod nogi nie może zużywać sztuki za nic.
   *dla Claude'a:* odrzucić przed `consume`, gdy lot < ~3 study.
 - [ ] **BOMBA** — działa; do sprawdzenia w teście (NaN, limity).

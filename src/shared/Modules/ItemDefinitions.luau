@@ -128,8 +128,52 @@ ItemDefinitions.grapple = {
 	-- nie dublujemy, bo to są liczby do strojenia, a nie kontrakt itemu.
 }
 
+-- 20.10, decyzje Kacpra: łyk w biegu, 10 s nieskończonej staminy, pasek mieni się kolorami,
+-- 25$. Liczby efektu w Config.EnergyDrink; serwer: EnergyDrinkService.
+ItemDefinitions.energy_drink = {
+	id = "energy_drink",
+	name = "Energy Drink",
+	icon = "rbxassetid://77399251372698", -- 20.10: render z gry + czarny obrys (output/inventory-icons-v2)
+	price = 25,
+	desc = "Drink it on the run: unlimited stamina for 10 seconds. One use.",
+	-- Model Kacpra z wystawy; ten sam model trafia do ręki (kopia w ReplicatedStorage).
+	sceneModel = "EnergyDrink",
+	toolModel = "EnergyDrink",
+	stats = { power = 0, range = 0, mobility = 4 },
+	maxStack = 9999,
+}
+
+-- 20.10, decyzje Kacpra: rakieta prosto i szybko, wybuch przy pierwszym trafieniu, słabszy od
+-- bomby, 1 rakieta = 75$, własny wybuch jak bomba rzucającego (rocket jump usunięty 21.10). Lot: Config.Rpg,
+-- serwer: RpgService. Pola wybuchu jak w `bomb`, bo czyta je ta sama ścieżka
+-- (BombService.explodeAt) — ~70% bomby: przewagą RPG jest zasięg i wybuch od razu.
+ItemDefinitions.rpg = {
+	id = "rpg",
+	name = "RPG",
+	icon = "rbxassetid://139499438619574", -- 20.10: render z gry + czarny obrys (output/inventory-icons-v2)
+	price = 75,
+	desc = "Fire a rocket straight where you aim. It blows up on the first thing it hits. One shot.",
+	sceneModel = "Rpg",
+	-- Cała wyrzutnia w ręce; leci tylko jej głowica (Config.Rpg.RocketPartName).
+	toolModel = "Rpg",
+	stats = { power = 4, range = 5, mobility = 1 },
+	maxStack = 9999,
+	blastRadius = 16,       -- bomba 22
+	damagePercent = 0.42,   -- bomba 0.6
+	knockbackForce = 320,   -- bomba 450
+	knockbackMinT = 0.35,
+	ragdollDuration = 1.6,  -- bomba 2
+	destruction = {
+		radius = 18,        -- bomba 24
+		damage = 115,       -- bomba 160 (ściana ma 100 HP — dziura mniejsza, ale jest)
+		impulse = 70,       -- bomba 95
+		minImpulseT = 0.1,
+		glassRadius = 25,   -- bomba 35
+	},
+}
+
 -- Kolejność wyświetlania w sklepie (porządek deterministyczny)
-ItemDefinitions.shopOrder = { "bomb", "bridge_builder", "grapple" }
+ItemDefinitions.shopOrder = { "bomb", "bridge_builder", "grapple", "energy_drink", "rpg" }
 
 -- Realny rozmiar rzeczy, którą item stawia w świecie (`worldModel`), z fallbackiem na
 -- wymiary wpisane w definicji. TUTAJ, a nie w każdym serwisie osobno, bo odpowiedź MUSI

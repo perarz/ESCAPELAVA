@@ -5,6 +5,49 @@
 
 local Config = {}
 
+-- Cosmetic upper-body overlay; times are normalized to Duration, angles in degrees.
+Config.ItemEquip = {
+	Enabled = true,
+	Duration = 0.3,
+	ProfileDurations = { Rpg = 0.7 },
+	ToolProfiles = { BombTool = "Hip", GrappleTool = "Hip", BlueprintTool = "Back", RpgTool = "Rpg" },
+	HoldBlendStart = 0.4,
+	HoldBlendEnd = 0.84,
+	HoldPoses = {
+		Rpg = {
+			-- Fit the entire launcher, including its long rear tube, outside the torso.
+			-- Centering only the trigger hand made the stock pass through the stomach.
+			Shoulder = Vector3.new(33, -16.5, -49), Elbow = Vector3.new(104.5, 0, 0), Wrist = Vector3.new(-64, 47, -23),
+			LeftShoulder = Vector3.new(54, 6, 75.5), LeftElbow = Vector3.new(20, 0, 0), LeftWrist = Vector3.new(-14, -35, -99.5),
+		},
+	},
+	Profiles = {
+		Rpg = {
+			-- Reach over the shoulder, clear the head, then settle into Animate's tool hold.
+			{ Time = 0, Weight = 0, Shoulder = Vector3.new(150, -12, -18), Elbow = Vector3.new(105, 0, 0), Wrist = Vector3.new(-8, 0, -12), Waist = Vector3.new(0, 0, 0) },
+			{ Time = 0.22, Weight = 1, Shoulder = Vector3.new(150, -12, -18), Elbow = Vector3.new(105, 0, 0), Wrist = Vector3.new(-8, 0, -12), Waist = Vector3.new(0, -9, 3) },
+			{ Time = 0.4, Weight = 1, Shoulder = Vector3.new(130, -8, -24), Elbow = Vector3.new(85, 0, 0), Wrist = Vector3.new(-12, 0, -8), Waist = Vector3.new(0, -6, 2) },
+			{ Time = 0.68, Weight = 1, Shoulder = Vector3.new(82, -4, -16), Elbow = Vector3.new(35, 0, 0), Wrist = Vector3.new(-5, 0, -4), Waist = Vector3.new(0, 3, 0) },
+			{ Time = 0.84, Weight = 0.75, Shoulder = Vector3.new(76, 0, -6), Elbow = Vector3.new(12, 0, 0), Wrist = Vector3.new(0, 0, 0), Waist = Vector3.new(0, 1, 0) },
+			{ Time = 1, Weight = 0, Shoulder = Vector3.new(80, 0, 0), Elbow = Vector3.new(0, 0, 0), Wrist = Vector3.new(0, 0, 0), Waist = Vector3.new(0, 0, 0) },
+		},
+		Hip = {
+			{ Time = 0, Weight = 0, Shoulder = Vector3.new(-12, -8, -8), Elbow = Vector3.new(18, 0, 0), Wrist = Vector3.new(0, 0, -8), Waist = Vector3.new(0, 0, 0) },
+			{ Time = 0.27, Weight = 1, Shoulder = Vector3.new(-12, -8, -8), Elbow = Vector3.new(18, 0, 0), Wrist = Vector3.new(0, 0, -8), Waist = Vector3.new(0, -5, 2) },
+			{ Time = 0.45, Weight = 1, Shoulder = Vector3.new(5, -6, -12), Elbow = Vector3.new(35, 0, 0), Wrist = Vector3.new(-5, 0, 0), Waist = Vector3.new(0, -4, 1) },
+			{ Time = 0.76, Weight = 0.85, Shoulder = Vector3.new(62, 0, -5), Elbow = Vector3.new(12, 0, 0), Wrist = Vector3.new(0, 0, 0), Waist = Vector3.new(0, 2, 0) },
+			{ Time = 1, Weight = 0, Shoulder = Vector3.new(80, 0, 0), Elbow = Vector3.new(0, 0, 0), Wrist = Vector3.new(0, 0, 0), Waist = Vector3.new(0, 0, 0) },
+		},
+		Back = {
+			{ Time = 0, Weight = 0, Shoulder = Vector3.new(-48, -20, -18), Elbow = Vector3.new(65, 0, 0), Wrist = Vector3.new(0, -15, -10), Waist = Vector3.new(0, 0, 0) },
+			{ Time = 0.28, Weight = 1, Shoulder = Vector3.new(-48, -20, -18), Elbow = Vector3.new(65, 0, 0), Wrist = Vector3.new(0, -15, -10), Waist = Vector3.new(0, -8, 2) },
+			{ Time = 0.48, Weight = 1, Shoulder = Vector3.new(-22, -12, -26), Elbow = Vector3.new(75, 0, 0), Wrist = Vector3.new(0, -8, -5), Waist = Vector3.new(0, -6, 1) },
+			{ Time = 0.78, Weight = 0.85, Shoulder = Vector3.new(65, -5, -8), Elbow = Vector3.new(18, 0, 0), Wrist = Vector3.new(0, 0, 0), Waist = Vector3.new(0, 2, 0) },
+			{ Time = 1, Weight = 0, Shoulder = Vector3.new(80, 0, 0), Elbow = Vector3.new(0, 0, 0), Wrist = Vector3.new(0, 0, 0), Waist = Vector3.new(0, 0, 0) },
+		},
+	},
+}
+
 -- ============================================================================
 -- TRYB DEV / TESTOWY (2026-08-12) — skraca pętlę testów destrukcji.
 -- ⚠️ `Enabled = false` PRZED LAUNCHEM. Jedna flaga wyłącza wszystko naraz:
@@ -436,6 +479,8 @@ Config.UI = {
 			bomb = Color3.fromRGB(226, 52, 40),
 			bridge_builder = Color3.fromRGB(196, 128, 62),
 			grapple = Color3.fromRGB(35, 120, 230),
+			energy_drink = Color3.fromRGB(140, 60, 220),
+			rpg = Color3.fromRGB(95, 120, 50),
 		},
 		DefaultItemColor = Color3.fromRGB(120, 190, 60),
 		EmptyItemColor = Color3.fromRGB(95, 90, 100),
@@ -1067,6 +1112,122 @@ Config.Grapple = {
 	ShakeDuration = 0.25,
 }
 
+-- Energy drink (20.10, decyzje Kacpra): pijesz w biegu, przez `Duration` sprint nie zużywa
+-- staminy, a pasek staminy mieni się kolorami. Napój NIE przyspiesza — sprint jest tak samo
+-- szybki, więc anti-cheat nie musi o nim wiedzieć. Serwer (EnergyDrinkService) zapisuje okno
+-- działania w dwóch atrybutach gracza (czas serwera); efekt liczy MovementController
+-- właściciela, gest łyku widzą wszyscy (EnergyDrinkController).
+Config.EnergyDrink = {
+	Duration = 10,        -- s nieskończonej staminy (Kacper 20.10)
+	-- Łyk: efekt rusza SipTime po kliknięciu (puszka przy ustach), gest z opuszczeniem ręki
+	-- trwa SipDuration. Bieg się NIE zatrzymuje (decyzja Kacpra: „krótkie picie w biegu”).
+	SipTime = 0.5,
+	SipDuration = 0.8,
+	StartAttribute = "EnergyStart",
+	EndAttribute = "EnergyEnd",
+	-- Puszka w dłoni: obrót uchwytu (Tool.Grip) w stopniach. Model ma wieczko po swojej osi +X;
+	-- (0, 0, -90) ma stawiać ją pionowo, wieczkiem do góry, przy ręce trzymającej item przed sobą.
+	-- Leży albo stoi do góry dnem → zmienić TĘ liczbę (np. Z = 90 albo Y = 90).
+	GripRotation = Vector3.new(0, 0, -90),
+	-- Gest łyku: kąty stawów prawej ręki w stopniach, Time = ułamek SipDuration, Weight 0 = sama
+	-- animacja postaci, 1 = poza z tabeli. Ta sama technika co Config.ItemEquip (nakładka na
+	-- Motor6D.Transform), te same znaki: Shoulder X+ = ręka do przodu, Z− = do środka ciała,
+	-- Elbow X+ = zgięcie łokcia. Dopasowane do wieczka puszki, Tool.Grip i stawów
+	-- StarterCharacter: wieczko przed ustami, nie przy prawym uchu. Druga poza przechyla puszkę.
+	Sip = {
+		{ Time = 0, Weight = 0, Shoulder = Vector3.new(80, 30.5, -59.5), Elbow = Vector3.new(52.5, 0, 0), Wrist = Vector3.new(-0.5, 34, 57.5) },
+		{ Time = 0.3, Weight = 1, Shoulder = Vector3.new(80, 30.5, -59.5), Elbow = Vector3.new(52.5, 0, 0), Wrist = Vector3.new(-0.5, 34, 57.5) },
+		{ Time = 0.62, Weight = 1, Shoulder = Vector3.new(87.5, 30, -56.5), Elbow = Vector3.new(42.5, 0, 0), Wrist = Vector3.new(9.5, 33.5, 55.5) },
+		{ Time = 1, Weight = 0, Shoulder = Vector3.new(87.5, 30, -56.5), Elbow = Vector3.new(42.5, 0, 0), Wrist = Vector3.new(9.5, 33.5, 55.5) },
+	},
+	-- 21.10 (Kacper): w trakcie działania szybszy CHÓD (sprint bez zmian) i szersza kamera.
+	-- Chód 12 + 3 = 15 < sprint 20 — anti-cheat dalej nic nie musi wiedzieć.
+	WalkBonus = 3,        -- stud/s do chodu
+	FOVBonus = 5,         -- stopni do kamery (chód i sprint)
+	-- Pasek staminy (21.10, druga wersja — Kacper: „pogrubiona obramówka, różne odcienie
+	-- przechodzące, środek też w różnych odcieniach”): obrys i wypełnienie płyną po palecie
+	-- niebieskich (`Palette`, w kółko, `PaletteSpeed` cykli/s), środek przesunięty w fazie
+	-- o `FillPhase`, żeby nie były tego samego koloru. Obrys × `BorderThickness`.
+	-- W ostatnich `WarnTime` s paleta płynie `WarnSpeedMul` razy szybciej — zaraz koniec.
+	-- 21.10 wieczór (Kacper: „tylko złote”): paleta złota zamiast niebieskiej.
+	Palette = {
+		Color3.fromRGB(230, 145, 15),
+		Color3.fromRGB(255, 195, 40),
+		Color3.fromRGB(255, 235, 140),
+		Color3.fromRGB(255, 210, 70),
+		Color3.fromRGB(215, 120, 10),
+	},
+	PaletteSpeed = 0.9,
+	FillPhase = 0.5,
+	BorderThickness = 1.8,
+	WarnTime = 2,
+	WarnSpeedMul = 2.5,
+	-- Winieta na krawędziach ekranu właściciela (21.10, Kacper: „jak czerwone przy damage po
+	-- bokach, ale lekko złotawe albo niebieskie”; filtr na cały ekran ODRZUCONY). Wygląd:
+	-- `StarterGui.EnergyVignette` (Studio). Kod: wejście/zejście `VignetteFade`, pulsowanie
+	-- między `VignetteMin` a 1 widoczności (`VignettePulseHz`), kolor płynie po `VignetteColors`
+	-- (niebieski ↔ złotawy). Złoto/niebieski = tu.
+	VignetteColors = { Color3.fromRGB(255, 200, 60), Color3.fromRGB(255, 225, 130) }, -- tylko złoto (Kacper)
+	VignetteColorSpeed = 0.35, -- cykli/s przejścia kolorów
+	VignettePulseHz = 1.2,
+	VignetteMin = 0.55,
+	VignetteFade = 0.35,
+	SipSound = "",        -- dźwięk łyku, rbxassetid od Kacpra; "" = cisza
+	SipSoundVolume = 0.8,
+}
+
+-- RPG (20.10, decyzje Kacpra): rakieta leci PROSTO i szybko, bez opadania, wybucha przy
+-- pierwszym trafieniu; wybuch słabszy od bomby (siła: ItemDefinitions.rpg); 1 rakieta = 1 strzał
+-- za 75$; własny wybuch jak bomba rzucającego (rocket jump usunięty 21.10). Lot liczy SERWER promieniami
+-- (RpgService), klienci rysują rakietę u siebie po tej samej prostej (RpgController).
+Config.Rpg = {
+	Speed = 120,          -- stud/s
+	MaxRange = 300,       -- dalej rakieta wybucha w powietrzu (2,5 s lotu)
+	MuzzleHeight = 1.5,   -- start lotu nad środkiem HRP — mniej więcej wysokość ramienia
+	HitBackoff = 0.5,     -- środek wybuchu odsunięty od trafionej powierzchni (nie w ścianie)
+	-- Głowica w modelu `Rpg` — to ona leci (jej kopia u klientów); w ręce zostaje cała wyrzutnia.
+	RocketPartName = "Cylinder",
+	-- Chwyt wyrzutni: punkt względem środka modelu, wzdłuż lufy (w stronę głowicy = +) i pod
+	-- lufą. Model ma tam rękojeść. Ręka w złym miejscu → stroić te dwie liczby.
+	HoldAlong = -0.28,
+	HoldBelow = 0.35,
+	-- Smuga za rakietą u klientów (prosta, docelowy dym w etapie efektów).
+	TrailLifetime = 0.35,
+	TrailWidth = 0.5,
+	TrailColor = Color3.fromRGB(235, 235, 235),
+	-- Klient sprząta swoją kopię rakiety po czasie lotu + tyle, gdy RocketExploded nie doszedł.
+	VisualLinger = 0.5,
+	-- Odrzut przy strzale (21.10, Kacper: kamera + błysk i dym + wyrzutnia w ręce, „mocno”).
+	-- Kamera tylko u strzelca; błysk, dym i kop ręki u wszystkich (RpgController na RocketFired).
+	Recoil = {
+		-- 21.10, Kacper: podbicie kamery w górę „wkurwia” — gra nie ma celownika, a kamera to
+		-- jedyne celowanie, więc NIC nie może zmieniać kierunku patrzenia. Odrzut kamery = sam
+		-- wstrząs (przesunięcie, bez obrotu) i zoom-out. 0 = podbicie wyłączone; nie wracać.
+		CameraKick = 0,
+		CameraKickDecay = 7,   -- 1/s
+		Shake = 1.6,           -- MovementController.screenShake (sufit ShakeMaxIntensity)
+		ShakeTime = 0.25,
+		FOVKick = 9,           -- chwilowe oddalenie — „kop” bez ruszania celu
+		-- Kop ręki: nakładka na stawy (jak gest łyku), stopnie: bark w górę, łokieć zgina do tyłu.
+		ArmShoulder = 32,
+		ArmElbow = 28,
+		ArmTime = 0.45,        -- s całego kopa
+		ArmAttack = 0.05,      -- s do pełnego wychylenia
+		-- Wylot i tył wyrzutni (od głowicy w ręce; bez wyrzutni — od startu lotu).
+		LauncherLength = 5,
+		FlashSize = 3.5,
+		FlashTime = 0.12,
+		FlashColor = Color3.fromRGB(255, 185, 70),
+		FlashLight = 14,       -- zasięg błysku światła
+		FrontSmoke = 8,        -- kłęby dymu z przodu
+		BackSmoke = 16,        -- backblast z tyłu
+		SmokeSize = 3,
+		SmokeLifetime = 1.4,
+		SmokeSpeed = 14,
+		SmokeColor = Color3.fromRGB(170, 165, 160),
+	},
+}
+
 Config.RateLimits = {
 	-- Serwer przepuszcza akcję już od tego ułamka cooldownu (decyzja Kacpra 29.09, B-5). Klient
 	-- wysyła najwcześniej po PEŁNYM cooldownie (pasek), ale serwer mierzy czas ODBIORU — jitter
@@ -1077,6 +1238,8 @@ Config.RateLimits = {
 	Push = 2.5,      -- 10.10: było 4 (prośba Kacpra „zmniejsz cooldown na popychanie”)
 	BridgeBuild = 0.5,
 	Grapple = 0.6,   -- hak: krótki, bo item jest zużywalny — limituje go cena, nie zegar
+	EnergyDrink = 1.0, -- dłuższy niż łyk (SipTime): dwuklik nie wypije dwóch puszek naraz
+	Rpg = 1.0,         -- 1 rakieta = 1 strzał; limit chroni tylko przed dwuklikiem przy kilku sztukach
 	-- EquipItem+UnequipItem: klik hotbar slot. Spam clickowanie = flickering Tool
 	-- w rękach innych klientów + bandwidth. 0.15s = ~7 kliknięć/s max, ludzki reflex OK.
 	EquipItem = 0.15,
@@ -1527,7 +1690,8 @@ Config.Destruction = {
 			ClothingHangers = true, Plants = true, Packages = true, TrashBins = true, TrashBin = true,
 			Chair = true, Chairs = true, TV = true, TVs = true, Tvs = true,
 			ToiletPapers = true, Products = true, Paintings = true, Painting = true, Mirrors = true,
-			Carpets = true, Carpet = true, Barrels = true,
+			Carpets = true, Carpet = true,
+			-- Barrels USUNIĘTE 21.10 — beczki są wybuchowe (Cars.Profiles.Barrels), nie znikają.
 		},
 		-- MEBLE: w zasięgu dziury rozpad od razu; dalej, od tych obrażeń, odepchnięcie w całości
 		-- (fizyka serwera, PropService); drugie trafienie → rozpad. 80 = dawny próg drobnicy
@@ -1553,7 +1717,22 @@ Config.Destruction = {
 	-- się i nie rani; pożary jako mechanika są poza v1.0), a wybuch idzie tą samą ścieżką co
 	-- bomba (gracze + otoczenie), tylko słabszy. Auto obok w zasięgu dziury wybucha łańcuchowo.
 	Cars = {
-		Folders = { Cars = true }, -- model auta = bezpośrednie dziecko takiego folderu
+		-- Model = bezpośrednie dziecko takiego folderu. 21.10: + Barrels — beczki (czerwono-szare,
+		-- 13 sztuk: Construction + OutsideDecorations) wybuchają tym samym torem co auta, z
+		-- własnym profilem niżej (decyzje Kacpra: 1,3× bomby, od razu, łańcuch, kill dla odpalającego).
+		Folders = { Cars = true, Barrels = true },
+		-- Foldery, których model wybucha od PCHNIĘCIA (F, PushService) — tylko beczki, nie auta.
+		PushIgnites = { Barrels = true },
+		-- Foldery, których model przy zawaleniu (strop/podłoga pod nim znika) SPADA fizyką serwera
+		-- i wybucha przy uderzeniu (21.10, Kacper: „przy collapsie beczka spada i przy kontakcie
+		-- wybucha”). Zamiast animacji u klientów — serwer musi wiedzieć, gdzie i kiedy uderzyła.
+		FallIgnites = { Barrels = true },
+		Fall = {
+			MinDrop = 2,      -- studów spadku, zanim zatrzymanie liczy się jako uderzenie (start na
+			                  -- spadającej podłodze nie odpala od razu)
+			StopSpeed = 6,    -- stud/s pionowo: wolniej po spadku = uderzyła i wybucha
+			MaxTime = 6,      -- s; zaklinowana albo w lawie — wybucha i tak
+		},
 		-- s od trafienia do wybuchu. 0 = razem z bombą (Kacper 27.09: 0,35 s „wygląda jak bug”).
 		-- Nawet przy 0 wybuch idzie klatkę później (task.delay w CarService) — wprost z wnętrza
 		-- wybuchu bomby wszedłby w jej niedokończoną destrukcję.
@@ -1572,6 +1751,28 @@ Config.Destruction = {
 				impulse = 85,
 				minImpulseT = 0.1,
 				glassRadius = 25,
+			},
+		},
+		-- Profil per folder (21.10). Brak wpisu = Blast/FireTime aut wyżej.
+		Profiles = {
+			Barrels = {
+				FireTime = 3,
+				-- 1,3× bomby (decyzja Kacpra 21.10). `id` = broń w tagu zabójstwa i w logu.
+				Blast = {
+					id = "barrel",
+					blastRadius = 29,       -- bomba 22
+					damagePercent = 0.78,   -- bomba 0.6 — pełne HP przeżywa epicentrum
+					knockbackForce = 585,   -- bomba 450
+					knockbackMinT = 0.35,
+					ragdollDuration = 2,
+					destruction = {
+						radius = 31,        -- bomba 24
+						damage = 210,       -- bomba 160 → większa dziura, łańcuch do beczek obok
+						impulse = 120,      -- bomba 95
+						minImpulseT = 0.1,
+						glassRadius = 40,   -- bomba 35; 40 = sufit FX.GlassMaxPanes
+					},
+				},
 			},
 		},
 	},
@@ -2034,6 +2235,16 @@ Config.Graphics = {
 	},
 }
 
+for _, profile in pairs(Config.ItemEquip.Profiles) do
+	for _, key in ipairs(profile) do table.freeze(key) end
+	table.freeze(profile)
+end
+table.freeze(Config.ItemEquip.Profiles)
+table.freeze(Config.ItemEquip.ProfileDurations)
+for _, pose in pairs(Config.ItemEquip.HoldPoses) do table.freeze(pose) end
+table.freeze(Config.ItemEquip.HoldPoses)
+table.freeze(Config.ItemEquip.ToolProfiles)
+table.freeze(Config.ItemEquip)
 table.freeze(Config.Dev.Usernames)
 table.freeze(Config.Dev)
 table.freeze(Config.Game)
@@ -2087,6 +2298,15 @@ table.freeze(Config.Movement.Camera)
 table.freeze(Config.Movement)
 table.freeze(Config.Ladder)
 table.freeze(Config.Push)
+for _, row in ipairs(Config.EnergyDrink.Sip) do
+	table.freeze(row)
+end
+table.freeze(Config.EnergyDrink.Sip)
+table.freeze(Config.EnergyDrink.Palette)
+table.freeze(Config.EnergyDrink.VignetteColors)
+table.freeze(Config.EnergyDrink)
+table.freeze(Config.Rpg.Recoil)
+table.freeze(Config.Rpg)
 table.freeze(Config.RateLimits)
 table.freeze(Config.AntiCheat)
 table.freeze(Config.KillMessage)
