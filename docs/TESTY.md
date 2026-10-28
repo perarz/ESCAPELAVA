@@ -1,5 +1,22 @@
 # CO PRZETESTOWAĆ
 
+## 📱 Telefon — przyciski dotykowe (28.10) — NIEPRZETESTOWANE
+
+Kod zsynchronizowany i parsuje się (odczyt Edit), przyciski postawione przez MCP. **Przed testem Cmd+S.** Test: Play z emulatorem urządzenia w Studio (pasek Test → Device, np. iPhone 14 i iPad), a potem na prawdziwym telefonie.
+
+- [ ] Telefon: przy skoku Robloxa łuk okrągłych przycisków SPRINT (obok skoku) i PUSH (wyżej, po lewej). Nic nie zasłania skoku ani gałki. Na PC żadnego z nich nie widać.
+- [ ] Tablet (iPad): ten sam łuk wokół WIĘKSZEGO skoku, który stoi wyżej — przyciski się z nim nie nakładają.
+- [ ] SPRINT: trzymasz → biegniesz, ramka biała, pasek staminy spada; puszczasz → chód. Zsuń palec z przycisku, nie puszczając → dalej biegniesz, puść gdziekolwiek → stop (bez „wiecznego sprintu”).
+- [ ] SPRINT do zera staminy → bieg się kończy, ramka czarna mimo trzymania; trzeba puścić i wcisnąć znowu (jak Shift).
+- [ ] PUSH: gest i pchnięcie jak F, pasek odnowienia; szybkie stukanie nie pcha częściej niż F.
+- [ ] Most: wyciągnij → nad skokiem BUILD, dalej ROTATE; duch stoi na środku ekranu i idzie za kamerą. Dotknij miejsce w świecie → duch staje tam i zostaje, gdy obracasz kamerę palcem. ROTATE obraca o krok. BUILD → most w miejscu ducha, kolejny duch znowu na środku. Czerwony duch (za daleko / lawa) → BUILD nic nie robi.
+- [ ] Most: schowanie mostu albo śmierć → BUILD i ROTATE znikają.
+- [ ] RPG w rundzie: AIM obok PUSH. Dotknij → zoom, celownik, biała ramka, nad skokiem pojawia się FIRE. FIRE → rakieta w środek celownika. AIM drugi raz → koniec celowania, FIRE znika. Bez AIM dotknięcie ekranu strzela w dotknięte miejsce (jak dotąd).
+- [ ] RPG: celowanie włączone, schowaj wyrzutnię / zgiń / koniec rundy → celowanie się wyłącza, po ponownym wyciągnięciu nie włącza się samo.
+- [ ] C4: przyklejone ładunki → DETONATE jest teraz WYŻEJ na prawej krawędzi (przesunięty z 0,55 na 0,40) i nie nachodzi na przyciski. Na PC sprawdź, czy wyższa pozycja nie przeszkadza.
+- [ ] Bomba, hak, napój i rzut C4 dotknięciem ekranu nadal działają (bez nowych przycisków).
+- [ ] Znane wcześniej: `v0.8` w prawym dolnym rogu leży pod skokiem na telefonie (patrz „sklep v4”).
+
 ## COSMETICS — sklep v4 (27.10 wieczór), do sprawdzenia przez Kacpra
 
 Wygląd obejrzany na zrzutach z Edit (katalog, przymierzalnia, UNLOCKED!). Kod zsynchronizowany i parsuje się. **Play nie był uruchamiany.** Przed testem Cmd+S.

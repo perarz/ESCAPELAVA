@@ -490,6 +490,19 @@ Config.UI = {
 		                      --    bomby po rzucie nie szarpie slotem); przy zmianie slotu — od razu
 	},
 
+	-- Przyciski dotykowe (TouchControlsController, 28.10). Kontrakt: STUDIO_CONTRACT → „Telefon”.
+	TouchControls = {
+		ContainerName = "TouchControls", -- HUD.<ContainerName>, przyciski = jego dzieci po nazwie
+		-- Co tyle sekund sprawdzamy tryb dotyku i miejsce skoku. Sterowanie dotykowe Robloxa
+		-- (PlayerModule) nie daje sygnału „pokazałem / przesunąłem przyciski”, a 4 Hz nic nie kosztuje.
+		PollInterval = 0.25,
+		PressScale = 0.88,     -- wciśnięcie: przycisk na chwilę mniejszy (UIScale `Pop`)
+		PressTime = 0.18,      -- s: powrót do 1
+		StrokeTime = 0.12,     -- s: ramka czarna ↔ biała (trzymany sprint, włączone AIM) — jak slot paska
+		LitStroke = Color3.fromRGB(255, 255, 255),
+		IdleStroke = Color3.fromRGB(0, 0, 0),
+	},
+
 	-- Ekwipunek / loadout (InventoryController + LoadoutState, 18.10). Kontrakt panelu:
 	-- docs/STUDIO_CONTRACT.md → „Ekwipunek”.
 	Inventory = {

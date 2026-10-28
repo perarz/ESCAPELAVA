@@ -16,7 +16,7 @@ Aktualizacja: **23.10.2026**. Stan implementacji i dowody: [STATUS](STATUS.md). 
 
 | Zadanie | Właściciel / uwagi |
 |---|---|
-| Sterowanie na telefonie: sprint, push, potwierdzenie/obrót mostu | Kacper: UI; agent: logika. Sprawdzić też celowanie i użycie wszystkich itemów na dotyku. |
+| Sterowanie na telefonie: sprint, push, potwierdzenie/obrót mostu | **28.10 wdrożone** (przyciski przez MCP, logika `TouchControlsController`) — zostaje test Kacpra: TESTY → „Telefon”, emulator + prawdziwy telefon. |
 | Anty-cheat — paczka 6 | Agent; plan w REVIEW. Decyzje cofnięcie → kill → kick i pion po ~1 s są zamknięte. Uwzględnić ragdoll, hak, lawę i ruchome platformy. |
 | Start przy 30–50 graczach | Agent: obecnie sekwencyjne ładowanie postaci; Kacper: multi-spawn. `SpawnPoints` pusty w Edit 23.10, działa fallback. Docelowy limit miejsca wymaga decyzji. |
 | Ruch głowy i odporność startu serwera | Agent: ograniczenie odbiorców HeadAim, obsługa błędu startu usługi zgodnie z zależnościami. |

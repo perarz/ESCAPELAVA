@@ -14,6 +14,11 @@
 -- jako anchor + length/2 wzdłuż +Z lokalnej osi (po rotacji Y). Dzięki temu most rozciąga
 -- się OD kursora w kierunku gdzie obrócony, a kursor nigdy nie musi być nad przepaścią.
 -- Klient wysyła do serwera anchorPos + rotationY; server liczy centrum tym samym wzorem.
+--
+-- Telefon (28.10, decyzja Kacpra „dotknij miejsce, potem POSTAW”): kursora nie ma, więc duch
+-- stoi na środku ekranu (celowanie kamerą), dopóki dotknięcie świata go nie przypnie; przyciski
+-- ROTATE / BUILD (`TouchControlsController`) zastępują R i LMB. Przypina tylko `TouchTap` —
+-- przeciągnięcie palcem obraca kamerę i ducha nie rusza.
 
 local ItemEquipController = require(script.Parent.ItemEquipController)
 local Players = game:GetService("Players")
@@ -27,6 +32,7 @@ local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
 local CooldownBarController = require(script.Parent.CooldownBarController)
+local TouchControlsController = require(script.Parent.TouchControlsController)
 
 local BridgeController = {}
 
@@ -47,6 +53,12 @@ local ghostValid: boolean? = nil -- można tu budować (zasięg i nie na lawie)
 local ghostHighlight: Highlight? = nil
 local renderConn: RBXScriptConnection? = nil
 local inputConn: RBXScriptConnection? = nil
+local tapConn: RBXScriptConnection? = nil
+-- Definicja i wymiary bieżącego trybu budowy — czytają je też przyciski dotykowe.
+local buildDef: any = nil
+local buildDims: Vector3? = nil
+-- Telefon: anchor przypięty dotknięciem świata. nil = duch idzie za środkiem ekranu.
+local pinnedAnchor: Vector3? = nil
 local lastBuildAt = 0
 local clickDebounce = false
 local rayParams = RaycastParams.new()
@@ -166,14 +178,10 @@ end
 -- Wierzch stosu lawy, albo nil gdy lawy nie ma (wspólne z LavaSwimController — Utils).
 local lavaTopY = Utils.lavaSurfaceY
 
-local function computeAnchorPosition(dims: Vector3): (Vector3, boolean)
-	-- Raycast z kamery przez mouse position. Filter: character, ghost, ActiveCash.
+local function computeAnchorPosition(dims: Vector3, unitRay: Ray): (Vector3, boolean)
+	-- Raycast z kamery (kursor / środek ekranu / dotknięcie). Filter: character, ghost, ActiveCash.
 	-- ActiveBridges NIE wykluczane — chcemy żeby kursor lądował NA istniejących mostach
 	-- (stacking + extending). Hit Y + thickness/2 = anchor (bliższa krawędź mostu).
-	local cam = Workspace.CurrentCamera
-	if not cam then return Vector3.new(0, 50, 0), false end
-
-	local unitRay = cam:ScreenPointToRay(mouse.X, mouse.Y)
 	table.clear(excludeList)
 	if localPlayer.Character then table.insert(excludeList, localPlayer.Character) end
 	if ghost then table.insert(excludeList, ghost) end
@@ -215,6 +223,19 @@ local function computeAnchorPosition(dims: Vector3): (Vector3, boolean)
 	end
 	-- Brak hit → fallback 80 stud przed kamerą
 	return unitRay.Origin + unitRay.Direction * 80, false
+end
+
+-- Gdzie stoi duch: PC — pod kursorem; dotyk — przypięte miejsce albo środek ekranu.
+-- `ScreenPointToRay` dla punktów GUI (kursor, dotyk), `ViewportPointToRay` dla środka widoku.
+local function currentAnchor(dims: Vector3): Vector3
+	local touch = TouchControlsController.isTouch()
+	if touch and pinnedAnchor then return pinnedAnchor end
+	local cam = Workspace.CurrentCamera
+	if not cam then return Vector3.new(0, 50, 0) end
+	local ray = if touch
+		then cam:ViewportPointToRay(cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5)
+		else cam:ScreenPointToRay(mouse.X, mouse.Y)
+	return (computeAnchorPosition(dims, ray))
 end
 
 local function forwardFromRotY(rotY: number): Vector3
@@ -265,6 +286,37 @@ local function initialRotationFromCamera(snap: number): number
 	return deg % 360
 end
 
+-- Wspólne dla LMB i przycisku BUILD: stawia tam, gdzie gracz widzi ducha.
+local function tryBuild()
+	local def, dims = buildDef, buildDims
+	if not active or not def or not dims then return end
+	if clickDebounce then return end
+	clickDebounce = true
+	task.delay(0.15, function() clickDebounce = false end)
+
+	local anchorPos = currentAnchor(dims)
+	if not canBuildAt(anchorPos, dims, def) then
+		-- Za daleko albo na lawie — nie spammujemy serwera. Ghost już czerwony.
+		return
+	end
+	local now = os.clock()
+	local cd = Config.RateLimits.BridgeBuild
+	if now - lastBuildAt < cd then return end
+	lastBuildAt = now
+	-- Server dostaje ANCHOR (bliższa krawędź) + rotationY, sam wylicza centrum.
+	ItemEquipController.cancel()
+	Remotes.BuildBridge:FireServer(anchorPos, rotationY)
+	CooldownBarController.trigger("bridge", cd)
+	-- W przypiętym miejscu stoi już most — kolejny duch znowu idzie za kamerą.
+	pinnedAnchor = nil
+end
+
+local function rotate()
+	local def = buildDef
+	if not active or not def then return end
+	rotationY = (rotationY + def.rotateSnapDegrees) % 360
+end
+
 local function enterBuildMode()
 	if active then return end
 	active = true
@@ -278,6 +330,8 @@ local function enterBuildMode()
 	rotationY = initialRotationFromCamera(def.rotateSnapDegrees or 0)
 
 	local dims = getDims(def)
+	buildDef, buildDims = def, dims
+	pinnedAnchor = nil
 
 	ghost = makeGhost(def)
 	ghost.Parent = Workspace
@@ -285,7 +339,7 @@ local function enterBuildMode()
 	-- RenderStepped: follow mouse + rotation + range color
 	renderConn = RunService.RenderStepped:Connect(function()
 		if not ghost or not active then return end
-		local anchorPos, _hit = computeAnchorPosition(dims)
+		local anchorPos = currentAnchor(dims)
 		local centerPos = anchorToCenter(anchorPos, rotationY, dims)
 		setGhostCFrame(CFrame.new(centerPos) * CFrame.Angles(0, math.rad(rotationY), 0))
 		-- Visual feedback: distance check liczony od anchor (= miejsca gdzie gracz "kładzie"),
@@ -295,38 +349,37 @@ local function enterBuildMode()
 
 	-- InputBegan: R rotate, LMB confirm. Filter gameProcessed (HUD klikalny przez Roblox).
 	inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if not active then return end
-		if input.KeyCode == Enum.KeyCode.R and not gameProcessed then
-			rotationY = (rotationY + def.rotateSnapDegrees) % 360
-			return
-		end
-		if input.UserInputType == Enum.UserInputType.MouseButton1 and not gameProcessed then
-			if clickDebounce then return end
-			clickDebounce = true
-			task.delay(0.15, function() clickDebounce = false end)
-
-			local anchorPos, _hit = computeAnchorPosition(dims)
-			if not canBuildAt(anchorPos, dims, def) then
-				-- Za daleko albo na lawie — nie spammujemy serwera. Ghost już czerwony.
-				return
-			end
-			local now = os.clock()
-			local cd = Config.RateLimits.BridgeBuild
-			if now - lastBuildAt < cd then return end
-			lastBuildAt = now
-			-- Server dostaje ANCHOR (bliższa krawędź) + rotationY, sam wylicza centrum.
-			ItemEquipController.cancel()
-			Remotes.BuildBridge:FireServer(anchorPos, rotationY)
-			CooldownBarController.trigger("bridge", cd)
+		if not active or gameProcessed then return end
+		if input.KeyCode == Enum.KeyCode.R then
+			rotate()
+		elseif input.UserInputType == Enum.UserInputType.MouseButton1
+			and not TouchControlsController.isTouch() then
+			-- Na dotyku stuknięcie w świat tylko przypina ducha (TouchTap niżej) — stawia BUILD.
+			tryBuild()
 		end
 	end)
+
+	-- Telefon: dotknięcie świata przypina ducha. Dotknięcie przycisku HUD jest `processed`.
+	tapConn = UserInputService.TouchTap:Connect(function(positions: { Vector2 }, processed: boolean)
+		if not active or processed or not TouchControlsController.isTouch() then return end
+		local cam = Workspace.CurrentCamera
+		local p = positions[1]
+		if not cam or not p then return end
+		pinnedAnchor = (computeAnchorPosition(dims, cam:ScreenPointToRay(p.X, p.Y)))
+	end)
+	TouchControlsController.setShown("Build", true)
+	TouchControlsController.setShown("Rotate", true)
 end
 
 local function exitBuildMode()
 	if not active then return end
 	active = false
+	TouchControlsController.setShown("Build", false)
+	TouchControlsController.setShown("Rotate", false)
+	buildDef, buildDims, pinnedAnchor = nil, nil, nil
 	if renderConn then renderConn:Disconnect() renderConn = nil end
 	if inputConn then inputConn:Disconnect() inputConn = nil end
+	if tapConn then tapConn:Disconnect() tapConn = nil end
 	if ghost then ghost:Destroy() ghost = nil end
 	-- Highlight jest dzieckiem ghosta, więc zginął razem z nim — zerujemy tylko referencję.
 	ghostHighlight = nil
@@ -335,6 +388,9 @@ local function exitBuildMode()
 end
 
 function BridgeController.init()
+	TouchControlsController.bind("Build", { press = tryBuild })
+	TouchControlsController.bind("Rotate", { press = rotate })
+
 	Remotes.BridgeBuildMode.OnClientEvent:Connect(function(isActive: boolean)
 		if isActive then
 			enterBuildMode()

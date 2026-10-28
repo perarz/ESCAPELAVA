@@ -33,6 +33,7 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local RagdollState = require(script.Parent.RagdollState)
 local SettingsState = require(script.Parent.SettingsState)
+local TouchControlsController = require(script.Parent.TouchControlsController)
 
 local MovementController = {}
 
@@ -60,6 +61,7 @@ local currentHumanoid: Humanoid? = nil
 local characterTicket = 0
 local currentStamina: number = CFG_STAM.Max
 local isSprintingHeld: boolean = false       -- LeftShift trzymany (intent gracza)
+local touchSprintHeld: boolean = false       -- telefon: przycisk SPRINT trzymany (odpowiednik Shift)
 local exhausted: boolean = false              -- stamina spadła do 0 → blokada do MinToResume
 local lastSprintActiveTime: number = 0       -- ostatni moment AKTYWNEGO sprintu (drain) — dla RegenDelay
 local currentWalkSpeed: number = CFG.WalkSpeed -- aktualnie zaaplikowany (do lerp)
@@ -710,7 +712,7 @@ local function updateLoop(dt: number)
 		currentStamina = CFG_STAM.Max
 		if exhausted then
 			exhausted = false
-			if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or touchSprintHeld then
 				isSprintingHeld = true
 			end
 		end
@@ -1435,9 +1437,26 @@ function MovementController.init()
 	-- Alt-tab / focus loss → InputEnded może nie fire'ować dla niektórych klawiszy.
 	-- WindowFocusReleased gwarantuje że sprint się stopuje.
 	UserInputService.WindowFocusReleased:Connect(stopSprint)
+	-- Telefon (28.10, decyzja Kacpra: trzymanie jak Shift). Puszczenie po zsunięciu palca
+	-- i przy schowaniu przycisku pilnuje TouchControlsController.
+	TouchControlsController.bind("Sprint", {
+		press = function()
+			touchSprintHeld = true
+			tryStartSprint()
+		end,
+		release = function()
+			touchSprintHeld = false
+			stopSprint()
+		end,
+	})
+	TouchControlsController.setShown("Sprint", true)
 
 	-- Main loop: drain/regen/lerp WalkSpeed + camera effects + head replikacja.
-	RunService.Heartbeat:Connect(updateLoop)
+	RunService.Heartbeat:Connect(function(dt: number)
+		updateLoop(dt)
+		-- Ramka świeci według stanu sprintu, nie palca: wyczerpanie puszcza bieg mimo trzymania.
+		TouchControlsController.setLit("Sprint", isSprintingHeld)
+	end)
 
 	-- Head tracking apply: priorytet Character+1, czyli PO kamerze (Camera+1) — głowa
 	-- czyta już wygładzoną kamerę. Priorytet NIE chroni przed animatorem (animator nie jest

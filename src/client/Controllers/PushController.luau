@@ -1,7 +1,7 @@
 --!strict
 -- PushController.luau
 -- Dwie role:
---   1. F key → FireServer Push remote. Server jest authoritative (cooldown 2.5s, target
+--   1. F key / przycisk PUSH na telefonie → FireServer Push remote. Server jest authoritative (cooldown 2.5s, target
 --      selection, alive check). Lokalny soft-cooldown żeby nie spamować RPC.
 --   2. Odbiera Pushed (server → klient targetu) i aplikuje velocity na własnym HRP.
 --      Server NIE może bezpośrednio ustawić velocity na character'ze gracza
@@ -16,6 +16,7 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local CooldownBarController = require(script.Parent.CooldownBarController)
 local MovementController = require(script.Parent.MovementController)
 local ItemEquipController = require(script.Parent.ItemEquipController)
+local TouchControlsController = require(script.Parent.TouchControlsController)
 
 local RunService = game:GetService("RunService")
 local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
@@ -100,6 +101,23 @@ local function applyPushVelocity(velocity: Vector3)
 	hrp.AssemblyLinearVelocity = velocity
 end
 
+-- Wspólne dla F i przycisku PUSH na telefonie.
+local function tryPush()
+	local now = os.clock()
+	local cd = Config.RateLimits.Push
+	if now - lastPushAt < cd then return end
+	lastPushAt = now
+
+	ItemEquipController.cancel(playPushAnimation())
+	Remotes.Push:FireServer()
+	CooldownBarController.trigger("push", cd)
+	-- Feedback popychającego (11.10): szarpnięcie kamery i mały zoom w chwili uderzenia.
+	task.delay(CFG.Windup, function()
+		MovementController.screenShake(CFG.PushShakeIntensity, CFG.PushShakeDuration)
+		MovementController.fovKick(CFG.PushFOVKick)
+	end)
+end
+
 function PushController.init()
 	if initialized then return end
 	initialized = true
@@ -123,21 +141,10 @@ function PushController.init()
 		if gameProcessed then return end
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 		if input.KeyCode ~= Enum.KeyCode.F then return end
-
-		local now = os.clock()
-		local cd = Config.RateLimits.Push
-		if now - lastPushAt < cd then return end
-		lastPushAt = now
-
-		ItemEquipController.cancel(playPushAnimation())
-		Remotes.Push:FireServer()
-		CooldownBarController.trigger("push", cd)
-		-- Feedback popychającego (11.10): szarpnięcie kamery i mały zoom w chwili uderzenia.
-		task.delay(CFG.Windup, function()
-			MovementController.screenShake(CFG.PushShakeIntensity, CFG.PushShakeDuration)
-			MovementController.fovKick(CFG.PushFOVKick)
-		end)
+		tryPush()
 	end)
+	TouchControlsController.bind("Push", { press = tryPush })
+	TouchControlsController.setShown("Push", true)
 
 	Remotes.Pushed.OnClientEvent:Connect(function(velocity)
 		if typeof(velocity) ~= "Vector3" then return end

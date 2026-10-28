@@ -2,7 +2,13 @@
 
 Stan sprawdzony **23.10.2026**: kod repo, lokalna historia Git, checklisty i odczyt Studio w Edit. Audyt nie obejmował Play, pomiaru FPS ani publikacji. Szczegóły rozbieżności: [audyt kontekstu](CONTEXT_AUDIT_2026-10-23.md).
 
+## TELEFON — punkt wznowienia 28.10.2026 (premiera 6.11)
+
+Przyciski dotykowe wdrożone według decyzji Kacpra z 28.10 (plan: [ROADMAP](ROADMAP.md) → „Sterowanie na telefonie”). Okrągłe przyciski w stylu slotów przy skoku Robloxa: **SPRINT** (trzymanie), **PUSH**, w trybie mostu **BUILD/ROTATE** (dotknij miejsce → duch staje, BUILD stawia), z RPG **AIM** (przełącznik) i **FIRE**. Bomba, hak, napój i C4 już wcześniej działały dotknięciem ekranu. Nowy `TouchControlsController` + podpięcia w Movement/Push/Bridge/Rpg, bez zmian na serwerze. `HUD.TouchControls` postawiony przez MCP, `HUD.Detonator` przesunięty z Y 0,55 na 0,40 (zwolnił miejsce nad skokiem). 7 plików zsynchronizowanych z Studio (suma zgodna z dyskiem) i parsuje się; zrzut układu z atrapą skoku: `artifacts/touch/touch_controls_preview_2810.jpg`. **Play nietestowany, Cmd+S wymagany.** Testy: [TESTY](TESTY.md) → „Telefon”.
+
 ## COSMETICS — punkt wznowienia 27.10.2026
+
+**28.10 — przycisk HUD Cosmetics:** przezroczystość `Fill.Studs` zmieniona z 0,9 na 0,25 jak w Inventory. Potwierdzone odczytem Edit; wymagany Cmd+S. Do sprawdzenia w Play: widoczność wzoru na przycisku.
 
 Bieżący zakres rozmowy: dopracowanie sklepu i garderoby. Kacper zezwolił agentowi również na edycję ich UI w Studio. Poniższy stan zastępuje starsze wpisy o brakującym imporcie, studsach kafli, prostym liczniku i jednoczesnym BACK/X.
 
@@ -57,7 +63,7 @@ Listy przypadków są w [TESTY](TESTY.md); nie oznaczać ich jako zaliczonych na
 
 ## Braki potwierdzone w kodzie / placu
 
-- **Telefon:** brak dedykowanej obsługi sprintu, F oraz potwierdzania/obracania mostu. Widoczny i skalowalny HUD nie oznacza gotowej gry na dotyku.
+- **Telefon:** 28.10 przyciski SPRINT/PUSH/BUILD/ROTATE/AIM/FIRE wdrożone (sekcja TELEFON na górze) — czekają na test Play na emulatorze i prawdziwym telefonie.
 - **Anty-cheat:** obecny pomiar poziomy co 2 s, limit sprint +8, kara po 3 przekroczeniach. Pojedynczy teleport i lot w pionie nie są pokryte. Plan paczki 6 ma zamknięte decyzje: cofnięcie → powtarzane naruszenia: kill → kick, pion po ~1 s; potrzebuje wyjątków dla legalnej fizyki.
 - **Skala:** spawn postaci nadal sekwencyjny; HeadAim nadal do wszystkich; bootstrap serwera bez izolacji błędów `init`. Odbudowa tylko naruszonych jednostek już istnieje, jej koszt wymaga testu.
 - **Studio 23.10:** `Workspace.SpawnPoints` ma **0 dzieci** — kod korzysta z fallbacku. Rozmieszczenie multi-spawn i docelową liczbę graczy trzeba przygotować/ustalić przed testem większej grupy. `Config.Game.MaxPlayers = 20` nie ustawia limitu miejsca Roblox; limit publikowanego serwera pozostaje do sprawdzenia.

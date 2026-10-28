@@ -73,6 +73,21 @@ Nie przenosić dawnych „5 s przed końcem / najwyższy dach bezpieczny” na o
 ### Do sprawdzenia przez Kacpra po wdrożeniu
 FPS na telefonie przy HIGH, czy poświata nie wychodzi piętro wyżej, czy iskry nie wylatują nad ulicę w kanale, przełączanie LOW/HIGH w trakcie rundy.
 
+## PLAN: STEROWANIE NA TELEFONIE — 28.10 (bramka premiery 6.11)
+
+**Decyzje Kacpra (28.10):** okrągłe przyciski w stylu slotów paska, z napisami, stawia agent przez MCP · **SPRINT = trzymanie** (jak Shift) · **most: dotknij miejsce → duch tam staje, ROTATE obraca, BUILD stawia** · **RPG: przycisk AIM** (zoom + celownik, przełącznik — kciuk musi być wolny do obracania kamery), **FIRE** strzela w środek celownika.
+
+Bez zmian (już działa dotykiem): bomba, hak, napój i rzut C4 = dotknięcie ekranu (`Tool.Activated`), odpalenie C4 = istniejący `HUD.Detonator`.
+
+- **Jeden właściciel przycisków:** nowy `TouchControlsController` — tryb dotyku, ułożenie, wciśnięcie/puszczenie, podświetlenie. Akcje zostają u właścicieli mechanik (`MovementController`, `PushController`, `BridgeController`, `RpgController`): rejestrują się przez `bind` i same mówią, kiedy ich przycisk ma sens (`setShown`). Bez nowych remote'ów — serwer waliduje jak dotąd.
+- **Tryb dotyku = widoczne sterowanie dotykowe Robloxa** (`PlayerGui.TouchGui`); bez niego: `TouchEnabled` i brak klawiatury. PC nie widzi przycisków.
+- **Ułożenie wokół przycisku skoku Robloxa**: klaster przypięty do środka `JumpButton` (telefon 70 pt, tablet 120 pt w innym miejscu — stałe pozycje nachodziłyby na skok na tablecie). Bez `TouchGui` — pozycja zapasowa ze Studio.
+- **Puszczenie liczone na tym samym dotyku** (stan `InputObject`), nie na wyjściu palca z przycisku — zsunięcie palca nie zostawia „wiecznego sprintu”. Schowanie przycisku w trakcie trzymania = puszczenie.
+- **Most na dotyku:** duch najpierw na środku ekranu (celowanie kamerą), dotknięcie świata (`TouchTap`, nie przeciągnięcie kamery) przypina go w tym miejscu; BUILD stawia tam, gdzie stoi duch. PC bez zmian.
+- `HUD.Detonator` przesunięty wyżej (Y 0,55 → 0,40): na telefonie zajmował miejsce nad skokiem, gdzie stoją BUILD/FIRE.
+
+Do sprawdzenia przez Kacpra: TESTY → „Telefon”.
+
 ## Dalsze kierunki — do wyboru Kacpra
 
 1. Przebieralnia i sklep kosmetyczny — **26.10: rozpoczęta implementacja na polecenie Kacpra**, ustalenia i realizacja w [COSMETICS_PLAN](COSMETICS_PLAN.md), gotowość w STATUS. Wejście przez istniejącego ClothesShop.NPC i przycisk garderoby. To nowy system posiadania/zakładania i assetów, nie samo drugie okno sklepu.

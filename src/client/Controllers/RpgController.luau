@@ -5,6 +5,7 @@
 --      serwera; Remotes.RocketExploded → kopia znika (wybuch rysuje ExplosionFXController z BlastFX)
 --   3. (24.10) Celowanie na PPM / L2: zoom, ciało w stronę celu (MovementController.setAim)
 --      i celownik `HUD.Crosshair`; strzał z celowania leci w środek celownika.
+--      Telefon (28.10): przyciski AIM (przełącznik) i FIRE (`TouchControlsController`).
 --
 -- Kopia to czysta kosmetyka: zero kolizji, zapytań i dotyku (lekcja 10 — nic, co istnieje tylko
 -- u jednego klienta, nie może wpływać na grę) i `Locked = true` (bez tego DebrisFXController
@@ -27,6 +28,7 @@ local CooldownBarController = require(script.Parent.CooldownBarController)
 local MovementController = require(script.Parent.MovementController)
 
 local ToolActivation = require(script.Parent.ToolActivation)
+local TouchControlsController = require(script.Parent.TouchControlsController)
 
 local RpgController = {}
 
@@ -286,6 +288,9 @@ end
 -- i koniec rundy kończą celowanie same, bez listy hooków, z której łatwo coś wypaść.
 local AIM = CFG.Aim
 local aimHeld = false
+-- Telefon (28.10): AIM to PRZEŁĄCZNIK, nie trzymanie — prawy kciuk musi zostać wolny do
+-- obracania kamery. Gaśnie razem z warunkami celowania (zdjęta wyrzutnia, śmierć, koniec rundy).
+local touchAim = false
 local aiming = false
 local crosshair: GuiObject? = nil
 local crosshairPop: UIScale? = nil
@@ -462,8 +467,17 @@ function RpgController.init()
 		aimHeld = false
 	end)
 
+	TouchControlsController.bind("Aim", { press = function() touchAim = not touchAim end })
+	-- FIRE widać tylko przy celowaniu, więc strzał zawsze leci w środek celownika.
+	TouchControlsController.bind("Fire", { press = onActivated })
+
 	RunService.RenderStepped:Connect(function()
-		setAiming(aimHeld and canAim())
+		local can = canAim()
+		if not can then touchAim = false end
+		setAiming((aimHeld or touchAim) and can)
+		TouchControlsController.setShown("Aim", can)
+		TouchControlsController.setShown("Fire", aiming)
+		TouchControlsController.setLit("Aim", aiming)
 		update()
 	end)
 	RunService.PreAnimation:Connect(function()
