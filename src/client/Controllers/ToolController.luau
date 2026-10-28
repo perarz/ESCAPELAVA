@@ -15,6 +15,8 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local CooldownBarController = require(script.Parent.CooldownBarController)
 local ItemEquipController = require(script.Parent.ItemEquipController)
 
+local ToolActivation = require(script.Parent.ToolActivation)
+
 local ToolController = {}
 
 local localPlayer = Players.LocalPlayer
@@ -29,58 +31,38 @@ Remotes.GameStateChanged.OnClientEvent:Connect(function(newState: string)
 	gameState = newState
 end)
 
-local function hookTool(tool: Tool)
-	if tool.Name ~= "BombTool" then return end
+local function onActivated()
+	-- ⚠️ Pusty stan = jeszcze nie wiemy (gracz wszedł, `replicateTo` mogło nie dojechać
+	-- przed podpięciem tego listenera). Wtedy NIE blokujemy — inaczej dołączający
+	-- w trakcie rundy nie mógłby rzucać aż do następnej zmiany stanu, czyli nawet
+	-- kilka minut. Serwer i tak waliduje; to jest tylko szczerość paska cooldownu.
+	if gameState ~= "" and gameState ~= "ROUND" then return end
 
-	tool.Activated:Connect(function()
-		-- ⚠️ Pusty stan = jeszcze nie wiemy (gracz wszedł, `replicateTo` mogło nie dojechać
-		-- przed podpięciem tego listenera). Wtedy NIE blokujemy — inaczej dołączający
-		-- w trakcie rundy nie mógłby rzucać aż do następnej zmiany stanu, czyli nawet
-		-- kilka minut. Serwer i tak waliduje; to jest tylko szczerość paska cooldownu.
-		if gameState ~= "" and gameState ~= "ROUND" then return end
+	local now = os.clock()
+	local cd = Config.RateLimits.BombThrow
+	if now - lastThrowAt < cd then return end
 
-		local now = os.clock()
-		local cd = Config.RateLimits.BombThrow
-		if now - lastThrowAt < cd then return end
+	local char = localPlayer.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp or not hrp:IsA("BasePart") then return end
 
-		local char = localPlayer.Character
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		if not hrp or not hrp:IsA("BasePart") then return end
+	local mouse = localPlayer:GetMouse()
+	local target = mouse.Hit and mouse.Hit.Position
+	if not target then return end
 
-		local mouse = localPlayer:GetMouse()
-		local target = mouse.Hit and mouse.Hit.Position
-		if not target then return end
+	local direction = target - hrp.Position
+	if direction.Magnitude < 0.1 then return end
 
-		local direction = target - hrp.Position
-		if direction.Magnitude < 0.1 then return end
-
-		lastThrowAt = now
-		ItemEquipController.cancel()
-		Remotes.ThrowBomb:FireServer(direction.Unit)
-		CooldownBarController.trigger("bomb", cd)
-	end)
+	lastThrowAt = now
+	ItemEquipController.cancel()
+	Remotes.ThrowBomb:FireServer(direction.Unit)
+	CooldownBarController.trigger("bomb", cd)
 end
 
-local function hookCharacter(char: Model)
-	-- Tool może być parent'ed do character w dowolnym momencie (equip)
-	char.ChildAdded:Connect(function(child)
-		if child:IsA("Tool") then
-			hookTool(child)
-		end
-	end)
-	-- Pre-existing Tools (rare, ale dla pewności)
-	for _, c in ipairs(char:GetChildren()) do
-		if c:IsA("Tool") then
-			hookTool(c)
-		end
-	end
-end
+
 
 function ToolController.init()
-	if localPlayer.Character then
-		hookCharacter(localPlayer.Character)
-	end
-	localPlayer.CharacterAdded:Connect(hookCharacter)
+	ToolActivation.bind("BombTool", onActivated)
 end
 
 return ToolController

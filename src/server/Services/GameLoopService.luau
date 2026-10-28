@@ -1,6 +1,8 @@
 --!strict
 -- GameLoopService.luau
--- State machine: LOBBY → PREPARING → COUNTDOWN → ROUND → FINISHING → RESETTING → POST_ROUND.
+-- State machine: LOBBY → PREPARING → COUNTDOWN → ROUND → FINISHING → RESETTING → LOBBY.
+-- 26.10: bez POST_ROUND (10 s „ROUND OVER” w lobby) — po zasłonie od razu lobby z odliczaniem
+-- (Kacper: „usuń fazę round over, tylko lobby od razu”).
 --
 -- (lawa przyspiesza płynnie — LavaService liczy prędkość z czasu od startu rundy).
 -- Emituje stany przez BindableEventy (dla serwisów) i RemoteEventy (dla klientów).
@@ -22,7 +24,6 @@ local STATE = {
 	FINISHING = "FINISHING",
 	RESETTING = "RESETTING",
 	ROUND = "ROUND",
-	POST_ROUND = "POST_ROUND",
 }
 
 local GameLoopService = {}
@@ -76,16 +77,6 @@ local function consumeSkip(): boolean
 	if not skipRequested then return false end
 	skipRequested = false
 	return true
-end
-
--- Czekanie przerywalne devowym skipem. 0.1s ziarnistość = klawisz działa natychmiastowo
--- w odczuciu, a koszt to 10 iteracji/s w jednym wątku pętli gry.
-local function waitSkippable(duration: number)
-	local t0 = os.clock()
-	while os.clock() - t0 < duration do
-		task.wait(0.1)
-		if consumeSkip() then return end
-	end
 end
 
 function GameLoopService.getState(): string
@@ -211,18 +202,12 @@ local function runRound()
 	Remotes.RoundEnded:FireAllClients()
 end
 
-local function runPostRound()
-	setState(STATE.POST_ROUND, Config.Game.PostRoundDuration)
-	waitSkippable(Config.Game.PostRoundDuration)
-end
-
 local function gameLoop()
 	while true do
 		local ok, err = pcall(function()
 			runLobby()
 			runCountdown()
 			runRound()
-			runPostRound()
 		end)
 		if not ok then
 			warn(("[GameLoop] crash w pętli: %s — restartuję za 5s"):format(tostring(err)))

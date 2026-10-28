@@ -2,15 +2,20 @@
 -- Local ambient lava VFX. Fixed pool: no allocations or raycasts during cycles.
 -- Server owns height/damage; LavaSwimController owns the submerged view.
 -- Height hysteresis intentionally replaces exposure raycasts (streaming ambiguity).
+-- GRAPHICS LOW / HIGH (27.10, SettingsState): LOW = mniej skupisk i świateł (dawna reguła
+-- dla telefonu), HIGH = pełne skupiska + łuna na ścianach (`Lava.Glow`) + iskry i popiół
+-- (`Lava.Air`). Przełączane na żywo; pule zbudowane raz w rozmiarze HIGH.
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local FX = Config.Lava.FX
 local SURF = Config.Lava.Surface
+local GLOW = Config.Lava.Glow
+local AIR = Config.Lava.Air
 local Controller = {}
 local LavaWaveMesh = require(script.Parent.LavaWaveMesh)
+local SettingsState = require(script.Parent.SettingsState)
 local wave = nil
 local rng = Random.new()
 
@@ -18,10 +23,12 @@ type Vent = {
 	anchor: Part, bubble: Part, core: Part,
 	embers: ParticleEmitter, smoke: ParticleEmitter,
 	sparks: ParticleEmitter, drops: ParticleEmitter,
-	light: PointLight?, age: number, duration: number,
+	light: PointLight?, lit: boolean, age: number, duration: number,
 	x: number, z: number, size: number, popped: boolean, active: boolean,
 	strength: number, rotation: number,
 }
+type GlowSlot = { attachment: Attachment, light: PointLight, key: number?, level: number, want: boolean }
+type Air = { anchor: Part, embers: ParticleEmitter, ash: ParticleEmitter }
 type Layer = { texture: Texture, u: number, v: number, alpha: number, amount: number, period: number }
 local vents: { Vent } = {}
 local layers: { Layer } = {}
@@ -32,6 +39,10 @@ local childConnections: { RBXScriptConnection } = {}
 local ventLimit = FX.VentCount
 local lightLimit = FX.LightCount
 local particleScale = 1
+local extras = true -- HIGH: łuna i iskry/popiół
+local glowSlots: { GlowSlot } = {}
+local air: Air? = nil
+local airRise = -1
 local initialized = false
 local heightAllowed = false
 local running = false
@@ -72,7 +83,7 @@ local function buildPool()
 	folder.Name = "LavaFX"
 	folder.Parent = Workspace
 	effects = folder
-	for i = 1, ventLimit do
+	for i = 1, FX.VentCount do
 		local anchor = cosmeticPart("Vent" .. i, folder)
 		local bubble = cosmeticPart("CrustBubble" .. i, folder)
 		bubble.Shape = Enum.PartType.Ball
@@ -129,7 +140,7 @@ local function buildPool()
 		drops.Acceleration = Vector3.new(0, -FX.DropGravity, 0)
 		drops.LightEmission = 0.5
 		local light: PointLight? = nil
-		if i <= lightLimit then
+		if i <= FX.LightCount then
 			local attachment = Instance.new("Attachment")
 			attachment.Position = Vector3.new(0, FX.LightHeight, 0)
 			attachment.Parent = anchor
@@ -141,9 +152,52 @@ local function buildPool()
 			light.Parent = attachment
 		end
 		table.insert(vents, {anchor=anchor, bubble=bubble, core=core, embers=embers, smoke=smoke,
-			sparks=sparks, drops=drops, light=light, age=0, duration=1,
+			sparks=sparks, drops=drops, light=light, lit=light ~= nil, age=0, duration=1,
 			x=0, z=0, size=1, popped=false, active=false, strength=1, rotation=0})
 	end
+
+	-- Łuna: światła na attachmentach jednego parta w zerze świata (Position = pozycja w świecie).
+	local glowRoot = cosmeticPart("GlowRoot", folder)
+	glowRoot.CFrame = CFrame.identity
+	for _ = 1, GLOW.Grid * GLOW.Grid do
+		local attachment = Instance.new("Attachment")
+		attachment.Parent = glowRoot
+		local light = Instance.new("PointLight")
+		light.Color = GLOW.Color
+		light.Range = GLOW.Range
+		light.Shadows = false
+		light.Brightness = 0
+		light.Enabled = false
+		light.Parent = attachment
+		table.insert(glowSlots, { attachment = attachment, light = light, key = nil, level = 0, want = false })
+	end
+
+	-- Iskry i popiół: jedno płaskie pudło przy tafli — emiter sieje z całej jego objętości.
+	local anchor = cosmeticPart("AirFX", folder)
+	anchor.Size = Vector3.new(AIR.HalfSize * 2, 0.2, AIR.HalfSize * 2)
+	local embers = emitter("AirEmbers", anchor, FX.SparkTexture)
+	embers.Color = ColorSequence.new(AIR.EmberColor, AIR.EmberEndColor)
+	embers.Size = NumberSequence.new(0.14, 0.03)
+	embers.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.7, 0.25),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	embers.Speed = NumberRange.new(AIR.EmberSpeedMin, AIR.EmberSpeedMax)
+	embers.SpreadAngle = Vector2.new(15, 15)
+	embers.LightEmission = 1
+	local ash = emitter("AirAsh", anchor, FX.SmokeTexture)
+	ash.Color = ColorSequence.new(AIR.AshColor, AIR.AshEndColor)
+	ash.Size = NumberSequence.new(0.18, 0.1)
+	ash.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, 0.35),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	ash.Speed = NumberRange.new(AIR.AshSpeedMin, AIR.AshSpeedMax)
+	ash.SpreadAngle = Vector2.new(35, 35)
+	ash.Acceleration = AIR.AshDrift
+	ash.Rotation = NumberRange.new(-180, 180)
+	ash.RotSpeed = NumberRange.new(-60, 60)
+	air = { anchor = anchor, embers = embers, ash = ash }
 end
 
 local function stopVent(v: Vent)
@@ -239,7 +293,7 @@ local function tickVent(v: Vent, dt: number, y: number, cameraPos: Vector3)
 		v.drops:Emit(math.max(1,math.floor(FX.DropBurst*dose)))
 		v.smoke:Emit(math.max(1,math.floor(FX.SmokeBurst*dose)))
 	end
-	if v.light then
+	if v.light and v.lit then
 		local fadeIn = math.clamp(v.age / FX.LightFadeSeconds, 0, 1)
 		local fadeOut = math.clamp((v.duration - v.age) / FX.LightFadeSeconds, 0, 1)
 		local flash = if sincePop >= 0 then math.max(0, 1 - sincePop / FX.LightFadeSeconds) else 0
@@ -296,6 +350,120 @@ local function rebuild()
 	end
 end
 
+-- Klucz oczka siatki łuny (oczka mieszczą się w ±32768 — mapa ma kilkaset studów).
+local function cellKey(cx: number, cz: number): number
+	return (cx + 32768) * 65536 + (cz + 32768)
+end
+
+local function cellInside(cx: number, cz: number): boolean
+	local x, z = cx * GLOW.Spacing, cz * GLOW.Spacing
+	return x >= minX and x <= maxX and z >= minZ and z <= maxZ
+end
+
+local function glowY(cx: number, cz: number, y: number): number
+	local x, z = cx * GLOW.Spacing, cz * GLOW.Spacing
+	return (if wave then wave:surfaceY(x, z) or y else y) + GLOW.Lift
+end
+
+local glowTaken: { [number]: boolean } = {}
+
+-- Oczko w siatce Grid × Grid wokół oczka kamery (ccx, ccz)?
+local function inGrid(key: number, ccx: number, ccz: number, lo: number, hi: number): boolean
+	local cx = key // 65536 - 32768
+	local cz = key % 65536 - 32768
+	return cx >= ccx + lo and cx <= ccx + hi and cz >= ccz + lo and cz <= ccz + hi
+end
+
+-- Wolne światło → pierwsze nieobsadzone oczko siatki nad lawą.
+local function claimCell(s: GlowSlot, ccx: number, ccz: number, lo: number, hi: number)
+	for dx = lo, hi do
+		for dz = lo, hi do
+			local cx, cz = ccx + dx, ccz + dz
+			local key = cellKey(cx, cz)
+			if not glowTaken[key] and cellInside(cx, cz) then
+				glowTaken[key] = true
+				s.key = key
+				s.want = true
+				return
+			end
+		end
+	end
+end
+
+-- Oczka zostają w świecie: światło, którego oczko wyszło z siatki wokół kamery, gaśnie i
+-- dopiero przy zerze przenosi się w wolne oczko — przeskoku nie widać.
+local function updateGlow(dt: number, on: boolean, y: number, pos: Vector3)
+	local fade = dt / GLOW.FadeTime
+	local lo = -math.floor((GLOW.Grid - 1) / 2)
+	local hi = lo + GLOW.Grid - 1
+	local ccx = math.floor(pos.X / GLOW.Spacing + 0.5)
+	local ccz = math.floor(pos.Z / GLOW.Spacing + 0.5)
+	table.clear(glowTaken)
+	for _, s in ipairs(glowSlots) do
+		local key = s.key
+		s.want = on and key ~= nil and inGrid(key, ccx, ccz, lo, hi)
+		if s.want then glowTaken[key :: number] = true end
+	end
+	for _, s in ipairs(glowSlots) do
+		if on and not s.want and s.level <= 0 then claimCell(s, ccx, ccz, lo, hi) end
+		s.level = math.clamp(s.level + (if s.want then fade else -fade), 0, 1)
+		local key = s.key
+		-- Gasnące światło stoi tam, gdzie było — inaczej pojechałoby za kamerą w trakcie gaszenia.
+		if key and s.want then
+			local cx, cz = key // 65536 - 32768, key % 65536 - 32768
+			s.attachment.Position = Vector3.new(cx * GLOW.Spacing, glowY(cx, cz, y), cz * GLOW.Spacing)
+		end
+		s.light.Brightness = GLOW.Brightness * s.level
+		s.light.Enabled = s.level > 0
+	end
+end
+
+-- Iskry i popiół. Zasięg wznoszenia = czas życia × prędkość maks. (particle przelatują przez
+-- geometrię): w kanale do jezdni minus zapas, nad ulicą `MaxRise`.
+local function updateAir(on: boolean, y: number, pos: Vector3)
+	local a = air
+	if not a then return end
+	local rise = if heightAllowed then AIR.MaxRise else FX.MinSurfaceY - y - AIR.CanalMargin
+	if not on or rise < AIR.MinRise then
+		a.embers.Enabled = false
+		a.ash.Enabled = false
+		return
+	end
+	local h = AIR.HalfSize
+	local cx = if maxX - minX > h * 2 then math.clamp(pos.X, minX + h, maxX - h) else (minX + maxX) / 2
+	local cz = if maxZ - minZ > h * 2 then math.clamp(pos.Z, minZ + h, maxZ - h) else (minZ + maxZ) / 2
+	-- Fizyczna tafla, nie fala: przy fali start bywa o ~1 stud wyżej, a limit w kanale musi trzymać.
+	a.anchor.Position = Vector3.new(cx, y + AIR.Lift, cz)
+	local ramp = math.clamp((y - AIR.RampStartY) / (AIR.RampEndY - AIR.RampStartY), 0, 1)
+	a.embers.Rate = AIR.EmberRateMin + (AIR.EmberRateMax - AIR.EmberRateMin) * ramp
+	a.ash.Rate = AIR.AshRateMin + (AIR.AshRateMax - AIR.AshRateMin) * ramp
+	if math.abs(rise - airRise) > 0.1 then
+		airRise = rise
+		local travel = math.max(rise - AIR.Lift, 0.1)
+		a.embers.Lifetime = NumberRange.new(travel / AIR.EmberSpeedMax * 0.5, travel / AIR.EmberSpeedMax)
+		a.ash.Lifetime = NumberRange.new(travel / AIR.AshSpeedMax * 0.5, travel / AIR.AshSpeedMax)
+	end
+	a.embers.Enabled = true
+	a.ash.Enabled = true
+end
+
+-- GRAPHICS LOW / HIGH na żywo. Skupiska ponad limitem gasną od razu; nowe dochodzą w
+-- następnym cyklu `update` (tam nieaktywne skupisko w limicie dostaje nowy cykl).
+local function applyQuality()
+	local high = SettingsState.get("graphics") ~= "low"
+	extras = high
+	ventLimit = if high then FX.VentCount else FX.LowVentCount
+	lightLimit = if high then FX.LightCount else FX.LowLightCount
+	particleScale = if high then 1 else FX.LowParticleScale
+	for i, v in ipairs(vents) do
+		v.embers.Rate = FX.EmberRate * particleScale
+		v.smoke.Rate = FX.SmokeRate * particleScale
+		v.lit = v.light ~= nil and i <= lightLimit
+		if v.light and not v.lit then v.light.Brightness = 0 end
+		if i > ventLimit and v.active then stopVent(v) end
+	end
+end
+
 local function update(dt: number)
 	accumulator += dt
 	if accumulator < 1 / SURF.UpdateHz then return end
@@ -306,6 +474,8 @@ local function update(dt: number)
 	local camera = Workspace.CurrentCamera
 	if not p or not p.Parent or not camera then
 		if running then stopPool() end
+		updateGlow(dt, false, 0, Vector3.zero)
+		updateAir(false, 0, Vector3.zero)
 		return
 	end
 	local physicalY = p.Position.Y + p.Size.Y/2
@@ -328,10 +498,17 @@ local function update(dt: number)
 	else
 		if not running then
 			running = true
-			for i, v in ipairs(vents) do beginCycle(v, pos, (i-1) * FX.CycleMin / ventLimit) end
+			for i = 1, ventLimit do beginCycle(vents[i], pos, (i-1) * FX.CycleMin / ventLimit) end
 		end
-		for _, v in ipairs(vents) do tickVent(v, dt, y, pos) end
+		for i = 1, ventLimit do
+			local v = vents[i]
+			-- Skupisko dołożone przełączeniem na HIGH w trakcie — zaczyna od losowego opóźnienia.
+			if not v.active then beginCycle(v, pos, rng:NextNumber(0, FX.CycleMin)) end
+			tickVent(v, dt, y, pos)
+		end
 	end
+	updateGlow(dt, extras and allowed, y, pos)
+	updateAir(extras and surfaceVisible, y, pos)
 	local now = os.clock()
 	for _, layer in ipairs(layers) do
 		local t = layer.texture
@@ -344,22 +521,28 @@ local function update(dt: number)
 	end
 end
 
+-- Widoczna wysokość tafli w punkcie (fala, jeśli jest) — czyta ją LavaSplashController.
+-- nil = lawy nie ma albo punkt leży poza nią (lobby).
+function Controller.surfaceYAt(x: number, z: number): number?
+	local p = surface
+	if not p or not p.Parent then return nil end
+	if x < minX or x > maxX or z < minZ or z > maxZ then return nil end
+	local y = p.Position.Y + p.Size.Y/2
+	return if wave then wave:surfaceY(x, z) or y else y
+end
+
 function Controller.init()
 	if initialized then return end
 	initialized = true
 	if not SURF.Enabled then return end
-	local quality = UserSettings():GetService("UserGameSettings").SavedQualityLevel.Value
-	local low = UserInputService.TouchEnabled or (quality > 0 and quality <= FX.LowQualityLevel)
-	if low then
-		ventLimit = FX.LowVentCount
-		lightLimit = FX.LowLightCount
-		particleScale = FX.LowParticleScale
-	end
+	applyQuality()
+	SettingsState.onChanged(applyQuality)
 	task.spawn(function()
 		local folder = Workspace:WaitForChild("Lava", 30)
 		if not folder then warn("[LavaSurface] missing Workspace.Lava"); return end
 		lavaFolder = folder
 		buildPool()
+		applyQuality()
 		rebuild()
 		folder.ChildAdded:Connect(rebuild)
 		folder.ChildRemoved:Connect(rebuild)

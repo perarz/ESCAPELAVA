@@ -23,7 +23,8 @@
 --
 -- KAMERA: ustawiamy CameraType=Scriptable — MovementController SAM wtedy wyłącza swoje
 -- rotation-smoothing i shake (sprawdza CameraType), więc nie ma konfliktu kamer. Na wyjściu
--- wracamy do poprzedniego typu, default camera dogoni gracza (MovementController snapuje).
+-- wracamy do poprzedniego typu i przepinamy CameraSubject na AKTUALNĄ postać (start rundy
+-- podmienia postać w trakcie zakupów), default camera dogoni gracza (MovementController snapuje).
 -- FREEZE: PlayerModule:GetControls():Disable() — postać stoi, mimo że kamera odjechała.
 --
 -- SERVER AUTHORITY: klik KUP = tylko intent (Remotes.BuyItem). Serwer waliduje odległość
@@ -35,6 +36,7 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
@@ -48,11 +50,13 @@ local localPlayer = Players.LocalPlayer
 
 -- cf = gotowy kadr (pozycja kamery + kierunek na model). Liczony RAZ przy otwarciu
 -- sklepu: ani markery, ani wystawa nie ruszają się w trakcie, więc nie ma czego śledzić.
-type Entry = { id: string, def: any, cf: CFrame }
+type Entry = { id: string, def: any, cf: CFrame, center: Vector3 }
 -- Model itemu znaleziony na wystawie, zanim dobierzemy mu kamerę.
 type Display = { id: string, def: any, center: Vector3, size: Vector3 }
 
 local isOpen = false
+-- Kto chce wiedzieć, że sklep się otworzył/zamknął (23.10: ekwipunek chowa się na czas zakupów).
+local openListeners: { (boolean) -> () } = {}
 local entries: { Entry } = {}
 local index = 1
 local savedCamType: Enum.CameraType? = nil
@@ -69,6 +73,9 @@ local btnBuy: TextButton? = nil
 local btnPrev: TextButton? = nil
 local btnNext: TextButton? = nil
 local btnClose: TextButton? = nil
+local elCash: TextLabel? = nil       -- 21.10: kasa gracza w panelu (`ShopCash`, opcjonalny)
+local elStats: Instance? = nil       -- 21.10: `Stats.<Power|Range|Mobility>.Bar.Fill` jak w ekwipunku
+local STAT_ROWS = { power = "Power", range = "Range", mobility = "Mobility" }
 
 local warned: { [string]: boolean } = {}
 local function warnOnce(key: string, msg: string)
@@ -161,12 +168,43 @@ local function refreshUI()
 	if elPrice then elPrice.Text = tostring(def.price or 0) .. "$" end
 	if elDesc then elDesc.Text = tostring(def.desc or "") end
 	if elStatus then elStatus.Text = "" end
+	if elCash then elCash.Text = tostring(currentCash) .. "$" end
+
+	-- Paski cech (21.10) — jak w ekwipunku: pasek = StatMax studsów, wartość = świecące studsy.
+	local invCfg = Config.UI.Inventory
+	local statValues = (def :: any).stats or {}
+	for key, rowName in pairs(STAT_ROWS) do
+		local row = elStats and elStats:FindFirstChild(rowName)
+		local bar = row and row:FindFirstChild("Bar")
+		local fill = bar and bar:FindFirstChild("Fill")
+		if fill and fill:IsA("GuiObject") then
+			local v = math.clamp((tonumber(statValues[key]) or 0) / invCfg.StatMax, 0, 1)
+			fill.Visible = v > 0
+			TweenService:Create(fill, TweenInfo.new(invCfg.StatTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Size = UDim2.fromScale(v, 1),
+			}):Play()
+		end
+	end
 
 	local canAfford = currentCash >= (def.price or 0)
 	if btnBuy then
 		btnBuy.AutoButtonColor = canAfford
-		btnBuy.BackgroundColor3 = canAfford and Color3.fromRGB(46, 160, 70) or Color3.fromRGB(70, 74, 82)
-		btnBuy.Text = canAfford and "KUP" or "ZA MAŁO $"
+		local text = if canAfford then CFG.BuyText else CFG.NoCashText
+		-- Nowy przycisk (21.10): napis w `Label`, kolor w gradiencie `Fill` (jak ADD w ekwipunku).
+		local label = btnBuy:FindFirstChild("Label")
+		if label and label:IsA("TextLabel") then
+			label.Text = text
+		else
+			btnBuy.Text = text
+		end
+		local fill = btnBuy:FindFirstChild("Fill")
+		local grad = fill and fill:FindFirstChildOfClass("UIGradient")
+		local colors = if canAfford then CFG.BuyColors else CFG.NoCashColors
+		if grad then
+			grad.Color = ColorSequence.new(colors[1], colors[2])
+		else
+			btnBuy.BackgroundColor3 = colors[1]
+		end
 	end
 end
 
@@ -194,18 +232,33 @@ local function boundsOf(inst: Instance): (Vector3?, Vector3?)
 	return nil, nil
 end
 
--- Kadr awaryjny (item bez markera): odsuwamy się od modelu w stronę ŚRODKA sceny, czyli
--- do wnętrza pomieszczenia. Wystawa stoi przy ścianie, więc odsunięcie "byle w bok"
--- wsadziłoby kamerę w ścianę. Dystans rośnie z wielkością modelu — dystans dobrany pod
--- bombę ucinałby RPG.
-local function autoCFrame(center: Vector3, size: Vector3, sceneCenter: Vector3): CFrame
-	local away = center - sceneCenter
-	away = Vector3.new(away.X, 0, away.Z)
-	-- Model dokładnie w środku sceny → nie ma kierunku "na zewnątrz"; cofamy się wzdłuż Z.
-	local dir = if away.Magnitude > 0.05 then away.Unit else Vector3.new(0, 0, 1)
-	local dist = math.max(CFG.AutoCameraDistance, size.Magnitude * CFG.AutoCameraSizeFactor)
+-- Kadr (21.10): kamera NAPRZECIW itemu, w głąb pomieszczenia. Wystawa stoi wzdłuż dłuższego
+-- boku sceny, więc „w głąb” = krótsza pozioma oś sceny, zwrócona do jej środka. Do 21.10 kamera
+-- szła OD środka sceny (wbrew opisowi) i lądowała za ścianą wystawy. Odległość z wielkości
+-- itemu i FOV: item zajmuje `AutoCameraFill` ekranu — puszka i RPG wyglądają podobnie duże.
+local function roomDirection(center: Vector3, sceneCF: CFrame, sceneSize: Vector3): Vector3
+	local axis = if sceneSize.X < sceneSize.Z then sceneCF.RightVector else sceneCF.LookVector
+	axis = Vector3.new(axis.X, 0, axis.Z)
+	if axis.Magnitude < 1e-3 then axis = Vector3.xAxis end
+	axis = axis.Unit
+	local toCenter = sceneCF.Position - center
+	if axis:Dot(toCenter) < 0 then axis = -axis end
+	return axis
+end
+
+local function autoCFrame(center: Vector3, size: Vector3, sceneCF: CFrame, sceneSize: Vector3): CFrame
+	-- 23.10 (Kacper: „lekki kąt do itema”): kierunek obrócony w poziomie o AutoCameraYaw —
+	-- item widać trochę z boku, nie płasko na wprost. Ten sam obrót dla wszystkich kadrów,
+	-- więc sortowanie po RightVector niżej dalej idzie wzdłuż ściany.
+	local dir = CFrame.Angles(0, math.rad(CFG.AutoCameraYaw), 0)
+		:VectorToWorldSpace(roomDirection(center, sceneCF, sceneSize))
+	local cam = Workspace.CurrentCamera
+	local halfFov = math.rad((if cam then cam.FieldOfView else 70) * 0.5)
+	local radius = size.Magnitude * 0.5
+	local dist = math.max(CFG.AutoCameraMinDistance, radius / math.tan(halfFov) / CFG.AutoCameraFill)
+	local lift = dist * math.tan(math.rad(CFG.AutoCameraPitch))
 	return CFrame.lookAt(
-		center + dir * dist + Vector3.new(0, CFG.AutoCameraHeight, 0),
+		center + dir * dist + Vector3.new(0, lift, 0),
 		center + Vector3.new(0, CFG.LookAtHeightOffset, 0)
 	)
 end
@@ -224,7 +277,7 @@ local function buildEntries()
 			CFG.SceneName, CFG.ItemsFolder))
 		return
 	end
-	local sceneCenter = boundsOf(scene) or Vector3.zero
+	local sceneCF, sceneSize = scene:GetBoundingBox()
 
 	-- 1. Modele itemów ze sklepu. Item bez modelu wypada z listy — z warnem, nie z błędem:
 	--    brak jednej dekoracji nie może zamknąć całego sklepu.
@@ -254,7 +307,7 @@ local function buildEntries()
 	--    więc nie da się jej rozjechać literówką ani zamienioną nazwą.
 	local markerFor: { [number]: BasePart } = {}
 	local markerDist: { [number]: number } = {}
-	local camsFolder = scene:FindFirstChild(CFG.CamerasFolder)
+	local camsFolder = if CFG.UseCameraMarkers then scene:FindFirstChild(CFG.CamerasFolder) else nil
 	if camsFolder then
 		for _, part in ipairs(camsFolder:GetChildren()) do
 			if part:IsA("BasePart") then
@@ -273,7 +326,7 @@ local function buildEntries()
 				end
 			end
 		end
-	else
+	elseif CFG.UseCameraMarkers then
 		warnOnce("cams", ("brak Workspace.%s.%s — kadry liczone automatycznie"):format(
 			CFG.SceneName, CFG.CamerasFolder))
 	end
@@ -287,26 +340,83 @@ local function buildEntries()
 		if marker and (lookAt - marker.Position).Magnitude > 0.05 then
 			cf = CFrame.lookAt(marker.Position, lookAt)
 		else
-			cf = autoCFrame(d.center, d.size, sceneCenter)
+			cf = autoCFrame(d.center, d.size, sceneCF, sceneSize)
 		end
-		table.insert(entries, { id = d.id, def = d.def, cf = cf })
+		table.insert(entries, { id = d.id, def = d.def, cf = cf, center = d.center })
+	end
+
+	-- Kolejność = tak, jak itemy wiszą na ścianie, od lewej (21.10, Kacper: „zła kolejność”):
+	-- do tej pory szła z `shopOrder`, więc ◀▶ skakało po ścianie tam i z powrotem. „W prawo”
+	-- = prawa strona kadru, a wszystkie kadry patrzą w tę samą ścianę.
+	local right = entries[1] and entries[1].cf.RightVector or Vector3.xAxis
+	table.sort(entries, function(a, b)
+		return a.center:Dot(right) < b.center:Dot(right)
+	end)
+end
+
+-- Światło sceny: stałe lampy w placu (`<SceneName>.ShopLights`), kod ich nie dotyka. Do 23.10
+-- jedna lampa jechała za kamerą — po każdym przewinięciu oświetlenie doganiało ją kilka sekund
+-- (Kacper: „mija kilka sekund, zanim załadują się w nowym miejscu”).
+--
+-- Jasność na czas zakupów (23.10). Plamy światła lamp Roblox rysuje dopiero na wyższej jakości
+-- grafiki, a „Automatic” startuje nisko i podnosi się po chwili — stąd „lampy ładują się po
+-- czasie”, a na najniższej jakości sklep zawsze wyglądał słabo (Kacper potwierdził zmianą jakości
+-- w ustawieniach; w Edit na poziomie 3 plam nie ma wcale). `Lighting.Ambient` działa na KAŻDEJ
+-- jakości od pierwszej klatki, więc u oglądającego podnosimy go na czas sklepu, a lampy dokładają
+-- plamy, kiedy silnik pozwoli. Nikt inny w grze nie pisze `Ambient` (23.10), więc zapamiętanie
+-- i oddanie wartości wystarcza.
+local savedAmbient: Color3? = nil
+
+local function setShopAmbient(on: boolean)
+	if on then
+		savedAmbient = savedAmbient or Lighting.Ambient
+		Lighting.Ambient = CFG.SceneAmbient
+	elseif savedAmbient then
+		Lighting.Ambient = savedAmbient
+		savedAmbient = nil
 	end
 end
 
-local function closeShop()
+local function notifyOpen()
+	for _, cb in ipairs(openListeners) do
+		task.spawn(cb, isOpen)
+	end
+end
+
+-- `character` = postać, która właśnie się pojawiła (zamknięcie z CharacterAdded).
+local function closeShop(character: Model?)
 	if not isOpen then return end
 	isOpen = false
+	notifyOpen()
 	if ui then ui.Enabled = false end
 	setFrozen(false)
 	stopCameraTween()
+	setShopAmbient(false)
 	local cam = Workspace.CurrentCamera
 	if cam then
 		cam.CameraType = savedCamType or Enum.CameraType.Custom
+		-- Start rundy przy otwartym sklepie (23.10, Kacper: „kamera w lobby, ciało na arenie”):
+		-- serwer robi LoadCharacter, a nowa postać przychodzi, gdy kamera jest jeszcze
+		-- Scriptable — Roblox nie przepina wtedy CameraSubject, więc po oddaniu kamery
+		-- śledziłaby starą, skasowaną postać w lobby. Przepinamy ją sami na aktualną.
+		local char = character or localPlayer.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hum then
+			cam.CameraSubject = hum
+		elseif char then
+			task.spawn(function()
+				local h = char:WaitForChild("Humanoid", 5)
+				if h and h:IsA("Humanoid") and not isOpen and localPlayer.Character == char then
+					cam.CameraSubject = h
+				end
+			end)
+		end
 	end
 end
 
 local function openShop()
 	if isOpen then return end
+	if localPlayer:GetAttribute("CosmeticsOpen") == true then return end
 	if not ui then
 		warnOnce("ui", "brak StarterGui.ShopUI — sklep nieaktywny")
 		return
@@ -317,6 +427,7 @@ local function openShop()
 		return
 	end
 	isOpen = true
+	notifyOpen()
 	readCash()
 
 	local cam = Workspace.CurrentCamera
@@ -325,6 +436,7 @@ local function openShop()
 		cam.CameraType = Enum.CameraType.Scriptable
 	end
 	setFrozen(true)
+	setShopAmbient(true)
 	ui.Enabled = true
 	setIndex(1, true)
 end
@@ -339,18 +451,19 @@ local function tryBuy()
 	Remotes.BuyItem:FireServer(e.id)
 end
 
+function ShopController.isOpen(): boolean
+	return isOpen
+end
+
+-- `cb(open)` przy każdym otwarciu i zamknięciu sklepu.
+function ShopController.onOpenChanged(cb: (boolean) -> ())
+	table.insert(openListeners, cb)
+end
+
 -- ============================================================================
 -- Init
 -- ============================================================================
 
-local BUY_FAIL_TEXT = {
-	not_enough_cash = "Za mało kasy",
-	too_far = "Podejdź do sprzedawcy",
-	unknown_item = "Nieznany przedmiot",
-	inventory_full = "Ekwipunek pełny",
-	invalid_payload = "Błąd",
-	internal_error = "Błąd serwera",
-}
 
 function ShopController.init()
 	if initialized then return end
@@ -374,10 +487,10 @@ function ShopController.init()
 			elStatus.TextColor3 = Color3.fromRGB(120, 220, 120)
 			-- Loadout pełny → item leży w ekwipunku; mówimy o tym od razu (18.10). Serwer wysyła
 			-- LoadoutChanged PRZED ShopResult, więc stan jest już aktualny.
-			elStatus.Text = if LoadoutState.slotOf(itemId) then "Kupiono!" else Config.UI.Inventory.ShopFullText
+			elStatus.Text = if LoadoutState.slotOf(itemId) then CFG.BoughtText else Config.UI.Inventory.ShopFullText
 		else
 			elStatus.TextColor3 = Color3.fromRGB(235, 90, 80)
-			elStatus.Text = (reason and BUY_FAIL_TEXT[reason]) or "Nie udało się"
+			elStatus.Text = (reason and (CFG.FailTexts :: any)[reason]) or CFG.FailDefault
 		end
 	end)
 
@@ -387,9 +500,9 @@ function ShopController.init()
 			closeShop()
 		end
 	end)
-	localPlayer.CharacterAdded:Connect(function()
+	localPlayer.CharacterAdded:Connect(function(character: Model)
 		if isOpen then
-			closeShop()
+			closeShop(character)
 		end
 	end)
 
@@ -406,12 +519,16 @@ function ShopController.init()
 		btnPrev = gui:FindFirstChild("PrevButton", true) :: TextButton?
 		btnNext = gui:FindFirstChild("NextButton", true) :: TextButton?
 		btnClose = gui:FindFirstChild("CloseButton", true) :: TextButton?
+		local cashLabel = gui:FindFirstChild("ShopCash", true)
+		elCash = if cashLabel and cashLabel:IsA("TextLabel") then cashLabel else nil
+		elStats = gui:FindFirstChild("Stats", true)
 		gui.Enabled = false
 
 		if btnBuy then btnBuy.Activated:Connect(tryBuy) end
 		if btnPrev then btnPrev.Activated:Connect(function() setIndex(index - 1, false) end) end
 		if btnNext then btnNext.Activated:Connect(function() setIndex(index + 1, false) end) end
-		if btnClose then btnClose.Activated:Connect(closeShop) end
+		-- Owinięte: Activated podaje (InputObject, clickCount), a closeShop bierze postać.
+		if btnClose then btnClose.Activated:Connect(function() closeShop() end) end
 	else
 		warnOnce("ui", "brak StarterGui.ShopUI (ScreenGui) — sklep nieaktywny")
 	end

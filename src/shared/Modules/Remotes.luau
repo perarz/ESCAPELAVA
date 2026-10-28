@@ -12,20 +12,29 @@ local RunService = game:GetService("RunService")
 
 local REMOTE_NAMES = {
 	"GameStateChanged",   -- (stateName: string, remainingSeconds: number, endsAtServerTime: number)
-	                      -- LOBBY/PREPARING/COUNTDOWN/ROUND/FINISHING/RESETTING/POST_ROUND
+	                      -- LOBBY/PREPARING/COUNTDOWN/ROUND/FINISHING/RESETTING (od 26.10 bez POST_ROUND)
 	"PlayerDied",         -- (player: Player, reason: string)
-	"RoundEnded",         -- (survivors: {Player}, payload: table?)
+	"RoundEnded",         -- bez payloadu: cleanup po RESETTING, tuż przed LOBBY; wyniki idą przez RoundWon
 	"ClientReady",        -- klient→server: FireServer() bez payloadu — klient podpiął listenery
 	                      --   (paczka 3, 18.10). Serwer odsyła stan startowy: stan gry, kasę,
-	                      --   inventory. Liczy się tylko pierwszy na sesję gracza
+	                      --   inventory, loadout i ustawienia. Liczy się tylko pierwszy na sesję gracza
 	"CashChanged",        -- FireClient: (balance: number, delta: number?, reason: string?)
 	"CashCollected",      -- FireAllClients: (player: Player, fromPosition: Vector3) — klient animuje pickup
 	"InventoryChanged",   -- FireClient: (inventory: {[itemId: string] = count: number})
 	"SetLoadout",         -- klient→server: FireServer(loadout: {string}) — 3 itemId, "" = pusty slot.
 	                      --   Tylko w LOBBY; serwer czyści (istniejące, bez powtórzeń) — LoadoutService
 	"LoadoutChanged",     -- FireClient: (loadout: {string}) — 3 itemId, "" = pusty (18.10)
+	"SetSettings",        -- klient→server: FireServer(settings: {[key: string]: any}) — cały stan
+	                      --   ustawień (26.10). Serwer zostawia tylko klucze i wartości z
+	                      --   Config.Settings.Options, resztę ustawia domyślnie — SettingsService
+	"SettingsChanged",    -- FireClient: (settings: {[key: string]: any}) — stan po wczytaniu,
+	                      --   po ClientReady i po każdej prośbie SetSettings (także odrzuconej)
 	"BuyItem",            -- klient→server: FireServer(itemId: string) — zakup w sklepie-NPC
 	"ShopResult",         -- FireClient: (success: boolean, itemId: string, reason: string?)
+	"BuyCosmetic",        -- client→server: (cosmeticId: string), LOBBY + proximity to ClothesShop NPC
+	"SetCosmetic",        -- client→server: (category: string, cosmeticId: string), "" = unequip; LOBBY only
+	"CosmeticsChanged",   -- FireClient: ({owned: {[id]: true}, equipped: {[category]: id}}), after load/ClientReady/change
+	"CosmeticResult",     -- FireClient: (success: boolean, action: "buy"|"equip", id: string, reason: string?)
 	"EquipItem",          -- klient→server: FireServer(itemId: string) — dispatch po itemId,
 	                      --   każdy service equipowalnego itemu słucha i reaguje na SWÓJ id
 	                      --   (bomb→BombService, bridge_builder→BridgeService), reszta chowa swoje
@@ -34,6 +43,7 @@ local REMOTE_NAMES = {
 	"Push",               -- klient→server: FireServer() — F key, server po Config.Push.Windup wybiera cel w stożku przed graczem
 	"Pushed",             -- server→target client: FireClient(target, velocity: Vector3) — target aplikuje na swoim HRP
 	"BuildBridge",        -- klient→server: FireServer(position: Vector3, rotationY: number)
+	                      --   wymaga aktywnego trybu budowania serwera i mostu w loadoucie
 	"BridgeBuildMode",    -- server→klient: FireClient(active: boolean) — enter/exit build mode
 	"BridgeResult",       -- FireClient: (success: boolean, reason: string?) — feedback build
 	"HeadAim",            -- klient→server: FireServer(yaw: number, pitch: number) — radianach, throttled ~10Hz
@@ -82,7 +92,8 @@ local REMOTE_NAMES = {
 	"DevCommand",         -- klient→server: FireServer(command: string) — "skip" | "endRound".
 	                      --   Server waliduje Dev.isDev(player); tryb dev = Config.Dev.Enabled
 	"FireGrapple",        -- klient→server: FireServer(targetPos: Vector3) — punkt, w który
-	                      --   gracz wycelował hakiem. Serwer bierze stąd WYŁĄCZNIE kierunek
+	                      --   gracz celuje z GrappleTool w ręce i hakiem w loadoucie;
+	                      --   serwer bierze stąd WYŁĄCZNIE kierunek
 	                      --   i strzela własnym raycastem z HRP; zaczep powstaje tam, gdzie
 	                      --   trafi promień serwera, więc klient nie może skłamać o zasięgu
 	"Grappled",           -- server→właściciel: FireClient(anchor: Vector3, goal: Vector3,
@@ -111,6 +122,12 @@ local REMOTE_NAMES = {
 	"RocketExploded",     -- FireAllClients: (id: number, position: Vector3?) — koniec lotu;
 	                      --   `nil` = rakieta znikła bez wybuchu (koniec rundy). Sam wybuch
 	                      --   (VFX, gruz) idzie zwykłą drogą bomby: Remotes.BlastFX
+	"ThrowC4",            -- klient→server: FireServer(targetPos: Vector3) — punkt, w który celuje gracz
+	                      --   z C4 w ręce (25.10). Serwer bierze stąd WYŁĄCZNIE kierunek rzutu; lot
+	                      --   i miejsce przyklejenia liczy sam (promień co klatkę, Config.C4.Throw*)
+	"DetonateC4",         -- klient→server: FireServer() bez payloadu — klawisz / przycisk detonatora.
+	                      --   Odpowiedź: atrybut gracza Config.C4.CountAttribute (liczba ładunków)
+	                      --   i zwykły wybuch bomby (Remotes.BlastFX)
 }
 
 local function getRemotesFolder(): Folder

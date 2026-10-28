@@ -28,8 +28,13 @@
 --   - Workspace.Lobby, Workspace.Lava (osobne foldery pod Workspace)
 --
 -- Timing: czekamy RESTORE_DELAY po RoundEnded, żeby PlayerService.sendSurvivorsToLobby
--- (odpalany przez StateChanged → POST_ROUND, deferred BindableEvent) zdążył wyteleportować
+-- (odpalany przez StateChanged → LOBBY, deferred BindableEvent) zdążył wyteleportować
 -- żywych zanim wywalimy ich części pod nogami.
+--
+-- `MapService.Restored` odpala PO odbudowie (też nieudanej). Od 26.10 lobby zaczyna się
+-- zaraz po RoundEnded (bez 10 s POST_ROUND), więc kto potrzebuje świeżej mapy
+-- (StructuralService), czeka na ten sygnał, a nie na wejście do lobby — inaczej budowałby
+-- stan na instancjach, które restore za chwilę skasuje.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -40,10 +45,13 @@ local GameLoopService = require(script.Parent.GameLoopService)
 
 local MapService = {}
 
+local restoredEvent = Instance.new("BindableEvent")
+MapService.Restored = restoredEvent.Event -- () — mapa odtworzona po rundzie
+
 local SNAPSHOT_NAME = "MapSnapshot"
 local RESTORE_DELAY = 0.5
 -- Odcisk 25 tys. partów to kilkadziesiąt ms — rozkładamy na klatki, żeby serwer nie
--- przycinał w POST_ROUND (gracze właśnie wracają do lobby i chodzą).
+-- przycinał w lobby (gracze właśnie wracają z rundy i chodzą).
 local FRAME_BUDGET = 0.004
 
 local DMG_HP = Config.Destruction.DamageAttributes.HP
@@ -269,7 +277,11 @@ function MapService.init()
 			print(("[Map] usunięto %d bomb w locie przed restorem"):format(cleaned))
 		end
 		task.wait(RESTORE_DELAY)
-		restoreMap()
+		local ok, err = pcall(restoreMap)
+		if not ok then
+			warn(("[Map] restore padł: %s"):format(tostring(err)))
+		end
+		restoredEvent:Fire()
 	end)
 end
 

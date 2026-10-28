@@ -1,5 +1,7 @@
 # PROMPTY NA AKCESORIA — ESCAPE LAVA
 
+> **Status 23.10.2026:** briefy modeli kosmetycznych, nie potwierdzenie gotowości sklepu/ekwipunku akcesoriów ani obowiązkowy zakres release’u. Wymiary poniżej są pomiarem z 28.09; przy zmianie rigu ponowić pomiar. Bieżący stan: [STATUS](STATUS.md), decyzje: [ROADMAP](ROADMAP.md).
+
 > Gotowe prompty do wklejenia asystentowi, który robi modele. **Jeden model = BLOK STYLU + jeden BLOK ITEMU.**
 > Wymiary postaci są ZMIERZONE w placu (2026-09-28), nie szacowane.
 >

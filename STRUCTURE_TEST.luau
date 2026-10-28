@@ -19,10 +19,12 @@ assert(not game:GetService("RunService"):IsRunning(), "StructureTests: zatrzymaj
 assert(ServerScriptService:FindFirstChild("Server"), "StructureTests: brak ServerScriptService.Server — czy `rojo serve` jest połączony?")
 
 -- Klony: `require` w Studio trzyma STARĄ wersję modułu między uruchomieniami (hard rule 14).
-local Config = require(ReplicatedStorage.Shared.Modules.Config:Clone())
-local Fracture = require(ReplicatedStorage.Shared.Modules.Fracture:Clone())
--- ItemDefinitions bez klonu (potrzebuje sąsiedniego Utils) — parametry bomby zmieniają się rzadko.
-local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
+-- Cały folder zachowuje script.Parent.Utils i daje świeże definicje bomby
+-- przy każdym uruchomieniu; stary cache nie może zafałszować wyniku.
+local Modules = ReplicatedStorage.Shared.Modules:Clone()
+local Config = require(Modules.Config)
+local Fracture = require(Modules.Fracture)
+local ItemDefinitions = require(Modules.ItemDefinitions)
 local Structure = ServerScriptService.Server.Structure:Clone()
 local Tests = require(Structure.StructureTests)
 
@@ -32,3 +34,5 @@ assert(building, "nie ma budynku " .. BUILDING)
 local report, state, plan = Tests.runOrange(building, Config, Fracture, ItemDefinitions.bomb.destruction)
 print(report)
 Tests.show(state, plan)
+Structure:Destroy()
+Modules:Destroy()

@@ -24,7 +24,29 @@ task.spawn(disableDefaultBackpack)
 
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 
+-- EKRAN ŁADOWANIA czeka na stan startowy (decyzja Kacpra 18.10: „wszystko ma się
+-- załadować w tym UI”). Atrybut jest LOKALNY (klient na własnym Playerze — serwer go nie
+-- widzi) i czyta go `ReplicatedFirst.LoadingScreen`, który nie może requirować modułów.
+-- Kasa, inventory i loadout przychodzą dopiero po wczytaniu danych gracza; stan gry od razu.
+local player = Players.LocalPlayer
+local got = { state = false, cash = false, inventory = false, loadout = false }
+local function mark(key: string)
+	if got[key] then return end
+	got[key] = true
+	if got.state and got.cash and got.inventory and got.loadout then
+		player:SetAttribute("ClientStateReady", true)
+	end
+end
+Remotes.GameStateChanged.OnClientEvent:Connect(function() mark("state") end)
+Remotes.CashChanged.OnClientEvent:Connect(function() mark("cash") end)
+Remotes.InventoryChanged.OnClientEvent:Connect(function() mark("inventory") end)
+Remotes.LoadoutChanged.OnClientEvent:Connect(function() mark("loadout") end)
+
+
 local LoadoutState = require(script.Controllers.LoadoutState)
+local SettingsState = require(script.Controllers.SettingsState)
+local CosmeticsState = require(script.Controllers.CosmeticsState)
+local CosmeticsController = require(script.Controllers.CosmeticsController)
 local UIController = require(script.Controllers.UIController)
 local ShopController = require(script.Controllers.ShopController)
 local HotbarController = require(script.Controllers.HotbarController)
@@ -37,6 +59,7 @@ local BridgeController = require(script.Controllers.BridgeController)
 local GrappleController = require(script.Controllers.GrappleController)
 local EnergyDrinkController = require(script.Controllers.EnergyDrinkController)
 local RpgController = require(script.Controllers.RpgController)
+local C4Controller = require(script.Controllers.C4Controller)
 local MovementController = require(script.Controllers.MovementController)
 local CooldownBarController = require(script.Controllers.CooldownBarController)
 local WinMessageController = require(script.Controllers.WinMessageController)
@@ -44,6 +67,7 @@ local KillMessageController = require(script.Controllers.KillMessageController)
 local LavaHeatController = require(script.Controllers.LavaHeatController)
 local LavaSurfaceController = require(script.Controllers.LavaSurfaceController)
 local LavaSwimController = require(script.Controllers.LavaSwimController)
+local LavaSplashController = require(script.Controllers.LavaSplashController)
 local HudScaleController = require(script.Controllers.HudScaleController)
 local CashDigitsController = require(script.Controllers.CashDigitsController)
 local ExplosionFXController = require(script.Controllers.ExplosionFXController)
@@ -54,6 +78,7 @@ local LadderController = require(script.Controllers.LadderController)
 local TextShadowController = require(script.Controllers.TextShadowController)
 local GradientShimmerController = require(script.Controllers.GradientShimmerController)
 local InventoryController = require(script.Controllers.InventoryController)
+local SettingsController = require(script.Controllers.SettingsController)
 
 -- KAŻDY KONTROLER W OSOBNYM WĄTKU (paczka 3, przegląd 29.09 B-1). Dawniej startowały po
 -- kolei, a kilka czekało na UI — kontroler nr 5 nie podpinał listenerów, dopóki nr 4 nie
@@ -72,6 +97,10 @@ end
 -- LoadoutState pierwszy: pasek i panel czytają z niego stan, a jego listenery muszą stać
 -- przed `ClientReady`.
 start("LoadoutState", LoadoutState)
+-- Ustawienia też przed `ClientReady` — stan startowy z serwera nie może trafić w próżnię.
+start("SettingsState", SettingsState)
+start("CosmeticsState", CosmeticsState)
+start("CosmeticsController", CosmeticsController)
 start("UIController", UIController)
 start("ShopController", ShopController)
 start("HotbarController", HotbarController)
@@ -84,6 +113,7 @@ start("BridgeController", BridgeController)
 start("GrappleController", GrappleController)
 start("EnergyDrinkController", EnergyDrinkController)
 start("RpgController", RpgController)
+start("C4Controller", C4Controller)
 start("MovementController", MovementController)
 start("CooldownBarController", CooldownBarController)
 start("WinMessageController", WinMessageController)
@@ -91,6 +121,7 @@ start("KillMessageController", KillMessageController)
 start("LavaHeatController", LavaHeatController)
 start("LavaSurfaceController", LavaSurfaceController)
 start("LavaSwimController", LavaSwimController)
+start("LavaSplashController", LavaSplashController)
 start("HudScaleController", HudScaleController)
 start("CashDigitsController", CashDigitsController)
 start("ExplosionFXController", ExplosionFXController)
@@ -101,24 +132,7 @@ start("LadderController", LadderController)
 start("TextShadowController", TextShadowController)
 start("GradientShimmerController", GradientShimmerController)
 start("InventoryController", InventoryController)
-
--- EKRAN ŁADOWANIA czeka na stan startowy (decyzja Kacpra 18.10: „wszystko ma się
--- załadować w tym UI”). Atrybut jest LOKALNY (klient na własnym Playerze — serwer go nie
--- widzi) i czyta go `ReplicatedFirst.LoadingScreen`, który nie może requirować modułów.
--- Kasa, inventory i loadout przychodzą dopiero po wczytaniu danych gracza; stan gry od razu.
-local player = Players.LocalPlayer
-local got = { state = false, cash = false, inventory = false, loadout = false }
-local function mark(key: string)
-	if got[key] then return end
-	got[key] = true
-	if got.state and got.cash and got.inventory and got.loadout then
-		player:SetAttribute("ClientStateReady", true)
-	end
-end
-Remotes.GameStateChanged.OnClientEvent:Connect(function() mark("state") end)
-Remotes.CashChanged.OnClientEvent:Connect(function() mark("cash") end)
-Remotes.InventoryChanged.OnClientEvent:Connect(function() mark("inventory") end)
-Remotes.LoadoutChanged.OnClientEvent:Connect(function() mark("loadout") end)
+start("SettingsController", SettingsController)
 
 -- Wszystkie listenery stoją — dopiero teraz serwer wysyła stan startowy (init.server).
 Remotes.ClientReady:FireServer()

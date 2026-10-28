@@ -13,7 +13,7 @@
 --                   atomic Collected flag → CashService.add + CashCollected RemoteEvent
 --                   (all clients animują pickup) → Destroy.
 --   Lawa touched cash: silent destroy (bez credit).
---   POST_ROUND: cleanup pozostałych cash.
+--   LOBBY: cleanup pozostałych cash.
 --
 -- Architektura skali (kilkuset active):
 --   * Cash anchored — server zawsze widzi prawdziwą pozycję, klient nie cheatuje.
@@ -308,15 +308,17 @@ local function magnetTick()
 	if not roundActive then return end
 	local folder = activeFolder
 	if not folder then return end
+	local cashInstances = folder:GetChildren()
+	if #cashInstances == 0 then return end
 
 	-- Cache live alive players raz per tick — niezmienne w ciągu kilkudziesięciu ms.
-	local alivePlayers: { { player: Player, hrp: BasePart } } = {}
+	local alivePlayers: { { player: Player, position: Vector3 } } = {}
 	for _, p in ipairs(Players:GetPlayers()) do
 		if PlayerService.isAlive(p) then
 			local char = p.Character
 			local hrp = char and char:FindFirstChild("HumanoidRootPart")
 			if hrp and hrp:IsA("BasePart") then
-				table.insert(alivePlayers, { player = p, hrp = hrp })
+				table.insert(alivePlayers, { player = p, position = hrp.Position })
 			end
 		end
 	end
@@ -329,7 +331,7 @@ local function magnetTick()
 	-- na sekundę, a odpalał się dla wszystkiego, nie tylko dla cashu.
 	local lavaY = LavaService.getSurfaceY()
 
-	for _, cashInstance in ipairs(folder:GetChildren()) do
+	for _, cashInstance in ipairs(cashInstances) do
 		local root = getRootPart(cashInstance)
 		if not root then continue end
 		if root:GetAttribute("Collected") then continue end
@@ -344,7 +346,7 @@ local function magnetTick()
 		local bestDistSq = rangeSq
 		local cashPos = root.Position
 		for _, entry in ipairs(alivePlayers) do
-			local d = entry.hrp.Position - cashPos
+			local d = entry.position - cashPos
 			local dSq = d.X*d.X + d.Y*d.Y + d.Z*d.Z
 			if dSq < bestDistSq then
 				bestDistSq = dSq
@@ -395,16 +397,13 @@ function CashPickupService.init()
 	takeSpawnSnapshot()
 	getOrCreateActiveFolder()
 
-	-- StateChanged: spawn na ROUND start, cleanup na POST_ROUND/LOBBY.
-	-- (RoundEnded BindableEvent triggeruje POST_ROUND, ale MapService czeka 0.5s na restore
-	-- — jeśli czyściłbym cash dopiero w RoundEnded → cleanupActiveBombs to MapService
-	-- nie tknie ActiveCash bo to osobny folder Workspace. Bezpiecznie czyścić w StateChanged
-	-- POST_ROUND żeby aktualny stan był zsynchronizowany ze stanem GameLoop.)
+	-- StateChanged: spawn na ROUND start, cleanup na LOBBY (zaraz po RoundEnded).
+	-- (MapService na RoundEnded czyści tylko bomby i odtwarza mapę — ActiveCash to osobny
+	-- folder Workspace, więc sprzątamy go tutaj, w zgodzie ze stanem GameLoop.)
 	GameLoopService.StateChanged:Connect(function(newState: string)
 		if newState == GameLoopService.STATE.ROUND then
 			startRound()
-		elseif newState == GameLoopService.STATE.POST_ROUND
-			or newState == GameLoopService.STATE.LOBBY then
+		elseif newState == GameLoopService.STATE.LOBBY then
 			endRound()
 		end
 	end)

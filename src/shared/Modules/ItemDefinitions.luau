@@ -12,7 +12,7 @@ ItemDefinitions.bomb = {
 	name = "Bomb", -- 10.10: nazwy itemów po angielsku (decyzja Kacpra)
 	-- Ikona w slocie paska (10.10): z output/inventory-icons-v1, zmniejszona do 512 px (ostra
 	-- przy każdej skali slotu), wgrana na konto Kacpra.
-	icon = "rbxassetid://130438008648276", -- 19.10: render modelu z gry + czarny obrys (output/inventory-icons-v2)
+	icon = "rbxassetid://79649523590273", -- 27.10: render modelu bez studsów + czarny obrys (output/inventory-icons-v3)
 	price = 50,
 	-- 18.10: opisy po angielsku (decyzja Kacpra) — Fredoka nie ma polskich znaków (ć, ź, ś
 	-- rysowały się zastępczą czcionką). Czyta je sklep i panel INVENTORY.
@@ -78,7 +78,7 @@ ItemDefinitions.bomb = {
 ItemDefinitions.bridge_builder = {
 	id = "bridge_builder",
 	name = "Bridge",
-	icon = "rbxassetid://97542975966293",
+	icon = "rbxassetid://89739458074532", -- 27.10: bez studsów (output/inventory-icons-v3)
 	price = 100,
 	desc = "Build a plank over lava or a gap. Anyone can cross it.",
 	sceneModel = "Blueprint",
@@ -108,7 +108,7 @@ ItemDefinitions.bridge_builder = {
 ItemDefinitions.grapple = {
 	id = "grapple",
 	name = "Grapple",
-	icon = "rbxassetid://101471002129173",
+	icon = "rbxassetid://100588363636138", -- 27.10: bez studsów (output/inventory-icons-v3)
 	price = 40,
 	desc = "Aim at a wall or roof and get yanked right there. One use.",
 	-- Wystawa w scenie sklepu: model Kacpra stoi już w WeaponShopScene.Decorations.
@@ -133,7 +133,7 @@ ItemDefinitions.grapple = {
 ItemDefinitions.energy_drink = {
 	id = "energy_drink",
 	name = "Energy Drink",
-	icon = "rbxassetid://77399251372698", -- 20.10: render z gry + czarny obrys (output/inventory-icons-v2)
+	icon = "rbxassetid://86686643398051", -- 27.10: bez studsów (output/inventory-icons-v3)
 	price = 25,
 	desc = "Drink it on the run: unlimited stamina for 10 seconds. One use.",
 	-- Model Kacpra z wystawy; ten sam model trafia do ręki (kopia w ReplicatedStorage).
@@ -150,7 +150,7 @@ ItemDefinitions.energy_drink = {
 ItemDefinitions.rpg = {
 	id = "rpg",
 	name = "RPG",
-	icon = "rbxassetid://139499438619574", -- 20.10: render z gry + czarny obrys (output/inventory-icons-v2)
+	icon = "rbxassetid://79109539766455", -- 27.10: bez studsów (output/inventory-icons-v3)
 	price = 75,
 	desc = "Fire a rocket straight where you aim. It blows up on the first thing it hits. One shot.",
 	sceneModel = "Rpg",
@@ -172,8 +172,38 @@ ItemDefinitions.rpg = {
 	},
 }
 
+-- 25.10, decyzje Kacpra: C4 = zaplanowana „sticky bomb” (ten sam model z wystawy). Przyklejasz
+-- ładunek do mapy (nie do graczy), naraz najwyżej `Config.C4.MaxActive`, wszystkie odpala klawisz
+-- / przycisk detonatora; śmierć gracza = ładunki znikają bez wybuchu. Wybuch jak bomba, bo czyta
+-- go ta sama ścieżka (BombService.explodeAt). Reszta liczb: Config.C4, serwer: C4Service.
+ItemDefinitions.c4 = {
+	id = "c4",
+	name = "C4",
+	icon = "rbxassetid://103956142743404", -- 27.10: bez studsów (output/inventory-icons-v3)
+	price = 60,
+	desc = "Throw up to 3 sticky charges onto walls or floors, then blow them all at once.",
+	-- Model Kacpra na wystawie nazywa się jeszcze StickyBomb (to ten sam item).
+	sceneModel = "StickyBomb",
+	-- Kopia modelu z wystawy w ReplicatedStorage: w ręce, w locie i jako przyklejony ładunek.
+	toolModel = "C4",
+	stats = { power = 5, range = 3, mobility = 1 }, -- 25.10: rzut łukiem jak granat, zasięg jak bomba
+	maxStack = 9999,
+	blastRadius = 22,
+	damagePercent = 0.6,
+	knockbackForce = 450,
+	knockbackMinT = 0.35,
+	ragdollDuration = 2,
+	destruction = {
+		radius = 24,
+		damage = 160,
+		impulse = 95,
+		minImpulseT = 0.1,
+		glassRadius = 35,
+	},
+}
+
 -- Kolejność wyświetlania w sklepie (porządek deterministyczny)
-ItemDefinitions.shopOrder = { "bomb", "bridge_builder", "grapple", "energy_drink", "rpg" }
+ItemDefinitions.shopOrder = { "bomb", "bridge_builder", "grapple", "energy_drink", "rpg", "c4" }
 
 -- Realny rozmiar rzeczy, którą item stawia w świecie (`worldModel`), z fallbackiem na
 -- wymiary wpisane w definicji. TUTAJ, a nie w każdym serwisie osobno, bo odpowiedź MUSI

@@ -1,109 +1,53 @@
-# CO ZOSTAŁO DO RELEASE'U
+# Co zostało do release’u
 
-🎨 = robisz Ty (Studio / decyzja) · 💻 = robi Claude (kod)
-Linijki „*dla Claude'a:*” to szczegóły techniczne — nie musisz ich czytać.
+Aktualizacja: **23.10.2026**. Stan implementacji i dowody: [STATUS](STATUS.md). Testy wykonuje Kacper według [TESTY](TESTY.md); samo napisanie/skompilowanie kodu nie zalicza testu.
 
----
+## Najpierw akceptacja obecnej gry
 
-## ⚠️ WAŻNE — NAJPIERW TO
+- [ ] **Destrukcja T1–T7 dwa razy bez błędu pod rząd**; sprawdzić również pozostałe budynki, rekwizyty, auta, beczki i twarde ruiny. Zebrać aktualne logi `[Collapse]` / `[Destr]`. Po zaliczeniu zamrozić zakres destrukcji.
+- [ ] Loadout i zapis: wybór tylko w lobby, trzy stałe sloty, brak equipa spoza loadoutu, zachowanie danych po ponownym wejściu.
+- [ ] Pełna pętla kilku rund: przygotowanie, 3-2-1, aktywacja ruchu/itemów, FINISHING, nagroda raz, cleanup, odbudowa i dołączanie w trakcie.
+- [ ] Nowe elementy 18–23.10: start klienta, loading v2, UI, sklep/kadry/stałe światła i powrót kamery po respawnie, RPG/odrzut/chwyt, napój/picie/efekt, beczki i zapłon od F.
+- [ ] Test zapisu przy wyjściu i zamykaniu serwera oraz test na wolnym urządzeniu/sieci. Dawny test samego fall damage z 19.09 jest zaliczony 01.10; nie wymaga powtórzenia jako zaległość, chyba że nowa zmiana dotknie tej mechaniki.
+- [ ] Naprawić zgłoszone usterki i zapisać wyniki; commity na prośbę Kacpra.
+- [ ] Przed publikacją podbić `Config.UI.Version` (napis w prawym dolnym rogu, od 27.10).
 
-- [ ] 🎨 Przetestuj wszystko z `docs/TESTY.md`
-- [ ] 💻 Popraw to, co wyjdzie z testu, i zrób commity
-- [ ] 🎨💻 Destrukcja: stały test (T1-T7) przejdzie 2 razy pod rząd → destrukcja skończona, bez nowych ficzur
+## Implementacja i przygotowanie brakujących elementów
 
----
+| Zadanie | Właściciel / uwagi |
+|---|---|
+| Sterowanie na telefonie: sprint, push, potwierdzenie/obrót mostu | Kacper: UI; agent: logika. Sprawdzić też celowanie i użycie wszystkich itemów na dotyku. |
+| Anty-cheat — paczka 6 | Agent; plan w REVIEW. Decyzje cofnięcie → kill → kick i pion po ~1 s są zamknięte. Uwzględnić ragdoll, hak, lawę i ruchome platformy. |
+| Start przy 30–50 graczach | Agent: obecnie sekwencyjne ładowanie postaci; Kacper: multi-spawn. `SpawnPoints` pusty w Edit 23.10, działa fallback. Docelowy limit miejsca wymaga decyzji. |
+| Ruch głowy i odporność startu serwera | Agent: ograniczenie odbiorców HeadAim, obsługa błędu startu usługi zgodnie z zależnościami. |
+| Obciążenie destrukcji/odbudowy | Pomiar w grze; M-7 (koszt faktycznych kawałków) i M-13 z REVIEW pozostają otwarte. Odbudowa tylko naruszonych jednostek jest już zaimplementowana. |
+| C4 (= sticky bomb) | 25.10 w kodzie (`C4Service`, `C4Controller`, definicja `c4`). Przyklejanie i G sprawdzone w pierwszym teście Kacpra; **rzut** (zamiast klikania) i ikona `rbxassetid://103956142743404` 25.10 — NIEPRZETESTOWANE. Model i przycisk postawione przez MCP 25.10 (Cmd+S). |
+| Hak pod nogi | Agent: odrzucenie nieużytecznego lotu przed zużyciem sztuki; dotychczas odłożone. |
+| Gest pchnięcia na produkcji | Kacper: opublikować `Push_TwoHands_R15`; agent: wpiąć ID. Obecnie `AnimationId = 0`, tylko podgląd Studio. |
+| Dźwięki | Kacper: ID pięciu dźwięków destrukcji i strzału RPG; agent: wpięcie. Łyk napoju opcjonalny. |
+| Bake budynków w placu | Przed TRYB 3 sprawdzić zaokrąglenia 0,001 i brak walidacji `MapRevision`; obecnie brak zapisanych danych w Edit. Po bake zweryfikować zgodność z geometrią. |
+| Uprawnienia dev po UserId | Agent + UserId Kacpra. Przed wydaniem tryb dev wyłączony niezależnie od tego zadania. |
 
-## 🎨 UI I RZECZY W STUDIO
+Sprzątanie starszej destrukcji poza budynkami: najpierw ustalić jej rzeczywistych użytkowników. Wspólna walidacja remote’ów, usunięcie duplikatów/martwego kodu i podział dużych plików to zaległe paczki 8–9. Nie są dowodem awarii i nie wymagają automatycznie pełnego refaktoru przed betą; zakres do wyboru po testach.
 
-- [ ] **Kamera przy haku w sklepie** — postawić marker obok modelu haka.
-  *dla Claude'a:* `WeaponShopScene.ShopCameras`, kod sam go znajdzie.
-- [ ] **Przyciski dotykowe na telefon** — wygląd przycisków sprint / push / most (logikę podłącza Claude).
-- [x] **Panel „Ekwipunek"** — zbudowany 18.10 przez MCP (styl HUD); Kacper ocenia wygląd. — tu wybierasz 3 itemy na rundę (decyzja 30.09). Kontrakt nazw i pułapka `ResetOnSpawn` w `docs/ROADMAP.md` → „PLAN: LOADOUT”. Stoisko loadoutu NIE powstaje.
-- [ ] **5 dźwięków destrukcji**: wybuch, szkło, uderzenie, trzask, zawalenie — podaj id.
-  *dla Claude'a:* `Config.Destruction.FX`.
-- [x] **Kill feed i baner zwycięzcy** — oba w Studio: `HUD.KillMessage` (10.10) i `HUD.WinMessage` „YOU SURVIVED!” tylko dla ocalałego (20.10).
+## Otwarte decyzje i drobny polish
 
----
+- [ ] Endgame na najwyższych dachach: ocena na produkcyjnej krzywej lawy z prawdziwymi graczami. Stare wyliczenia dla faz są historyczne.
+- [ ] Farma kill reward 25$ między dwoma kontami — ustalić, czy potrzebne ograniczenie.
+- [ ] Docelowy limit graczy i rozmieszczenie spawnów. `Config.Game.MaxPlayers = 20` nie ustawia limitu miejsca.
+- [ ] Kotwica `HUD.KillMessage.Body` (dawny wpis o wzroście od rogu) i ewentualny panel SETTINGS: ocena/zakres Kacpra. Nie przywracać panelu wyboru grafiki — tryby usunięte.
+- [ ] Latarnie świecące pod ulicę i szkło aut/automatów/przystanku — odłożone decyzje wizualne.
+- [ ] Sklep: ocenić kadry po zmianach 23.10. **Marker haka nie jest wymagany**: `UseCameraMarkers = false`.
 
-## 💥 POPRAWKI DESTRUKCJI
+Loadout, energy drink, RPG (strzał + wybuch + efekty/odrzut), kill message i win message są już zaimplementowane. **Rocket jump wycofany**, brak zadania „RPG etap 2 = rocket jump”. Kosmetyki/sklep skinów/daily rewards/monetyzacja to dalsze kierunki, nie dopisana automatycznie bramka publikacji.
 
-- [ ] Poprawki po teście T1-T7 (lewitujące bloki, zaklinowane piętra, zabijanie przez gruz — jeśli jeszcze wystąpią).
-  *dla Claude'a:* log `[Collapse]` / `[Destr]`, plan w `docs/DESTRUCTION_PLAN.md` → „Paczka 5 (29.09)”.
-- [ ] Budżet fizyki liczy za mało kawałków — poprawić dopiero po teście.
-  *dla Claude'a:* M-7 w `docs/REVIEW_2026-09-29.md`.
-- [ ] Zapis danych budynków w placu — szybszy start rundy.
-  *dla Claude'a:* STRUCTURE_BAKE TRYB 3; zapis zaokrągla do 0,001 i nie sprawdza `MapRevision`.
-- [ ] Sprzątanie starej destrukcji (v3) poza budynkami — najpierw sprawdzić, co jej jeszcze używa.
+## Tuż przed publikacją
 
----
-
-## 🎒 LOADOUT I WIĘCEJ ITEMÓW
-
-- [x] **LOADOUT** — zrobione 18.10 (panel INVENTORY, czeka na test w `docs/TESTY.md`). Opis poniżej historyczny.
-- [ ] ~~LOADOUT~~ — masz dużo itemów, na rundę bierzesz 3. Klawisze 1-3 = Twoje 3 itemy, nic się nie przesuwa. **Plan gotowy, decyzja podjęta 30.09: wybór mieszka w EKWIPUNKU** (nie w sklepie, nie na osobnym stoisku).
-  - 🎨 panel „Ekwipunek" w Studio — kontrakt nazw w planie, ⚠️ `ResetOnSpawn = false`
-  - 💻 kod (pole w danych gracza, `LoadoutService`, `InventoryController`, blokada equipa po stronie serwera)
-  *dla Claude'a:* `docs/ROADMAP.md` → „PLAN: LOADOUT” (koniec pliku). Wchodzi PO paczce 3.
-- [ ] **RPG** 💻 — etap 1 zrobiony 20.10 (strzał, lot, wybuch, czeka na test); etap 2: rocket jump + dym/dźwięk/odrzut.
-  *dla Claude'a:* rocket jump = wyrzut przez `Remotes.Pushed` + `AntiCheatService.grantGrace` + nowe „bez obrażeń przy lądowaniu” w `FallDamageService` (dziś jest tylko `suppressMidairRagdoll`).
-- [ ] **STICKY BOMB** 💻 (model już stoi)
-- [x] **ENERGY DRINK** 💻 — zrobiony 20.10, czeka na test w `docs/TESTY.md` (🎨 opcjonalnie: id dźwięku łyku).
-- [ ] **HAK** 💻 — kliknięcie pod nogi nie może zużywać sztuki za nic.
-  *dla Claude'a:* odrzucić przed `consume`, gdy lot < ~3 study.
-- [ ] **BOMBA** — działa; do sprawdzenia w teście (NaN, limity).
-
----
-
-## 📱 TELEFON
-
-- [ ] 💻 Logika przycisków sprint / push / most (wygląd: UI wyżej)
-- [x] 💻 Start gry na wolnym telefonie (paczka 3, zrobione 18.10 — czeka na test w `docs/TESTY.md`)
-  *dla Claude'a:* paczka 3 — `docs/REVIEW_2026-09-29.md` → „Plan paczki 3”.
-
----
-
-## 🛡️ ANTY-CHEAT I BEZPIECZEŃSTWO 💻
-
-- [ ] Łapać teleport i lot w górę → **cofnięcie na ostatnią dobrą pozycję, po kilku razach zabicie, potem kick** (decyzje 30.09). Lot w górę karany dopiero po ~1 s. **Plan gotowy, zero otwartych pytań.**
-  *dla Claude'a:* paczka 6, A-3 / B-13 / A-24 — `docs/REVIEW_2026-09-29.md` → „Plan paczki 6”.
-- [ ] Jedno sprawdzanie danych od graczy dla wszystkich akcji (dziś 3 różne wersje).
-- [ ] Uprawnienia dev po UserId, nie po nicku (🎨 podaj swój UserId).
-
----
-
-## ⚙️ WYDAJNOŚĆ I STABILNOŚĆ 💻
-
-- [ ] Start rundy przy 40 graczach — postacie ładują się po kolei i zjadają fazę Spawn.
-- [ ] Pozycja głowy gracza wysyłana do wszystkich na serwerze — ograniczyć do tych w pobliżu.
-- [ ] Błąd w jednym systemie nie może zatrzymać całej gry przy starcie serwera.
-- [ ] Odbudowa mapy po rundzie — zmierzyć, czy nie przycina.
-  *dla Claude'a:* paczka 7 (A-5, A-11, A-12, A-13) w `docs/REVIEW_2026-09-29.md`.
-
----
-
-## 🧹 PORZĄDKI W KODZIE 💻
-
-- [ ] Usunąć powtórzony i martwy kod, liczby przenieść do Config (paczka 8).
-- [ ] Podzielić 5 największych plików (paczka 9, po porządkach).
-
----
-
-## ❓ DECYZJE DO PODJĘCIA 🎨
-
-- [ ] Balans lawy na koniec rundy — po teście z prawdziwymi graczami
-- [ ] 25$ za zabójstwo bez limitu — dwa konta mogą się farmić. OK?
-- [ ] Latarnie świecą pod ulicę — poprawić?
-- [ ] Szyby w autach, automatach, przystanku — mają się tłuc?
-- [ ] Ile punktów spawnu na 30-50 graczy?
-
----
-
-## 🚀 TUŻ PRZED PUBLIKACJĄ
-
-- [ ] 💻 Lawa z powrotem na 80 s, płynnie 0 → 3,0 (`Config.Lava.RoundDuration`, `SpeedEnd`; fazy usunięte 11.10)
-- [ ] 💻 Wyłączyć tryb dev (`Config.Dev.Enabled`, `InfiniteItemsForAll` = false)
-- [ ] 💻 Minimum graczy = 2 (`Config.Game.MinPlayers`)
-- [ ] 💻 Wyłączyć logi debug (`Structure.Collapse.Debug`, `Destruction.Debug`)
-- [ ] 🎨 Maks. graczy na serwerze w ustawieniach miejsca (30-50)
-- [ ] 🎨 Test z kilkoma osobami na prawdziwym serwerze, także na telefonach
-- [ ] 🎨 Publikacja
+- [ ] `Config.Lava.RoundDuration = 80`, `SpeedStart = 0`, `SpeedEnd = 3.0` — zmienić razem (przyrost ~120 studów). Nie odtwarzać `Lava.Phases`.
+- [ ] `Config.Dev.Enabled = false` i `InfiniteItemsForAll = false`.
+- [ ] `Config.Game.MinPlayers = 2`.
+- [ ] `Config.Structure.Collapse.Debug = false` i `Config.Destruction.Debug = false`.
+- [ ] Ustawić limit graczy w ustawieniach miejsca Roblox.
+- [ ] Zapisać plac **Cmd+S**, potwierdzić zgodność kodu Studio z wersją przeznaczoną do wydania; dopilnować modeli i GUI, których nie ma w repo.
+- [ ] Test z kilkoma osobami na prawdziwym serwerze, także telefonami: zapis, wszystkie itemy, własne wybuchy, animacja F, lawa/EditableMesh lub fallback, kilka rund, odbudowa i wydajność.
+- [ ] Publikacja po akceptacji Kacpra.

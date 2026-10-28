@@ -17,7 +17,9 @@ local Players = game:GetService("Players")
 local TextShadowController = {}
 
 local SUFFIX = "Shadow"
-local linked: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+-- Instance w słabym kluczu może stracić wpis, mimo że etykieta nadal żyje.
+-- Mocne wpisy usuwamy razem z powiązaniem, bez ponownego podpinania listenerów.
+local linked: { [Instance]: { RBXScriptConnection } } = {}
 local initialized = false
 
 local function isText(inst: Instance): boolean
@@ -31,7 +33,8 @@ local function link(shadow: Instance)
 	local parent = shadow.Parent
 	local base = parent and parent:FindFirstChild(name:sub(1, -#SUFFIX - 1))
 	if not (base and isText(base)) then return end
-	linked[shadow] = true
+	local connections: { RBXScriptConnection } = {}
+	linked[shadow] = connections
 	local s = shadow :: any
 	local b = base :: any
 	local function sync()
@@ -46,9 +49,17 @@ local function link(shadow: Instance)
 		s.Visible = b.Visible
 	end
 	sync()
-	-- Połączenia giną razem z etykietami (Destroy rozłącza), więc nie trzeba ich sprzątać.
-	b:GetPropertyChangedSignal("Text"):Connect(sync)
-	b:GetPropertyChangedSignal("Visible"):Connect(sync)
+	local function unlink()
+		if linked[shadow] ~= connections then return end
+		linked[shadow] = nil
+		for _, connection in ipairs(connections) do connection:Disconnect() end
+		table.clear(connections)
+	end
+	table.insert(connections, b:GetPropertyChangedSignal("Text"):Connect(sync))
+	table.insert(connections, b:GetPropertyChangedSignal("Visible"):Connect(sync))
+	-- Usunięcie samego cienia nie niszczy sygnałów etykiety bazowej.
+	table.insert(connections, base.Destroying:Connect(unlink))
+	table.insert(connections, shadow.Destroying:Connect(unlink))
 end
 
 function TextShadowController.init()

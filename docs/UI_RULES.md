@@ -1,5 +1,7 @@
 # UI_RULES.md — zasady robienia UI w ESCAPE LAVA
 
+Aktualizacja kontekstu: **23.10.2026**. Bieżący kontrakt w STUDIO_CONTRACT; zapisane wyniki w TESTY.
+
 Reguły dla KAŻDEGO nowego elementu UI (HUD, panele, komunikaty, efekty). Zebrane z decyzji
 Kacpra i pułapek z 10-11.10. Opisy konkretnych, już zbudowanych elementów (nazwy, rozmiary,
 id obrazków) są w `docs/STUDIO_CONTRACT.md` → „UI z Figmy” — tu tylko zasady.
@@ -25,7 +27,7 @@ id obrazków) są w `docs/STUDIO_CONTRACT.md` → „UI z Figmy” — tu tylko 
 
 ## Twarde zasady Kacpra
 1. **Czcionka zawsze Fredoka** (`FredokaOne`). Jedyny wyjątek: ekran ładowania — **Montserrat Heavy** (decyzja Kacpra 20.10: „inny font, żeby było widać, że to loading screen”).
-2. **UI to obiekty w Studio** (`StarterGui`) — buduję przez MCP, kod tylko podpina się pod
+2. **UI to obiekty w Studio** (`StarterGui`) — wygląd buduje Kacper, agent podpina logikę pod
    nazwy i animuje. Wzory do klonowania (`*Template`) też w Studio, `Visible = false`.
 3. **Pod każdym tekstem cień**: etykieta `<Nazwa>Shadow` obok `<Nazwa>` (ten sam rodzic),
    cała czarna, przesunięta w lewo i w dół (−3/+3 przy 50-76 px, −4/+4 przy 100 px), `ZIndex`
@@ -80,8 +82,11 @@ id obrazków) są w `docs/STUDIO_CONTRACT.md` → „UI z Figmy” — tu tylko 
   „dokończyć się” na nowym stanie.
 
 ## Proces
-1. Przeczytać węzeł z Figmy (wymiary, kolory, obrysy, efekty).
-2. Zbudować w Studio przez MCP, zrobić zrzut (`screen_capture`) i porównać z Figmą.
+1. Przy wdrażaniu projektu z Figmy przeczytać wskazany węzeł (wymiary, kolory, obrysy, efekty) z wymaganymi skillami; sam audyt dokumentacji nie wymaga dostępu do Figmy.
+2. Kacper buduje wygląd w Studio; porównać odczyt/zrzut z uzgodnionym projektem. Dawne budowy przez MCP były osobnymi zleceniami, nie stałym upoważnieniem do tworzenia UI.
 3. Kod tylko logika + animacje; po zmianie kodu sprawdzić sumę kontrolną Studio vs dysk.
 4. Dopisać element do `STUDIO_CONTRACT.md` → „UI z Figmy”, test do `TESTY.md`.
 5. Przypomnieć Kacprowi o Cmd+S — UI żyje w placu, nie w gicie.
+
+### Rounded borders (27.10 finding)
+Use UIStroke.LineJoinMode=Round on rounded button/frame BORDERS. Miter stays on TEXT only. Miter on borders produced visible black rectangular corners behind X/BUY/BACK, confirmed by before/after Edit screenshots. Separate button Surface (UICorner + Border UIStroke) from Label/LabelShadow (Contextual Miter). Do not add a contextual stroke to empty click buttons.

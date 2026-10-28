@@ -49,6 +49,9 @@ local renderConn: RBXScriptConnection? = nil
 local inputConn: RBXScriptConnection? = nil
 local lastBuildAt = 0
 local clickDebounce = false
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+local excludeList: { Instance } = {}
 
 local function getDef()
 	return ItemDefinitions.get(ITEM_ID)
@@ -171,9 +174,7 @@ local function computeAnchorPosition(dims: Vector3): (Vector3, boolean)
 	if not cam then return Vector3.new(0, 50, 0), false end
 
 	local unitRay = cam:ScreenPointToRay(mouse.X, mouse.Y)
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	local excludeList: { Instance } = {}
+	table.clear(excludeList)
 	if localPlayer.Character then table.insert(excludeList, localPlayer.Character) end
 	if ghost then table.insert(excludeList, ghost) end
 	local activeCash = Workspace:FindFirstChild("ActiveCash")

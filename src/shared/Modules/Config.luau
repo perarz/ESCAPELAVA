@@ -10,15 +10,19 @@ Config.ItemEquip = {
 	Enabled = true,
 	Duration = 0.3,
 	ProfileDurations = { Rpg = 0.7 },
-	ToolProfiles = { BombTool = "Hip", GrappleTool = "Hip", BlueprintTool = "Back", RpgTool = "Rpg" },
+	ToolProfiles = { BombTool = "Hip", GrappleTool = "Hip", BlueprintTool = "Back", RpgTool = "Rpg", C4Tool = "Hip" },
 	HoldBlendStart = 0.4,
 	HoldBlendEnd = 0.84,
 	HoldPoses = {
 		Rpg = {
-			-- Fit the entire launcher, including its long rear tube, outside the torso.
-			-- Centering only the trigger hand made the stock pass through the stomach.
-			Shoulder = Vector3.new(33, -16.5, -49), Elbow = Vector3.new(104.5, 0, 0), Wrist = Vector3.new(-64, 47, -23),
-			LeftShoulder = Vector3.new(54, 6, 75.5), LeftElbow = Vector3.new(20, 0, 0), LeftWrist = Vector3.new(-14, -35, -99.5),
+			-- 25.10 (Kacper: „bardziej na barku, nie w prawo od ciała”): rura leży na prawym barku obok
+			-- głowy, lufa prosto w przód bioder, lewa dłoń pod lufą. Kąty z IK na rigu StarterCharacter
+			-- RAZEM z postawą bokiem `Movement.HeadTrack.WaistYawTools.RpgTool = -50` — zmiana jednego
+			-- bez drugiego krzywi lufę. Zdjęcie pozy w Edit zaakceptowane przed wpisaniem.
+			-- Poprzednia poza (21.10): 33/-16.5/-49, 104.5, -64/47/-23 | 54/6/75.5, 20, -14/-35/-99.5
+			-- — lufa 44,5° w lewo przez pierś, na wysokości klatki.
+			Shoulder = Vector3.new(47.1, 60.6, -8.7), Elbow = Vector3.new(111.8, 0, 0), Wrist = Vector3.new(-46.7, -31.9, 5.0),
+			LeftShoulder = Vector3.new(72.6, -41.0, 20.0), LeftElbow = Vector3.new(56.3, 0, 0), LeftWrist = Vector3.new(-5.9, 17.7, -39.7),
 		},
 	},
 	Profiles = {
@@ -95,7 +99,6 @@ Config.Game = {
 	MinPlayers = 1, -- TODO Day 7: ustaw na 2 przed publishem.
 	MaxPlayers = 20,
 	LobbyDuration = 25, -- 19.10: +10 s (prośba Kacpra „10 sekund więcej w lobby na start”)
-	PostRoundDuration = 10,
 	StartCountdown = 3,
 	FinishHold = 3,
 
@@ -322,7 +325,7 @@ Config.Lava = {
 		UpdateHz = 20,
 	},
 
-	-- V5: fixed local pool, 8 vents desktop / 4 touch or low quality.
+	-- V5: fixed local pool, 8 vents on HIGH / 4 on LOW (`Config.Settings` → graphics).
 	-- Tylko LavaSurfaceController. Damage/Submerged/Swim są niezależne.
 	FX = {
 		MinSurfaceY = 9,
@@ -332,7 +335,6 @@ Config.Lava = {
 		LowVentCount = 4,
 		LowLightCount = 1,
 		LowParticleScale = 0.55,
-		LowQualityLevel = 3,
 		EmitterLift = 0.18,
 		CoreSeconds = 0.5,
 		CoreStartScale = 0.6,
@@ -390,6 +392,66 @@ Config.Lava = {
 		LightPopBrightness = 1.5,
 		LightFadeSeconds = 0.45,
 	},
+
+	-- 27.10, tylko GRAPHICS HIGH (LavaSurfaceController). Stała łuna na ścianach tuż nad lawą:
+	-- siatka PointLightów wokół kamery, oczka nie jadą za kamerą (zmiana oczka = zgaś → przenieś
+	-- → zapal). ⚠️ Range = przebicie stropu (reguła 21.09, stropy co ~14): 12 = jedna
+	-- kondygnacja. Mocniej = Brightness, NIGDY Range. Bramka jak ambient (lawa nad ulicą).
+	Glow = {
+		Grid = 3,            -- siatka Grid × Grid świateł wokół kamery
+		Spacing = 20,        -- stud między światłami
+		Lift = 1.5,          -- stud nad taflą
+		Range = 12,
+		Brightness = 2.2,
+		Color = Color3.fromRGB(255, 70, 35),
+		FadeTime = 0.6,      -- s zapalania / gaszenia oczka
+	},
+
+	-- 27.10, tylko GRAPHICS HIGH (LavaSurfaceController). Iskry i popiół z tafli wokół kamery,
+	-- ilość rośnie z wysokością lawy. ⚠️ Particle NIE kolidują z geometrią — o tym, dokąd
+	-- dolecą, decyduje czas życia × prędkość: w kanale (lawa pod ulicą, `FX.MinSurfaceY`)
+	-- wznoszą się najwyżej do jezdni minus `CanalMargin`, nad ulicą najwyżej `MaxRise`.
+	-- Dzięki temu nie wylatują nad ulicę i nie sypią do pokoi wyżej (to samo piętro co Glow).
+	Air = {
+		HalfSize = 55,       -- stud: pół boku pudła emisji wokół kamery
+		Lift = 0.4,
+		MaxRise = 8,         -- stud nad taflą, gdy lawa jest nad ulicą
+		CanalMargin = 1,     -- stud zapasu pod jezdnią, gdy lawa jest w kanale
+		MinRise = 1,         -- poniżej tego zapasu nic nie emitujemy
+		RampStartY = 2.5,    -- wysokość tafli = najmniej (start rundy)
+		RampEndY = 100,      -- wysokość tafli = najwięcej (najwyższy dach ~109)
+		EmberRateMin = 4, EmberRateMax = 28,   -- iskier/s w całym pudle
+		AshRateMin = 3, AshRateMax = 20,       -- płatków popiołu/s
+		EmberSpeedMin = 2.5, EmberSpeedMax = 5,
+		AshSpeedMin = 0.6, AshSpeedMax = 1.4,
+		EmberColor = Color3.fromRGB(255, 105, 40),
+		EmberEndColor = Color3.fromRGB(210, 18, 25),
+		AshDrift = Vector3.new(0.5, 0, -0.3),  -- boczny dryf popiołu (bez składowej Y — liczy się do MaxRise)
+		AshColor = Color3.fromRGB(95, 92, 96),
+		AshEndColor = Color3.fromRGB(55, 53, 58),
+	},
+
+	-- 27.10, tylko GRAPHICS HIGH (LavaSplashController). Rozbryzg, dym i krótki błysk, gdy
+	-- czyjaś postać WPADA stopami pod taflę. Liczone z ruchu postaci po stronie klienta —
+	-- bez remote'ów. Lawa podchodząca pod stojącego gracza = bez efektu (`MinFallSpeed`).
+	-- Śmierć w lawie ma osobny, serwerowy efekt (LavaService) — ten zostaje.
+	Splash = {
+		UpdateHz = 15,
+		Distance = 160,      -- stud od kamery
+		MinFallSpeed = 12,   -- stud/s w dół przy wejściu w taflę
+		FullFallSpeed = 45,  -- przy tej prędkości efekt jest pełny
+		MinStrength = 0.4,
+		Cooldown = 1.2,      -- s na postać (wyskok i ponowne wpadnięcie)
+		Pool = 4,            -- gotowe zestawy efektu, używane po kolei
+		DropBurst = 26,
+		SparkBurst = 18,
+		SmokeBurst = 10,
+		DropSpeedMin = 14, DropSpeedMax = 26,
+		DropGravity = 55,
+		FlashRange = 12,     -- reguła 21.09 jak Glow
+		FlashBrightness = 6,
+		FlashTime = 0.35,
+	},
 }
 
 -- HUD skalowanie (HudScaleController). Projekt UI robiony W PIKSELACH przy referencyjnej
@@ -402,9 +464,13 @@ Config.UI = {
 	-- ale 1200 daje ~20% większy render — kalibracja pod feel Kacpra (1440 było za małe).
 	ReferenceHeight = 1200,
 	-- ScreenGui skalowane tą samą regułą (HudScaleController). 18.10: + panel ekwipunku.
-	ScaledGuis = { "HUD", "Inventory" },
+	ScaledGuis = { "HUD", "Inventory", "ShopUI", "Settings" }, -- 21.10: + sklep; 26.10: + ustawienia
 	MinScale = 0.5,         -- safety: nie zmniejszaj HUD poniżej połowy (mikro-okna)
 	MaxScale = 2.0,         -- safety: nie rozdmuchuj powyżej 2× (ultra-tall porty)
+
+	-- Numer wersji w prawym dolnym rogu (HUD.Version.VersionLabel, 27.10). Podbijać przy
+	-- publikacji — gracz na zrzucie z błędem od razu pokazuje, na której wersji grał.
+	Version = "0.8",
 
 	-- Wyciągnięcie itemu w pasku (HotbarController, 11.10): wybrany slot podskakuje, zostaje
 	-- wyżej i trochę większy, ikona się buja; po schowaniu opada. Px = px projektu.
@@ -481,9 +547,55 @@ Config.UI = {
 			grapple = Color3.fromRGB(35, 120, 230),
 			energy_drink = Color3.fromRGB(140, 60, 220),
 			rpg = Color3.fromRGB(95, 120, 50),
+			c4 = Color3.fromRGB(70, 74, 84), -- 25.10: grafit (kostka ma oliwkowe belki jak RPG — kolor inny)
 		},
 		DefaultItemColor = Color3.fromRGB(120, 190, 60),
 		EmptyItemColor = Color3.fromRGB(95, 90, 100),
+		-- Wzór karty itemu (23.10, Kacper: „nie tylko kolory, wywal studsy, ciekawe patterny, droższe
+		-- = bardziej dojebane”; bez napisów rzadkości i bez podziału na poziomy — każdy item po swojemu).
+		-- Layers (najwyżej 2) = paski z jednego UIGradient na `Fill.Pattern1/2` — rysuje je Roblox, więc
+		-- są ostre w każdej skali (UI_RULES 6): Rotation (°), Count (1-4 pasy: sufit 20 punktów
+		-- gradientu), Width (część okresu zajęta przez pas), Color, Transparency (0 pełny, 1 brak),
+		-- Offset (przesunięcie wzoru, część karty). Dodatki: Rim = dwa kolory wewnętrznej ramki,
+		-- Sweep = co ile s przelatuje błysk, Sparkles = migające iskierki. Item bez wpisu = gładka karta.
+		CardStyles = {
+			energy_drink = { -- 25$: same ukośne paski
+				Layers = { { Rotation = 60, Count = 4, Width = 0.42, Color = Color3.new(1, 1, 1), Transparency = 0.8 } },
+			},
+			grapple = { -- 40$: siatka jak z liny
+				Layers = {
+					{ Rotation = 45, Count = 4, Width = 0.2, Color = Color3.new(1, 1, 1), Transparency = 0.78 },
+					{ Rotation = -45, Count = 4, Width = 0.2, Color = Color3.new(1, 1, 1), Transparency = 0.78 },
+				},
+			},
+			bomb = { -- 50$: taśma ostrzegawcza + żółta ramka
+				Layers = { { Rotation = 35, Count = 4, Width = 0.5, Color = Color3.new(0, 0, 0), Transparency = 0.55 } },
+				Rim = { Color3.fromRGB(255, 235, 50), Color3.fromRGB(255, 140, 0) },
+			},
+			rpg = { -- 75$: wojskowe pasy + oliwkowo-złota ramka + błysk
+				Layers = {
+					{ Rotation = -30, Count = 3, Width = 0.45, Color = Color3.new(0, 0, 0), Transparency = 0.6 },
+					{ Rotation = 70, Count = 2, Width = 0.3, Color = Color3.fromRGB(225, 235, 150), Transparency = 0.75 },
+				},
+				Rim = { Color3.fromRGB(240, 245, 160), Color3.fromRGB(125, 155, 40) },
+				Sweep = 3.4,
+			},
+			c4 = { -- 60$: czarne opaski jak na kostce + czerwona ramka jak dioda
+				Layers = { { Rotation = 90, Count = 3, Width = 0.25, Color = Color3.new(0, 0, 0), Transparency = 0.5 } },
+				Rim = { Color3.fromRGB(255, 90, 70), Color3.fromRGB(170, 20, 20) },
+			},
+			bridge_builder = { -- 100$: złota krata + złota ramka + błysk + iskierki
+				Layers = {
+					{ Rotation = 45, Count = 4, Width = 0.22, Color = Color3.fromRGB(255, 228, 120), Transparency = 0.5 },
+					{ Rotation = -45, Count = 4, Width = 0.22, Color = Color3.fromRGB(255, 228, 120), Transparency = 0.5 },
+				},
+				Rim = { Color3.fromRGB(255, 248, 170), Color3.fromRGB(255, 170, 20) },
+				Sweep = 2.4,
+				Sparkles = true,
+			},
+		},
+		CardSweepTime = 0.75,     -- s: jeden przelot błysku przez kartę
+		CardSparklePeriod = 1.8,  -- s: jedno mignięcie iskierki (każda w innej fazie)
 		SelectedColor = Color3.fromRGB(255, 255, 255), -- obrys wybranej karty / slotu-celu (jak w pasku)
 		EmptyColor = Color3.fromRGB(235, 45, 45), -- x0: puls ramki slotu PASKA w lobby
 		EmptyPulsePeriod = 1.1, -- s: jeden puls
@@ -556,9 +668,9 @@ Config.RoundTransition = {
 	ResetCoverTime = 0.6,
 	PrepareMaxHold = 20,
 	ExitHold = 1.2,
-	CountdownScale = 0.63,
-	CountdownPopTime = 0.22,
-	CountdownStartScale = 1.15,
+	CountdownScale = 0.5,        -- 26.10: 0,63 → 0,5 (Kacper: „mniejsze”)
+	CountdownPopTime = 0.32,     -- 26.10: mocniejszy wskok z odbiciem (było 0,22 / 1,15)
+	CountdownStartScale = 1.6,
 	FadeInTime = 0.35,      -- ściemnianie pod koniec odliczania lobby
 	FadeOutTime = 0.5,      -- rozjaśnianie na mapie
 	-- Ile trzymać ciemno PO tym, jak gracz stoi na mapie — czas dla oświetlenia i cieni.
@@ -619,8 +731,8 @@ Config.Cash = {
 	-- Sprite wygenerowany skryptem (studs + zielony gradient + kontur), wgrany przez MCP.
 	--
 	-- WYŁĄCZONE (2026-08-04): wygenerowany sprite wyglądał źle na ekranie — wracamy do
-	-- zwykłego CoinLabel (TextLabel, FredokaOne + UIGradient + UIStroke, styl Kacpra),
-	-- który aktualizuje UIController. Enabled = true przywraca cyfry-obrazki.
+	-- zwykłego tekstowego licznika (FredokaOne + UIGradient + UIStroke, styl Kacpra);
+	-- aktualnego HUD CashLabel, który aktualizuje CashCounterController. Enabled = true przywraca cyfry-obrazki.
 	DigitDisplay = {
 		Enabled = false,
 		AssetId = "rbxassetid://74720156873015",
@@ -828,8 +940,23 @@ Config.Movement = {
 		ReplicateEpsilon = 0.02,  -- ~1.1°
 		-- Część yaw'a przejmuje waist (talia) — daje bardziej naturalne skręcanie ciała,
 		-- nie tylko sama głowa. 0.3 = neck robi 70%, waist 30%. Pitch nie idzie na waist
-		-- (wyglądałoby jak ukłon).
+		-- (wyglądałoby jak ukłon) — poza narzędziami z listy niżej.
 		WaistYawRatio = 0.3,
+		-- 24.10 (decyzja Kacpra): z tym narzędziem w ręce taka część pitch'a idzie na talię —
+		-- tułów razem z wyrzutnią celuje w górę/dół, reszta zostaje na głowie. Klucz = nazwa Toola.
+		-- 25.10: 1 = lufa dokładnie w górę/dół za kamerą (było 0.6 — lufa szła tylko 60% kąta).
+		-- ⚠️ Nie przenosić pochylenia na barki: przy postawie bokiem (niżej) oś barków leży pod
+		-- kątem 45° do lufy, więc obrót barków przechyla wyrzutnię krzywo (próba z 25.10, cofnięta).
+		WaistPitchTools = {
+			RpgTool = 1,
+		},
+		-- 25.10 (Kacper: „RPG w kierunku celowania, tam gdzie leci rakieta”): postawa bokiem.
+		-- Przy krótkich rękach rigu lewa dłoń sięga 6-studowej wyrzutni tylko z tułowiem obróconym
+		-- w prawo (stopnie, − = w prawo); głowa odkręca się z powrotem i patrzy przed siebie.
+		-- Para z `ItemEquip.HoldPoses.Rpg` (poza na barku liczona dla −50) — zmieniać razem.
+		WaistYawTools = {
+			RpgTool = -50,
+		},
 	},
 
 	Camera = {
@@ -1048,6 +1175,7 @@ Config.Grapple = {
 	-- ── Kształt i tempo lotu (GrappleArc) ──
 	-- Średnia prędkość WZDŁUŻ łuku; czas lotu = długość łuku / FlightSpeed.
 	FlightSpeed = 100,
+	MinFlightTime = 0.01, -- dotychczasowy próg wykonania klienta; no-op nie zużywa haka
 	-- Wysokość łuku nad linią prostą = dystans POZIOMY × ArcRatio, najwyżej ArcMax.
 	-- Liczone od poziomu celowo: przy wspinaczce pionowo w górę łuku nie ma (i wyglądałby
 	-- jak błąd), a przy locie poziomym jest pełny. 0.12 daje kąt startu ~28-34° przy celu
@@ -1184,6 +1312,9 @@ Config.Rpg = {
 	Speed = 120,          -- stud/s
 	MaxRange = 300,       -- dalej rakieta wybucha w powietrzu (2,5 s lotu)
 	MuzzleHeight = 1.5,   -- start lotu nad środkiem HRP — mniej więcej wysokość ramienia
+	-- 25.10: wyrzutnia leży na prawym barku — start lotu tyle studów w prawo od środka postaci
+	-- (z lufy, nie z głowy). Ściana przy prawym boku skraca to przesunięcie (RpgService).
+	MuzzleSide = 1.0,
 	HitBackoff = 0.5,     -- środek wybuchu odsunięty od trafionej powierzchni (nie w ścianie)
 	-- Głowica w modelu `Rpg` — to ona leci (jej kopia u klientów); w ręce zostaje cała wyrzutnia.
 	RocketPartName = "Cylinder",
@@ -1197,12 +1328,35 @@ Config.Rpg = {
 	TrailColor = Color3.fromRGB(235, 235, 235),
 	-- Klient sprząta swoją kopię rakiety po czasie lotu + tyle, gdy RocketExploded nie doszedł.
 	VisualLinger = 0.5,
+	-- Celowanie na PPM / L2 (24.10, Kacper: „lekko zbliżona kamera, całe ciało w kierunku
+	-- strzału, celownik z 4 kresek pusty w środku”). Z celowania rakieta leci w środek
+	-- celownika; bez PPM dalej w kursor. Decyzje 24.10: chód wolniej, bez sprintu.
+	Aim = {
+		-- Profil dla MovementController.setAim (kamera, ruch, obrót ciała).
+		Profile = {
+			FOVOffset = -18,   -- stopnie: 70 → 52 (25.10, Kacper: „nieco większy zoom”; było −12)
+			PushIn = 3,        -- studa kamery bliżej postaci (zoom 8 → 5; było 2,5)
+			Lift = 0.8,        -- studa kamery wyżej (26.10, Kacper: „trochę wyżej, lekko”); 0 = jak dotąd
+			WalkFactor = 0.65, -- chód 12 → ~7,8 stud/s
+			TurnSpeed = 25,    -- 1/s — ciało dogania kamerę prawie od razu, bez szarpnięcia
+			BlendSpeed = 14,   -- 1/s wjazdu i wyjazdu kamery
+		},
+		-- Promień spod celownika. Dalej niż MaxRange — nawet bez trafienia daje kierunek.
+		RayLength = 400,
+		-- `HUD.<CrosshairName>.Body` z UIScale `Pop`: wskok przy wejściu, rozszerzenie przy strzale.
+		CrosshairName = "Crosshair",
+		ShowPop = 0.6,
+		FirePop = 1.35,
+		PopTime = 0.15,
+	},
 	-- Odrzut przy strzale (21.10, Kacper: kamera + błysk i dym + wyrzutnia w ręce, „mocno”).
 	-- Kamera tylko u strzelca; błysk, dym i kop ręki u wszystkich (RpgController na RocketFired).
 	Recoil = {
 		-- 21.10, Kacper: podbicie kamery w górę „wkurwia” — gra nie ma celownika, a kamera to
 		-- jedyne celowanie, więc NIC nie może zmieniać kierunku patrzenia. Odrzut kamery = sam
 		-- wstrząs (przesunięcie, bez obrotu) i zoom-out. 0 = podbicie wyłączone; nie wracać.
+		-- 24.10: celownik na PPM (`Aim`) niczego tu nie zmienia — siedzi na środku kamery, więc
+		-- podbicie zrzuciłoby go z celu tak samo.
 		CameraKick = 0,
 		CameraKickDecay = 7,   -- 1/s
 		Shake = 1.6,           -- MovementController.screenShake (sufit ShakeMaxIntensity)
@@ -1228,6 +1382,90 @@ Config.Rpg = {
 	},
 }
 
+-- C4 (25.10, decyzje Kacpra): klik z C4 w ręce przykleja ładunek tam, gdzie celujesz (tylko mapa,
+-- nie gracze); naraz najwyżej MaxActive; klawisz / przycisk detonatora odpala wszystkie. Śmierć =
+-- ładunki znikają bez wybuchu. Siła wybuchu: ItemDefinitions.c4. Serwer: C4Service, klient: C4Controller.
+Config.C4 = {
+	MaxActive = 3,          -- ładunki jednego gracza naraz, w locie i przyklejone (Kacper: 3)
+	-- Rzut: lot liczy serwer promieniem co klatkę; pierwsza trafiona część mapy = przyklejenie.
+	-- Kacper 25.10: najpierw „dalej i prościej” (90 + 12 przy grawitacji 120), po teście
+	-- „wysoki łuk jak granat” — zasięg mniej więcej jak bomba (60 + 20), ale wyraźnie wyżej:
+	-- rzut na wprost wznosi się ~5 studów nad dłoń i spada ~25 studów dalej.
+	ThrowSpeed = 45,        -- stud/s w kierunku celu
+	ThrowLift = 45,         -- stud/s w górę — to robi łuk
+	InheritMaxSpeed = 50,   -- tyle najwyżej prędkości postaci dostaje rzut (biegnąc rzucasz dalej)
+	Spin = 9,               -- rad/s — kostka koziołkuje w locie
+	-- Gest rzutu (Kacper 25.10: zamach od góry): nakładka na prawy bark i łokieć, stopnie
+	-- względem trzymania. Widzą go wszyscy — u siebie od kliknięcia, u innych od pojawienia się
+	-- ładunku w dłoni rzucającego (atrybut OwnerAttribute, bez osobnego remote'a).
+	Swing = {
+		Windup = 0.1,       -- s do pełnego zamachu (ręka nad głową, łokieć zgięty)
+		Release = 0.2,      -- s do wyrzutu (ręka przed sobą, niżej niż przy trzymaniu)
+		Time = 0.42,        -- s całego gestu (spokojny powrót do trzymania)
+		ShoulderUp = 60,
+		ElbowBend = 70,
+		ShoulderDown = -35,
+		-- Ładunek dalej od dłoni rzucającego = wczytany później (streaming, dołączenie), nie rzut.
+		MaxHandDistance = 8,
+	},
+	OwnerAttribute = "Owner", -- UserId rzucającego na modelu ładunku
+	-- Odpalenie: ładunki wybuchają po kolei co tyle sekund — łańcuch zamiast jednej klatki
+	-- z trzema wybuchami (destrukcja ma budżet CPU na klatkę).
+	ChainDelay = 0.12,
+	BlastBackoff = 0.3,     -- środek wybuchu odsunięty od ściany (jak Rpg.HitBackoff — nie w ścianie)
+	DetonateKey = Enum.KeyCode.G, -- Kacper 25.10; telefon: przycisk `HUD.<DetonateButtonName>`
+	DetonateButtonName = "DetonateButton",
+	-- Atrybut gracza z liczbą przyklejonych ładunków — czyta go przycisk detonatora.
+	CountAttribute = "C4Charges",
+	-- Ładunek NIE jest przyspawany do mapy (system zawaleń liczy połączenia części), tylko
+	-- zakotwiczony; serwer co tyle sekund sprawdza, czy pod nim dalej coś jest.
+	CheckInterval = 0.1,
+	-- Zapas przy sprawdzaniu „punkt styku nadal leży na tej części” (przycięta ściana).
+	HostMargin = 0.4,
+	-- Lot po rzucie i spadanie, gdy podłoże zniknie — ten sam ruch: grawitacja, promień co klatkę,
+	-- przyklejenie na pierwszej trafionej części. Bez trafienia po MaxFlightTime (poleciał
+	-- poza mapę) znika bez wybuchu.
+	Gravity = 196.2,        -- stud/s² — jak grawitacja gry (bomba leci tą samą)
+	FallMaxSpeed = 90,
+	MaxFlightTime = 6,
+	-- Dioda: miga na czerwono, żeby dało się wypatrzyć ładunek i uciec.
+	LightColor = Color3.fromRGB(255, 40, 30),
+	LightRange = 7,
+	LightBrightness = 3,
+	BlinkHz = 1.5,
+	-- Ładunek w dłoni: obrót uchwytu (Tool.Grip) w stopniach; model trzymany za środek. Krzywo
+	-- w ręce → zmienić TĘ liczbę (np. Y = 90 obraca długi bok do przodu).
+	GripRotation = Vector3.new(0, 0, 0),
+}
+
+-- Panel ustawień (26.10, decyzje Kacpra: strona kamery + przechył/FOV, zapis na koncie, ikona
+-- zębatki). Klucz opcji = atrybut `Setting` przycisku w `StarterGui.Settings`, wartość = atrybut
+-- `Value` (STUDIO_CONTRACT → „Ustawienia”). Nowa opcja: wpis tutaj + przyciski w Studio + odczyt
+-- tam, gdzie działa (SettingsState.get). Serwer przepuszcza wyłącznie wartości z `Values`.
+Config.Settings = {
+	Options = {
+		-- Kamera nad prawym (jak dotąd, Fortnite) albo lewym ramieniem — znak ShoulderOffset.Side.
+		shoulder = { Values = { "right", "left" }, Default = "right" },
+		-- Przechył obrazu przy ruchu w bok i zmiany FOV (sprint, energy drink, kopnięcia od
+		-- wybuchu/RPG). Zoom celowania RPG zostaje — to celowanie, nie efekt.
+		cameraFx = { Values = { true, false }, Default = true },
+		-- 27.10: GRAPHICS LOW / HIGH — wyłącznie ozdobniki lawy u klienta (bez kolizji i promieni,
+		-- więc nie zmienia gry; gruz i wybuchy mają jeden `Config.Graphics.Profile` dla wszystkich).
+		-- „auto” rozwiązuje klient (SettingsState): dotyk albo suwak grafiki Robloxa ≤
+		-- `AutoLowQualityLevel` → low, inaczej high. Kliknięcie w panelu zapisuje wybór na stałe.
+		graphics = { Values = { "auto", "low", "high" }, Default = "auto", AutoLowQualityLevel = 3 },
+	},
+	SendDelay = 0.3, -- s: klient wysyła ostatni stan po tym czasie od kliknięcia
+	-- Przycisk wybranej wartości / pozostałe — gradient `Fill` (te same kolory co BUY / NOT ENOUGH $).
+	SelectedColors = { Color3.fromRGB(70, 215, 95), Color3.fromRGB(10, 140, 52) },
+	IdleColors = { Color3.fromRGB(120, 115, 125), Color3.fromRGB(70, 66, 76) },
+	OpenScale = 0.85,   -- panel wskakuje od tej skali do 1
+	OpenTime = 0.25,
+	HoverScale = 1.06,  -- przyciski i zębatka pod kursorem
+	PressScale = 0.92,  -- krótkie wciśnięcie przy kliknięciu
+	HoverTime = 0.12,
+}
+
 Config.RateLimits = {
 	-- Serwer przepuszcza akcję już od tego ułamka cooldownu (decyzja Kacpra 29.09, B-5). Klient
 	-- wysyła najwcześniej po PEŁNYM cooldownie (pasek), ale serwer mierzy czas ODBIORU — jitter
@@ -1240,12 +1478,17 @@ Config.RateLimits = {
 	Grapple = 0.6,   -- hak: krótki, bo item jest zużywalny — limituje go cena, nie zegar
 	EnergyDrink = 1.0, -- dłuższy niż łyk (SipTime): dwuklik nie wypije dwóch puszek naraz
 	Rpg = 1.0,         -- 1 rakieta = 1 strzał; limit chroni tylko przed dwuklikiem przy kilku sztukach
+	C4Throw = 0.35,    -- trzy rzuty w sekundę — człowiek szybciej nie celuje w trzy miejsca
+	C4Detonate = 0.5,
 	-- EquipItem+UnequipItem: klik hotbar slot. Spam clickowanie = flickering Tool
 	-- w rękach innych klientów + bandwidth. 0.15s = ~7 kliknięć/s max, ludzki reflex OK.
 	EquipItem = 0.15,
 	-- Zmiana loadoutu w ekwipunku (18.10). Klient zbiera szybkie kliknięcia i wysyła ostatni
 	-- stan po `Config.UI.Inventory.SendDelay`, więc limit nie dotyka człowieka.
 	SetLoadout = 0.2,
+	-- Panel ustawień (26.10): ten sam wzorzec co loadout — wysyłka ostatniego stanu po
+	-- `Config.Settings.SendDelay`.
+	SetSettings = 0.2,
 	-- Zakupy w sklepie: SUFIT na spam remote'a, nie cooldown (przegląd 29.09). Człowiek nie
 	-- kliknie KUP 10 razy na sekundę; limit 0,5 s między zakupami usunięto wcześniej, bo
 	-- blokował zwykłe klikanie — nie wracać do niego.
@@ -1291,7 +1534,7 @@ Config.WinMessage = {
 }
 
 Config.Rewards = {
-	-- Nagroda za przeżycie do końca rundy (wszyscy alive po Endgame). Bomba=50, most=100,
+	-- Nagroda dla snapshotu ocalałych na RoundFinished (wejście w FINISHING). Bomba=50, most=100,
 	-- więc wygrana pokrywa 2 bomby lub 1 most — czyste zachęta do zakupów.
 	Win = 100,
 	-- Nagroda za zabicie innego gracza (bomba explosion / push w lawę). Tagujemy attacker'a
@@ -1348,8 +1591,8 @@ Config.Shop = {
 		Color3.fromRGB(255, 245, 120),
 		Color3.fromRGB(255, 170, 30),
 	},
-	PromptActionText = "Sklep",
-	PromptObjectText = "Sprzedawca",
+	PromptActionText = "Shop",       -- 21.10: napisy po angielsku (decyzja Kacpra)
+	PromptObjectText = "Seller",
 	PromptKeyCode = Enum.KeyCode.E,
 	PromptMaxDistance = 12,
 
@@ -1360,6 +1603,13 @@ Config.Shop = {
 	SceneName = "WeaponShopScene",
 	ItemsFolder = "Decorations",   -- modele na wystawie (nazwa z ItemDefinitions.sceneModel)
 	CamerasFolder = "ShopCameras", -- markery pozycji kamery
+	-- Światło sceny: od 23.10 stałe lampy w placu (`<SceneName>.ShopLights`, po jednej nad itemem),
+	-- kod ich nie zna. Lampa jadąca za kamerą (21.10, `LightName`) usunięta — oświetlenie
+	-- doganiało ją kilka sekund po każdym przewinięciu.
+	-- Ogólne światło sceny (`Lighting.Ambient`) na czas sklepu, tylko u oglądającego (23.10).
+	-- Lamp Roblox nie rysuje na niskiej jakości grafiki — to trzyma sklep jasny na każdej.
+	-- Jaśniej = płaściej na wysokiej jakości (mniej widać plamy lamp). Poza sklepem: 88,58,52.
+	SceneAmbient = Color3.fromRGB(135, 120, 110),
 
 	-- PAROWANIE KAMERY Z ITEMEM IDZIE PO ODLEGŁOŚCI, NIE PO NAZWIE MARKERA.
 	-- Marker obsługuje ten item, naprzeciw którego stoi — ten sam wzorzec, co dawne
@@ -1372,9 +1622,32 @@ Config.Shop = {
 	-- środka sceny (czyli do wnętrza pomieszczenia, nie w ścianę) i celuje w środek
 	-- jego bounding boxa. Dystans rośnie z wielkością modelu, żeby RPG nie wyszedł
 	-- poza kadr przy dystansie dobranym pod bombę.
-	AutoCameraDistance = 12,      -- stud, minimum
-	AutoCameraSizeFactor = 1.6,   -- × przekątna modelu
-	AutoCameraHeight = 1,         -- stud nad środkiem modelu
+	-- 21.10 (Kacper: „źle ustawione kamery, od dołu, nie naprzeciw”): markery były za nisko
+	-- (i w Play opadały, zanim serwer je zakotwiczył), a kadr automatyczny odsuwał kamerę
+	-- OD środka sceny — za ścianę wystawy. Teraz KAŻDY item: kamera dokładnie naprzeciw,
+	-- w głąb pomieszczenia (krótsza pozioma oś sceny), lekko z góry, odległość z wielkości.
+	UseCameraMarkers = false,     -- true = wracają markery ShopCameras (pozycja z markera)
+	-- Panel sklepu (21.10, nowy: pasek na dole w stylu ekwipunku, napisy po angielsku).
+	BuyText = "BUY",
+	NoCashText = "NOT ENOUGH $",
+	BoughtText = "BOUGHT!",
+	BuyColors = { Color3.fromRGB(70, 215, 95), Color3.fromRGB(10, 140, 52) },     -- jak ADD w ekwipunku
+	NoCashColors = { Color3.fromRGB(120, 115, 125), Color3.fromRGB(70, 66, 76) },
+	FailTexts = {
+		not_enough_cash = "NOT ENOUGH CASH",
+		too_far = "GET CLOSER TO THE SELLER",
+		unknown_item = "UNKNOWN ITEM",
+		inventory_full = "INVENTORY FULL",
+		invalid_payload = "ERROR",
+		internal_error = "SERVER ERROR",
+	},
+	FailDefault = "PURCHASE FAILED",
+	AutoCameraFill = 0.28,        -- jaką część wysokości ekranu ma zająć item (21.10: 0,45 → dalej)
+	AutoCameraMinDistance = 7,    -- stud — drobne itemy (puszka) nie wchodzą w obiektyw (było 4)
+	AutoCameraPitch = 12,         -- stopni z góry (0 = idealnie na wprost; 23.10: 8 → 12)
+	-- Stopni z boku (23.10, Kacper: „lekki kąt do itema”). Dodatnie = kamera przesunięta w stronę
+	-- sklepu z ubraniami (początek wystawy, RPG), ujemne = w drugą stronę, 0 = na wprost.
+	AutoCameraYaw = 20,
 
 	-- Server distance-check gracz↔NPC przy zakupie (hard rule #3). Większy niż zasięg
 	-- promptu, żeby lag/animacja kamery nie odrzuciły legalnego zakupu; wciąż blokuje
@@ -1966,12 +2239,13 @@ Config.Destruction = {
 }
 
 -- ===== DESTRUKCJA v4 — GRAF KONSTRUKCJI (2026-09-24) =====
--- DESTRUCTION_PLAN.md → „v4”. Na razie czyta to tylko StructureBake (narzędzie Studio,
--- Command Bar); runtime (StructuralService) dojdzie w fazie B i użyje tych samych liczb.
--- ⚠️ Wszystko tu to WARTOŚCI STARTOWE do strojenia na OrangeBuilding, nie wynik pomiaru.
+-- DESTRUCTION_PLAN.md → aktualne reguły v4. Te same ustawienia czytają bake w Edit
+-- i StructuralService w grze; wszystkie 10 budynków ma konfigurację poniżej.
+-- Strojenie wymaga testu Kacpra; sama obecność ustawień nie potwierdza akceptacji Play.
 Config.Structure = {
 	-- Podbić przy każdej zmianie reguł bake'u, która zmienia dane — stare dane w placu
-	-- przestają wtedy pasować i budynek wraca na v3, zamiast grać na nieaktualnym grafie.
+	-- przestają wtedy pasować. Przy AnalyzeIfMissing runtime analizuje geometrię od nowa;
+	-- nie wolno grać na nieaktualnym grafie. MapRevision obecnie nie jest walidowane przez loadData.
 	BakeVersion = 3, -- 2 (24.09): szkło wchodzi do danych jako pasażer (było pomijane → lewitowało)
 	                 -- 3 (26.09): TrimLinks — styki listew dla passu podparcia listew
 
@@ -2251,6 +2525,7 @@ table.freeze(Config.Game)
 table.freeze(Config.PlayerData)
 table.freeze(Config.UI.HotbarEquip)
 table.freeze(Config.UI.Inventory.ItemColors)
+table.freeze(Config.UI.Inventory.CardStyles)
 table.freeze(Config.UI.Inventory.LavaScroll)
 table.freeze(Config.UI.Inventory.AddColors)
 table.freeze(Config.UI.Inventory.RemoveColors)
@@ -2286,6 +2561,9 @@ table.freeze(Config.Cash.DigitDisplay)
 table.freeze(Config.Cash)
 table.freeze(Config.Bridge)
 table.freeze(Config.Shop.SignFlowColors)
+table.freeze(Config.Shop.BuyColors)
+table.freeze(Config.Shop.NoCashColors)
+table.freeze(Config.Shop.FailTexts)
 table.freeze(Config.Shop)
 table.freeze(Config.Movement.Stamina)
 table.freeze(Config.Movement.StaminaBar)
@@ -2332,6 +2610,84 @@ table.freeze(Config.Destruction.FX)
 table.freeze(Config.Destruction)
 table.freeze(Config.Graphics.Profile)
 table.freeze(Config.Graphics)
+-- COSMETICS: durable purchases, independent from consumable item loadout.
+Config.Cosmetics = {
+	AssetFolder = "Cosmetics",
+	ShopModelName = "ClothesShop",
+	NpcName = "NPC",
+	PromptName = "CosmeticsPrompt",
+	PromptMaxDistance = 12,
+	InteractDistance = 18,
+	RequestsPerSecond = 10,
+	Prices = { HalloweenPumpkin = 500, KevlarVest = 750, SchoolBackpack = 600 },
+	SceneName = "ClothesShopScene",
+	PlatformPath = { "Decoriations", "Platform", "platform" },
+	UI = {
+		Width = 1920, Height = 1080, ScreenMargin = 48,
+		PortraitWidth = 800, PortraitHeight = 1200,
+		Columns = 3, Gap = 28, RowHeight = 320, CardPadding = 24,
+		CatalogTop = 180, CatalogBottom = 82,
+		BalanceTop = 88, BalanceSafeTopPixels = 64,
+		LargeCards = { HalloweenPumpkin = true },
+		HoverTime = 0.16, HoverScale = 1.015,
+		OpenTime = 0.22, OpenScale = 0.985,
+		BackdropTransparency = 0,
+		-- Catalog background (27.10): studs drift up like heat off the lava, the glow at the
+		-- bottom breathes. Slow on purpose — the cards are what the eye should follow.
+		BackdropDriftSpeed = 10, BackdropGlowPeriod = 5, BackdropGlowLift = 0.03,
+		BackdropGlowPeak = Color3.fromRGB(104, 38, 15),
+		RequestTimeout = 6,
+		CameraFov = 40, CameraDistance = 11, CameraHeight = 1,
+		StandYaw = -90,
+		FittingFillOffset = Vector3.new(0, 2, -4),
+		FittingFillBrightness = 2, FittingFillRange = 16,
+		FittingFillColor = Color3.fromRGB(255, 242, 226),
+		DragDegrees = 360, FittingHeightFraction = 0.58, FittingFocusOffset = 0.04, FittingCameraLift = 1.0,
+		CardAmbient = Color3.fromRGB(195, 195, 205),
+		CardLight = Color3.fromRGB(255, 245, 230),
+		CardLightDirection = Vector3.new(-1, -1, -2),
+		-- Cards show the item alone (27.10, item-shop look); the fitting room shows it worn.
+		CardFov = 30, CardDistanceFactor = 1.0,
+		CardFrontView = Vector3.new(0.55, 0.3, -1), CardBackView = Vector3.new(-0.55, 0.3, 1),
+		MannequinColor = Color3.fromRGB(188, 193, 210),
+		-- Large cards sway and spin their rays all the time; the rest only under the cursor.
+		CardSwayDegrees = 22, CardSwaySpeed = 1.3, RaysSpeed = 14, SwayEase = 4,
+		FittingSpinSpeed = 20, FittingSpinDelay = 3,
+		CashCountTime = 0.45,
+		UnlockedPopTime = 0.35, UnlockedHold = 1.4, UnlockedFadeTime = 0.25, UnlockedRaysSpeed = 40,
+		-- The colour of a card says how special the item is (rarity), not which slot it uses.
+		Rarities = {
+			Common = { Label = "COMMON", Text = Color3.fromRGB(210, 215, 225), Rays = Color3.new(1, 1, 1),
+				Fill = ColorSequence.new(Color3.fromRGB(190, 195, 205), Color3.fromRGB(80, 85, 98)) },
+			Rare = { Label = "RARE", Text = Color3.fromRGB(110, 200, 255), Rays = Color3.new(1, 1, 1),
+				Fill = ColorSequence.new(Color3.fromRGB(60, 180, 255), Color3.fromRGB(15, 60, 160)) },
+			Epic = { Label = "EPIC", Text = Color3.fromRGB(215, 150, 255), Rays = Color3.new(1, 1, 1),
+				Fill = ColorSequence.new(Color3.fromRGB(200, 110, 255), Color3.fromRGB(70, 20, 140)) },
+			Legendary = { Label = "LEGENDARY", Text = Color3.fromRGB(255, 215, 80), Rays = Color3.new(1, 1, 1),
+				Fill = ColorSequence.new(Color3.fromRGB(255, 205, 60), Color3.fromRGB(200, 80, 10)) },
+			-- Seasonal, not a step above Legendary: dark night card so the orange item pops.
+			Halloween = { Label = "HALLOWEEN", Text = Color3.fromRGB(255, 170, 70), Rays = Color3.fromRGB(255, 150, 40),
+				Fill = ColorSequence.new(Color3.fromRGB(105, 45, 165), Color3.fromRGB(32, 12, 58)) },
+		},
+		-- Same gradients as the weapon shop price/BUY, the X button and the yellow HUD counters.
+		Colors = {
+			Price = ColorSequence.new(Color3.fromRGB(70, 215, 95), Color3.fromRGB(10, 140, 52)),
+			Wearing = ColorSequence.new(Color3.fromRGB(255, 240, 33), Color3.fromRGB(255, 130, 0)),
+			Owned = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 190, 205)),
+			Buy = ColorSequence.new(Color3.fromRGB(70, 215, 95), Color3.fromRGB(10, 140, 52)),
+			Equip = ColorSequence.new(Color3.fromRGB(255, 240, 33), Color3.fromRGB(255, 130, 0)),
+			Unequip = ColorSequence.new(Color3.fromRGB(255, 95, 80), Color3.fromRGB(200, 30, 25)),
+			Disabled = ColorSequence.new(Color3.fromRGB(140, 140, 150), Color3.fromRGB(80, 80, 92)),
+		},
+	},
+}
+table.freeze(Config.Cosmetics.Prices)
+for _, rarity in pairs(Config.Cosmetics.UI.Rarities) do table.freeze(rarity) end
+table.freeze(Config.Cosmetics.UI.Rarities)
+table.freeze(Config.Cosmetics.UI.Colors)
+table.freeze(Config.Cosmetics.UI.LargeCards)
+table.freeze(Config.Cosmetics.UI)
+table.freeze(Config.Cosmetics)
 table.freeze(Config)
 
 return Config

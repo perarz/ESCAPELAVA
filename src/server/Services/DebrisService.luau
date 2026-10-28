@@ -171,11 +171,9 @@ end
 
 -- Czy w pobliżu kawałka stoi żywy gracz. Platformy spod nóg nie kasujemy — znikająca
 -- platforma to niezawiniona śmierć w lawie (zasada "gracz nie może być wkurzony").
-local function playerNearby(position: Vector3): boolean
-	for _, player in ipairs(Players:GetPlayers()) do
-		if not PlayerService.isAlive(player) then continue end
-		local root = Utils.getRoot(player)
-		if root and (root.Position - position).Magnitude <= DBR.RetireSafeDistance then
+local function playerNearby(position: Vector3, playerPositions: { Vector3 }): boolean
+	for _, playerPosition in ipairs(playerPositions) do
+		if (playerPosition - position).Magnitude <= DBR.RetireSafeDistance then
 			return true
 		end
 	end
@@ -187,10 +185,18 @@ end
 local function makeRoom(needed: number): number
 	if needed <= 0 then return 0 end
 
+	-- Ten przebieg nie yielduje: pozycje graczy są wspólne dla wszystkich kandydatów,
+	-- ale nie przechodzą do kolejnego wybuchu ani skanu.
+	local playerPositions: { Vector3 } = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		if not PlayerService.isAlive(player) then continue end
+		local root = Utils.getRoot(player)
+		if root then table.insert(playerPositions, root.Position) end
+	end
 	local candidates: { { part: BasePart, entry: Entry } } = {}
 	for part, entry in pairs(registry) do
 		if not part.Parent then continue end
-		if entry.asleep and playerNearby(part.Position) then continue end
+		if entry.asleep and playerNearby(part.Position, playerPositions) then continue end
 		table.insert(candidates, { part = part, entry = entry })
 	end
 	table.sort(candidates, function(a, b)
@@ -429,16 +435,17 @@ end
 -- Dlatego: (1) nie kotwiczymy kawałka, który nie ma nic pod sobą, (2) cyklicznie
 -- re-weryfikujemy śpiące — jedno proste sprawdzenie łapie WSZYSTKIE przyczyny utraty
 -- podparcia, bez budowania grafu "kto na kim leży".
-local function hasGroundSupport(part: BasePart): boolean
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { part }
-	params.IgnoreWater = true
-	-- Dekoracja bez kolizji nie jest podporą — gracz i tak przez nią przeleci.
-	params.RespectCanCollide = true
+local supportParams = RaycastParams.new()
+supportParams.FilterType = Enum.RaycastFilterType.Exclude
+supportParams.IgnoreWater = true
+-- Dekoracja bez kolizji nie jest podporą — gracz i tak przez nią przeleci.
+supportParams.RespectCanCollide = true
 
+local function hasGroundSupport(part: BasePart): boolean
+	-- Wywołania są sekwencyjne, bez yieldów. Zmieniamy tylko wykluczany kawałek.
+	supportParams.FilterDescendantsInstances = { part }
 	local reach = Utils.worldHalfY(part) + DBR.SleepGroundProbe
-	return Workspace:Raycast(part.Position, Vector3.new(0, -reach, 0), params) ~= nil
+	return Workspace:Raycast(part.Position, Vector3.new(0, -reach, 0), supportParams) ~= nil
 end
 
 -- Obłoczek pary nad tonącym w lawie kawałkiem. Throttle jak przy dźwiękach uderzeń:
@@ -568,6 +575,10 @@ local function scan()
 			local s = part.Size
 			if s.X * s.Y * s.Z >= IMP.MinFractureVolume then
 				table.insert(impacts, { part = part, entry = entry })
+				-- Oryginał nadal jest w rejestrze do fractureOnImpact. Jego unregister
+				-- musi odjąć policzony part, także gdy podział nie stworzy resztek.
+				moving += 1
+				total += 1
 				continue -- pęknie po pętli; sleep-logika bez znaczenia dla znikającego parta
 			end
 		end
@@ -611,7 +622,8 @@ local function scan()
 	end
 
 	-- Autorytatywne przeliczenie zamiast inkrementów, które potrafią zdryfować.
-	-- (Kawałki z impacts liczą się jako moving jeszcze jeden tick — nieszkodliwe.)
+	-- Kawałki z impacts są jeszcze oryginałami; podział niżej aktualizuje liczniki
+	-- przez te same register/unregister co pozostałe ścieżki.
 	movingCount = moving
 	totalCount = total
 	persistentCount = persistent

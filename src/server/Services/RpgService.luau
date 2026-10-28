@@ -189,8 +189,7 @@ end
 -- ── Strzał ───────────────────────────────────────────────────────────────────────────
 local function handleFire(player: Player, targetPos: any)
 	-- 1. Typecheck — klient kłamie (hard rule: server validate WSZYSTKO).
-	if typeof(targetPos) ~= "Vector3" then return end
-	if targetPos ~= targetPos then return end -- NaN
+	if not Utils.isFiniteVector3(targetPos) then return end
 
 	-- 2. Żywy gracz w rundzie, nie w ragdollu (klient blokuje to samo, nie ufamy mu).
 	if not PlayerService.isAlive(player) then return end
@@ -210,7 +209,15 @@ local function handleFire(player: Player, targetPos: any)
 	if not hrp then return end
 
 	-- 5. Start lotu liczy serwer z pozycji gracza; z punktu klienta bierze tylko KIERUNEK.
-	local origin = hrp.Position + Vector3.new(0, CFG.MuzzleHeight, 0)
+	-- Wyrzutnia leży na prawym barku (25.10) — start z lufy. Ściana tuż przy prawym boku: start
+	-- przed nią, inaczej rakieta wystartowałaby po drugiej stronie i przeleciała przez mur.
+	local params = buildParams(char)
+	local center = hrp.Position + Vector3.new(0, CFG.MuzzleHeight, 0)
+	local side = hrp.CFrame.RightVector * CFG.MuzzleSide
+	local sideHit = if CFG.MuzzleSide > 0 then Workspace:Raycast(center, side, params) else nil
+	local origin = if sideHit
+		then center + side.Unit * math.max(0, (sideHit.Position - center).Magnitude - 0.3)
+		else center + side
 	local delta = targetPos - origin
 	if delta.Magnitude < 0.5 then return end
 	local dir = delta.Unit
@@ -225,7 +232,7 @@ local function handleFire(player: Player, targetPos: any)
 		pos = origin,
 		dir = dir,
 		traveled = 0,
-		params = buildParams(char),
+		params = params,
 	}
 	rockets[rocket.id] = rocket
 	Remotes.RocketFired:FireAllClients(rocket.id, player, origin, dir, CFG.Speed,

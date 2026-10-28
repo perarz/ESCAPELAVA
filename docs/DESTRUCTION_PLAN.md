@@ -1,20 +1,27 @@
-# docs/DESTRUCTION_PLAN.md — system destrukcji v2 ("topka Roblox") → v3
+# Destrukcja — aktualne reguły i historia v2 → v3 → v4
 
-> Plan zatwierdzony 2026-08-11 (decyzje Kacpra niżej). Stary system (BlastService) skasowany
-> bez śladu — NIE odtwarzamy go, budujemy wg tego dokumentu. Implementacja etapami,
-> każdy etap grywalny i testowany w Play zanim zaczniemy następny.
->
-> 🏗️ **2026-09-25: v4 — fazy A-D NAPISANE, OrangeBuilding w grze na v4; test dymny 25.09 znalazł
-> i częściowo naprawił „grupy kolapsu nie spadają” (4 → 14 z 24 spada fizyką, reszta przez siatkę
-> bezpieczeństwa do klientów); całość CZEKA NA TEST KACPRA W PLAY; potem faza E (RiderTracker).** Rozdział „v4” na samym końcu
-> pliku jest AKTUALNY: zastępuje pass podparcia v3 (dla budynków z danymi) i usunięty `StructureService`.
-> Rozdziały v2/v3 zostają jako historia i opis kodu, który dalej działa na reszcie mapy.
->
-> 🧨 **2026-09-23: CAŁA DESTRUKCJA DO NAPRAWY (decyzja Kacpra)** — stan i start naprawy: rozdział „v3” na końcu + STATUS w CLAUDE.md.
-> 🔴 **2026-09-23: v3 — przeczytaj rozdział „v3” na KOŃCU tego pliku.** Zmienia on kilka
-> zasad z v2 opisanych niżej (kawałki dziur nie są już gruzem serwera, drobnica ma własne
-> reguły, podparcie liczone „przed i po”, pocięty part jest przycinany, nie kasowany).
-> Rozdziały v2 zostają jako historia decyzji — tam, gdzie się rozjeżdżają, rację ma v3.
+Aktualizacja audytu: **23.10.2026**. Bieżący stan i testy: [STATUS](STATUS.md), [TESTY](TESTY.md), [ARCHITECTURE](ARCHITECTURE.md).
+
+## Obowiązujące dziś
+
+- Wszystkie **10 budynków** wpisane w `Config.Structure.Buildings` są na v4; nie czekają na migrację z OrangeBuilding. Starszy pass v3 pozostaje poza nimi, więc nie usuwać go bez pomiaru użytkowników.
+- StructuralService jest właścicielem stanu konstrukcji, CollapseService wykonuje grupy fizyki. Stary **StructureService usunięty 24.09**; Pillar nie uruchamia już kolapsu budynków.
+- **Gruz nie zadaje obrażeń** (decyzja 29.09). Nie przywracać crushCheck ani połowy obrażeń za jazdę. Obrażenia od zwykłego upadku pozostają; pięć dawnych przypadków fall damage zaliczone 01.10.
+- Serwerowa fizyka dużych brył zostaje; lokalne kawałki dziur/odłamki bez kolizji, dotyku i zapytań. **Jeden Graphics.Profile** od 08.10; brak porównań Potato/Full i ich panelu. StreamingEnabled=false.
+- Przycinanie oryginalnego parta i stawianie innych resztek przed przycięciem pozostaje regułą przeciw utracie gruntu. Nie zamieniać kosmetycznych kawałków dziury w serwerową fizykę.
+- Małe twarde ruiny (08.10): KeepSmallRubbleChance i SolidFragmentChance po 25%, nie każda mała bryła znika. Akceptacja tej zmiany nadal otwarta.
+- Rekwizyty i osierocone dekoracje, listwy/kikuty, tory, cięcie rumowiska, fizyczne auta/beczki i ich specjalne reguły opisuje aktualna architektura/kontrakt. Beczki w Barrels obsługuje CarService, nie zwykły vaporize.
+- Zapis danych bake’u przed launchem pozostaje otwarty; odczyt Edit 23.10 nie znalazł zapisanych modułów StructureData. Zaokrąglenie 0,001 i brak walidacji MapRevision wymagają sprawdzenia przed TRYB 3.
+
+## Akceptacja i dalsza praca
+
+**Stały T1–T7 w TESTY dwa razy z rzędu** to kryterium zamknięcia destrukcji. Próba 5 bomb była potwierdzona 26.09, tory i kebab 01.10; nie zalicza to wszystkich późniejszych zmian ani testu całego miasta. Kebab — naprawę kikutów potwierdzono 01.10; osobny test dachu nadal otwarty. GreenBuilding — dekoracje po przekazaniu grup ponad budżetem nadal czekają na test.
+
+Kolejne poprawki na podstawie konkretnego zgłoszenia + logu bieżącej sesji. M-7: koszt faktycznych kawałków i M-13: budżet wykonawcy / analiza nadal w REVIEW. Pozostałe zaklinowania, wydajność i replikację badać na aktualnym kodzie, a nie przez powtarzanie dawnego planu faz A–G. Nie dopisywać RiderTracker jako nowej mechaniki obrażeń bez nowej decyzji; ochrona anty-cheata dla jadącego pozostaje częścią paczki 6.
+
+## Historia projektowania i pomiarów — materiał referencyjny
+
+**Cała treść poniżej jest chronologicznym zapisem dawnych planów i sesji.** „Dziś”, „niezacommitowane”, liczby budżetów, dawne fazy E/F/G, crush damage, tagowanie Pillar oraz tryby grafiki obowiązywały w opisanym dniu; nie są aktualną listą zadań. Aktualne reguły powyżej mają pierwszeństwo. Nie usuwać pomiarów i przyczyn odrzuconych rozwiązań — pomagają uniknąć powtórnych błędów.
 
 ## Decyzje designowe (zatwierdzone)
 
@@ -661,7 +668,7 @@ produkcja bez czerwonych chunków.
 
 ---
 
-## Kikuty bez oparcia (30.09) — NIEPRZETESTOWANE
+## Kikuty bez oparcia (30.09) — naprawa potwierdzona 01.10; dach osobno otwarty
 
 **Zgłoszenie Kacpra (test w Play)**: „w kebabie zawsze zostają jakieś lewitujące elementy ściany” → dopytane: „kawałek ściany przy dachu i na nim trzyma się dach”.
 

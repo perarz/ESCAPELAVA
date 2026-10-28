@@ -8,7 +8,7 @@
 --     └── *  (dowolne BasePart'y, np. "Spawn") — punkty spawn na rundę; kod losuje z puli
 --
 -- Filozofia: CharacterAutoLoads = false. Każdy spawn jest jawny:
---   - LOBBY/POST_ROUND  → wszyscy w Workspace.Map.Spawn
+--   - LOBBY             → wszyscy w Workspace.Map.Spawn
 --   - ROUND start       → load + teleport na losowy Map.Locked.SpawnPoints/*
 --   - Death (ZAWSZE)    → po DeathRagdollTime do lobby; w ROUND dodatkowo aliveSet -= player
 --                         (także poza rundą — decyzja Kacpra 26.09)
@@ -327,7 +327,7 @@ local LOBBY_NEAR_THRESHOLD = 25 -- stud; ponad = teleport, poniżej = zostaw w l
 
 local function sendSurvivorsToLobby()
 	releaseStartLocks()
-	-- POST_ROUND/LOBBY: teleportuj TYLKO graczy fizycznie daleko od lobby spota.
+	-- LOBBY: teleportuj TYLKO graczy fizycznie daleko od lobby spota.
 	-- Martwi spectator'zy są już w lobby po onDeath — nie chcemy ich znowu LoadCharacter.
 	-- Martwy, który jeszcze leży jako ragdoll (DeathRagdollTime), wróci sam — bez tego
 	-- śmierć ostatniego gracza (runda kończy się od razu) przenosiła jego ciało do lobby.
@@ -347,7 +347,7 @@ local function sendSurvivorsToLobby()
 			continue
 		end
 		if not hrp then
-			-- Brak postaci (np. fresh join w trakcie POST_ROUND) — zwykły load+teleport.
+			-- Brak postaci (np. fresh join w trakcie RESETTING) — zwykły load+teleport.
 			sendToLobby(p)
 		elseif (hrp.Position - target).Magnitude > LOBBY_NEAR_THRESHOLD then
 			-- Daleko od lobby → survivor jeszcze na mapie. Teleport bez LoadCharacter
@@ -480,8 +480,7 @@ function PlayerService.init()
 	GameLoopService.StateChanged:Connect(function(newState: string)
 		if newState == GameLoopService.STATE.ROUND then
 			releaseStartLocks()
-		elseif newState == GameLoopService.STATE.LOBBY
-			or newState == GameLoopService.STATE.POST_ROUND then
+		elseif newState == GameLoopService.STATE.LOBBY then
 			sendSurvivorsToLobby()
 		end
 	end)

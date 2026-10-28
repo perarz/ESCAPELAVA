@@ -79,6 +79,7 @@ local function defaultData(): any
 		cash = 0,
 		wins = 0,                -- wygrane rundy (przeżycie do końca) — leaderstats Tab
 		inventory = {},          -- { [itemId] = count }  (np. { bomb = 3 })
+		cosmetics = { owned = {}, equipped = {} }, -- permanent IDs; separate from consumable inventory
 		-- appearance — wygląd postaci { skin, shirt, pants, sleeves, legs }, same ID
 		-- z palet (NIE Color3: DataStore przyjmuje wyłącznie typy JSON-owalne).
 		-- Celowo BRAK w defaultach: nieobecne pole = „jeszcze nie losowano", i to jest
@@ -104,6 +105,11 @@ local function migrateSchema(data: any)
 	-- Save'y sprzed leaderboardu nie mają pola wins.
 	if data.wins == nil then
 		data.wins = 0
+	end
+	-- Additive migration: keep existing cash/inventory and the same DataStore namespace.
+	-- CosmeticsService validates IDs/categories; unknown owned IDs are retained for future catalogs.
+	if type(data.cosmetics) ~= "table" then
+		data.cosmetics = { owned = {}, equipped = {} }
 	end
 end
 
@@ -192,6 +198,12 @@ local function loadPlayer(player: Player)
 	end
 
 	if not ok or type(data) ~= "table" then
+		-- PlayerRemoving mógł już posprzątać, gdy retry czekało na odpowiedź DataStore.
+		-- Nie odtwarzaj cache ani subskrypcji dla gracza, którego już nie ma.
+		if not player.Parent then
+			lockIdOf[player] = nil
+			return
+		end
 		if RunService:IsStudio() then
 			warn(("[PlayerData] LOAD FAIL %s — Studio: gram na domyślnych w pamięci (NIE zapisuję). Sprawdź Game Settings → Security → Enable Studio Access to API Services."):format(player.Name))
 			-- Nie nadpisujemy DataStore defaultem — loadFailed blokuje TEŻ save przy
@@ -325,6 +337,12 @@ end
 
 function PlayerDataService.get(player: Player): any
 	return cache[player]
+end
+
+-- Permanent transactions must stop before final save snapshots the session. Existing
+-- readers may still need cache during PlayerRemoving/BindToClose, so get() stays unchanged.
+function PlayerDataService.isWritable(player: Player): boolean
+	return cache[player] ~= nil and not closing and finalSaveState[player] == nil
 end
 
 -- Mutacja in-place: mutator dostaje ŻYWĄ referencję cache (nie kopię — świadomy trade-off,

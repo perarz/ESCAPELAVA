@@ -221,17 +221,16 @@ end
 
 -- Kolejność partów = kolejność SID. Musi być deterministyczna (ta sama mapa → te same ID),
 -- więc sortujemy po geometrii, a nie po kolejności dzieci w drzewie.
-local function lessPart(a: PartRec, b: PartRec): boolean
-	local ka = { a.min.Y, a.min.X, a.min.Z, a.max.Y, a.max.X, a.max.Z }
-	local kb = { b.min.Y, b.min.X, b.min.Z, b.max.Y, b.max.X, b.max.Z }
+type SortKey = { geometry: { number }, name: string }
+
+local function lessPart(a: SortKey, b: SortKey): boolean
 	for i = 1, 6 do
-		local va = math.floor(ka[i] * 1000 + 0.5)
-		local vb = math.floor(kb[i] * 1000 + 0.5)
+		local va, vb = a.geometry[i], b.geometry[i]
 		if va ~= vb then
 			return va < vb
 		end
 	end
-	return a.inst:GetFullName() < b.inst:GetFullName()
+	return a.name < b.name
 end
 
 function StructureCore.collectParts(building: Instance, cfg: any, small: any): { PartRec }
@@ -256,7 +255,19 @@ function StructureCore.collectParts(building: Instance, cfg: any, small: any): {
 			chunks = {},
 		})
 	end
-	table.sort(list, lessPart)
+	-- Te same klucze i kolejność SID, ale zaokrąglenia i pełna nazwa liczone raz
+	-- na part zamiast przy każdym porównaniu sortowania (również przy rebuildzie rundy).
+	local sortKeys: { [PartRec]: SortKey } = {}
+	for _, rec in ipairs(list) do
+		local geometry = { rec.min.Y, rec.min.X, rec.min.Z, rec.max.Y, rec.max.X, rec.max.Z }
+		for i, value in ipairs(geometry) do
+			geometry[i] = math.floor(value * 1000 + 0.5)
+		end
+		sortKeys[rec] = { geometry = geometry, name = rec.inst:GetFullName() }
+	end
+	table.sort(list, function(a, b)
+		return lessPart(sortKeys[a], sortKeys[b])
+	end)
 	for i, rec in ipairs(list) do
 		rec.index = i
 	end

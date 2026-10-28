@@ -1,6 +1,7 @@
 --!strict
 -- RewardsService.luau
--- Wypłaca nagrodę za wygraną rundę: WSZYSCY ocaleli po Endgame dostają Config.Rewards.Win $.
+-- Wypłaca nagrodę snapshotowi ocalałych na RoundFinished, przed FINISHING hold i cleanup.
+-- Każdy ocalały dostaje Config.Rewards.Win $; runda nie ma dawnych faz/Endgame.
 -- Fires Remotes.RoundWon(winners, reward) — ocalały widzi „YOU SURVIVED! +X$” (WinMessageController).
 --
 -- Kill rewards są w KillService (per-hit trigger). RewardsService tylko o survival bonus.

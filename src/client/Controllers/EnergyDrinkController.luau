@@ -22,6 +22,8 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local RagdollState = require(script.Parent.RagdollState)
 local ItemEquipController = require(script.Parent.ItemEquipController)
 
+local ToolActivation = require(script.Parent.ToolActivation)
+
 local EnergyDrinkController = {}
 
 local CFG = Config.EnergyDrink
@@ -106,6 +108,14 @@ local function angles(v: Vector3): CFrame
 	return CFrame.Angles(math.rad(v.X), math.rad(v.Y), math.rad(v.Z))
 end
 
+local poseFrames: { [Vector3]: CFrame } = {}
+for _, key in ipairs(CFG.Sip) do
+	for _, name in pairs(JOINT_NAMES) do
+		local value = (key :: any)[name]
+		poseFrames[value] = angles(value)
+	end
+end
+
 local function update()
 	local now = os.clock()
 	local keys = CFG.Sip
@@ -134,7 +144,7 @@ local function update()
 		for name, joint in pairs(sip.joints) do
 			local motor = joint.motor
 			if not motor.Parent or not motor.Enabled then stop(player); break end
-			local pose = angles((a :: any)[name]):Lerp(angles((b :: any)[name]), alpha)
+			local pose = poseFrames[(a :: any)[name]]:Lerp(poseFrames[(b :: any)[name]], alpha)
 			local base = motor.Transform
 			local result = base:Lerp(pose, weight)
 			joint.base, joint.written = base, result
@@ -144,34 +154,24 @@ local function update()
 end
 
 -- ── Łyk z kliknięcia ─────────────────────────────────────────────────────────────────
-local function hookTool(tool: Tool)
-	if tool.Name ~= TOOL_NAME then return end
-	tool.Activated:Connect(function()
-		if gameState ~= "" and gameState ~= "ROUND" then return end
-		local now = os.clock()
-		if now - lastDrinkAt < Config.RateLimits.EnergyDrink then return end
-		local char = localPlayer.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if not hum or hum.Health <= 0 or RagdollState.isRagdolled(hum) then return end
+local function onActivated()
+	if gameState ~= "" and gameState ~= "ROUND" then return end
+	local now = os.clock()
+	if now - lastDrinkAt < Config.RateLimits.EnergyDrink then return end
+	local char = localPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 or RagdollState.isRagdolled(hum) then return end
 
-		lastDrinkAt = now
-		ItemEquipController.cancel()
-		-- Gest od razu, bez czekania na serwer — łyk z opóźnieniem pingu czyta się jak lag.
-		-- Efekt i tak włączy dopiero serwer (atrybuty), więc odrzucony łyk nic nie daje.
-		localSipAt = now
-		begin(localPlayer)
-		Remotes.DrinkEnergy:FireServer()
-	end)
+	lastDrinkAt = now
+	ItemEquipController.cancel()
+	-- Gest od razu, bez czekania na serwer — łyk z opóźnieniem pingu czyta się jak lag.
+	-- Efekt i tak włączy dopiero serwer (atrybuty), więc odrzucony łyk nic nie daje.
+	localSipAt = now
+	begin(localPlayer)
+	Remotes.DrinkEnergy:FireServer()
 end
 
-local function hookCharacter(char: Model)
-	char.ChildAdded:Connect(function(child)
-		if child:IsA("Tool") then hookTool(child) end
-	end)
-	for _, c in ipairs(char:GetChildren()) do
-		if c:IsA("Tool") then hookTool(c) end
-	end
-end
+
 
 -- Gest u wszystkich: serwer ustawia `EnergyStart` przy każdym łyku (też przy odnowieniu w
 -- trakcie działania — wtedy zmienia się tylko `EnergyEnd`, więc słuchamy końca).
@@ -193,10 +193,7 @@ function EnergyDrinkController.init()
 	if initialized then return end
 	initialized = true
 
-	if localPlayer.Character then
-		hookCharacter(localPlayer.Character)
-	end
-	localPlayer.CharacterAdded:Connect(hookCharacter)
+	ToolActivation.bind("EnergyDrinkTool", onActivated)
 
 	Players.PlayerAdded:Connect(watchPlayer)
 	for _, player in ipairs(Players:GetPlayers()) do

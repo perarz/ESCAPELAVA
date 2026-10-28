@@ -330,7 +330,7 @@ function FallDamageService.init()
 	end)
 
 	-- Każdy teleport i respawn MUSI czyścić pomiar, inaczej serwerowy skok pozycji
-	-- (lobby → spawn rundy, POST_ROUND → lobby) policzyłby się jako upadek z kilkuset
+	-- (lobby → spawn rundy, koniec rundy → lobby) policzyłby się jako upadek z kilkuset
 	-- studów. Ta sama zasada co w AntiCheatService: ruch wykonany przez serwer to nie
 	-- jest ruch gracza.
 	GameLoopService.StateChanged:Connect(function()

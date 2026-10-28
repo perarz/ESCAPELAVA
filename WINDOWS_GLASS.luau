@@ -81,7 +81,9 @@ end
 local function revert()
 	local n = 0
 	for _, d in ipairs(map:GetDescendants()) do
-		if isPane(d) or (d:IsA("BasePart") and d.Material == Enum.Material.Glass) then
+		-- Cofamy dokładnie ten sam zakres co apply; inne szkło (auta, automaty,
+		-- przystanek) jest celowo wykluczone i nie może zmienić materiału.
+		if isPane(d) then
 			d.Material = Enum.Material.Plastic
 			d.MaterialVariant = "Studs"
 			n += 1

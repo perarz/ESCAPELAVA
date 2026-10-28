@@ -20,9 +20,9 @@
 -- Ten serwis nie wie nic o fizyce, graczach ani efektach — tylko stan i geometria dziur.
 --
 -- CYKL RUNDY: MapService po rundzie podmienia mapę na świeże klony, więc stare instancje
--- są martwe. Budynki budujemy od nowa przy starcie i na POCZĄTKU każdego lobby (bomb wtedy nie
--- ma — rzucać można tylko w ROUND; mapa jest już odtworzona, bo MapService robi to na
--- RoundEnded, przed 10 s POST_ROUND). Do 11.10 na COUNTDOWN, który usunięto.
+-- są martwe. Budynki budujemy od nowa przy starcie i po każdym `MapService.Restored` (w lobby
+-- bomb nie ma — rzucać można tylko w ROUND). Do 26.10 na wejściu do lobby, które było 10 s
+-- po odbudowie mapy; bez POST_ROUND lobby zaczyna się PRZED nią. Do 11.10 na COUNTDOWN.
 
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -30,7 +30,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Fracture = require(ReplicatedStorage.Shared.Modules.Fracture)
-local GameLoopService = require(script.Parent.GameLoopService)
+local MapService = require(script.Parent.MapService)
 
 local Structure = script.Parent.Parent.Structure
 local Core = require(Structure.StructureCore)
@@ -800,15 +800,7 @@ end
 
 function StructuralService.init()
 	StructuralService.rebuild()
-	-- Lobby bywa ustawiane kilka razy z rzędu (czekanie na graczy, ktoś wyszedł) — budujemy
-	-- tylko przy WEJŚCIU do lobby z innego stanu.
-	local lastState = GameLoopService.getState()
-	GameLoopService.StateChanged:Connect(function(newState: string)
-		if newState == GameLoopService.STATE.LOBBY and lastState ~= GameLoopService.STATE.LOBBY then
-			StructuralService.rebuild()
-		end
-		lastState = newState
-	end)
+	MapService.Restored:Connect(StructuralService.rebuild)
 end
 
 return StructuralService

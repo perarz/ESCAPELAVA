@@ -32,8 +32,15 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local RagdollState = require(script.Parent.RagdollState)
+local SettingsState = require(script.Parent.SettingsState)
 
 local MovementController = {}
+
+-- Panel ustawień (26.10): przechył obrazu i zmiany FOV gracz może wyłączyć. Zoom celowania
+-- RPG zostaje zawsze — to narzędzie celowania, nie efekt.
+local function cameraFxOn(): boolean
+	return SettingsState.get("cameraFx") ~= false
+end
 
 local CFG = Config.Movement
 local CFG_STAM = CFG.Stamina
@@ -50,6 +57,7 @@ local initialized = false
 -- Per-character state (reset on każdy CharacterAdded)
 local currentCharacter: Model? = nil
 local currentHumanoid: Humanoid? = nil
+local characterTicket = 0
 local currentStamina: number = CFG_STAM.Max
 local isSprintingHeld: boolean = false       -- LeftShift trzymany (intent gracza)
 local exhausted: boolean = false              -- stamina spadła do 0 → blokada do MinToResume
@@ -86,6 +94,7 @@ end
 
 -- Head tracking (Etap 5) — per-player joint cache + aim state.
 type AimState = {
+	character: Model?,  -- pakiet odebrany już dla nowej postaci wygrywa ze starym cache
 	targetYaw: number,    -- gdzie chcemy żeby głowa była (z kamery dla self, z remote dla innych)
 	targetPitch: number,
 	currentYaw: number,   -- aktualnie zaaplikowane (lerp do target)
@@ -100,6 +109,7 @@ type JointCache = {
 	waist: Motor6D?,
 	neckC0: CFrame?,     -- C0 SPOCZYNKOWY: punkt odniesienia obrotu (C0 = neckC0 * kąty) i reset
 	waistC0: CFrame?,
+	stance: number,      -- bieżący obrót tułowia z `WaistYawTools` (rad), wygładzany jak głowa
 }
 local jointCache: { [Player]: JointCache } = {}
 
@@ -139,6 +149,24 @@ local fovPunch: number = 0
 -- Drżenie przy sprincie i przechył przy ruchu w bok (11.10) — stan wygładzania między klatkami.
 local sprintShakeAmount = 0
 local leanAngle = 0
+
+-- Celowanie (24.10, RPG na PPM): KIEDY celujemy, decyduje RpgController (setAim); tutaj JAK —
+-- zoom kamery, wolniejszy chód bez sprintu i ciało obrócone tam, gdzie patrzy kamera. FOV,
+-- prędkość i kamera mają jednego właściciela, więc profil wchodzi tutaj, a nie obok.
+export type AimProfile = {
+	FOVOffset: number,  -- stopnie (ujemne = przybliżenie)
+	PushIn: number,     -- studa, o ile kamera podjeżdża do postaci
+	Lift: number,       -- studa, o ile kamera idzie w górę (w układzie kamery, jak bark w bok)
+	WalkFactor: number, -- mnożnik chodu; sprint w celowaniu nie działa
+	TurnSpeed: number,  -- 1/s, z jaką ciało dogania kierunek kamery
+	BlendSpeed: number, -- 1/s wjazdu i wyjazdu kamery
+}
+local aimProfile: AimProfile? = nil
+-- Ostatni profil zostaje po puszczeniu PPM — wyjazd kamery gaśnie z jego liczbami.
+local aimFade: AimProfile? = nil
+local aimBlend = 0
+-- Czy AutoRotate wyłączyło celowanie (a nie toolbox ragdolla, który robi to samo przy upadku).
+local aimOwnsAutoRotate = false
 
 -- Pasek staminy 3D (BillboardGui obok postaci, client-only). Template = ReplicatedStorage.StaminaBar.
 local staminaBar: BillboardGui? = nil
@@ -185,6 +213,7 @@ local function shouldActivelySprintThisFrame(): boolean
 	-- "Aktywny sprint" = drenuje staminę + applikuje SprintSpeed.
 	-- Wszystkie warunki muszą być spełnione.
 	if not isSprintingHeld then return false end
+	if aimProfile then return false end -- decyzja 24.10: celowanie = bez sprintu
 	if exhausted then return false end
 	if not isAlive() then return false end
 	if isRagdolled() then return false end
@@ -325,10 +354,31 @@ end
 
 function MovementController.fovKick(amount: number)
 	-- Public API — chwilowy FOV punch (zoom out → wraca). Bomba woła przez Remotes.BombHit.
-	if type(amount) ~= "number" then return end
+	if type(amount) ~= "number" or not cameraFxOn() then return end
 	amount = math.clamp(amount, 0, CFG_CAM.HitReaction.FOVPunchMax)
 	-- Overlap: zachowaj mocniejszy (drugi słabszy hit nie osłabia trwającego punchu).
 	if amount > fovPunch then fovPunch = amount end
+end
+
+-- Oddaje AutoRotate Humanoidowi, jeśli to celowanie je zabrało.
+local function releaseAimRotation()
+	if not aimOwnsAutoRotate then return end
+	aimOwnsAutoRotate = false
+	local hum = currentHumanoid
+	-- W ragdollu AutoRotate trzyma toolbox: wyłącza przy upadku i sam włącza przy wstawaniu.
+	if hum and hum.Parent and not isRagdolled() then
+		hum.AutoRotate = true
+	end
+end
+
+-- Public API (24.10): profil celowania albo nil. Woła RpgController przy każdej zmianie.
+function MovementController.setAim(profile: AimProfile?)
+	aimProfile = profile
+	if profile then
+		aimFade = profile
+	else
+		releaseAimRotation()
+	end
 end
 
 -- ====================================================================
@@ -701,6 +751,7 @@ local function updateLoop(dt: number)
 	-- Energy drink: +WalkBonus tylko do chodu (decyzja Kacpra 21.10: „speed bez sprinta”).
 	local walk = CFG.WalkSpeed + (if energyNow then CFG_ENERGY.WalkBonus else 0)
 	local targetSpeed = (activeSprint and CFG.SprintSpeed or walk) * speedFactor()
+		* (if aimProfile then aimProfile.WalkFactor else 1)
 	local alpha = math.clamp(dt / CFG.SpeedLerpTime, 0, 1)
 	currentWalkSpeed = currentWalkSpeed + (targetSpeed - currentWalkSpeed) * alpha
 	if math.abs(currentWalkSpeed - targetSpeed) < 0.05 then
@@ -716,8 +767,10 @@ local function updateLoop(dt: number)
 	-- Workspace.CurrentCamera może być nil bardzo krótko przy charakter swap — guard.
 	local camera = Workspace.CurrentCamera
 	if camera then
-		local targetFOV = (activeSprint and CFG.SprintFOV or CFG.BaseFOV)
-			+ (if energyNow then CFG_ENERGY.FOVBonus else 0)
+		local fx = cameraFxOn()
+		local targetFOV = (if activeSprint and fx then CFG.SprintFOV else CFG.BaseFOV)
+			+ (if energyNow and fx then CFG_ENERGY.FOVBonus else 0)
+			+ (if aimProfile then aimProfile.FOVOffset else 0)
 		local fovAlpha = math.clamp(dt / CFG.FOVLerpTime, 0, 1)
 		currentFOV = currentFOV + (targetFOV - currentFOV) * fovAlpha
 		if math.abs(currentFOV - targetFOV) < 0.05 then
@@ -780,7 +833,7 @@ local function asyncCacheJoints(player: Player, character: Model)
 	task.spawn(function()
 		local head = character:WaitForChild("Head", 5)
 		local upper = character:WaitForChild("UpperTorso", 5)
-		if player.Character ~= character then return end
+		if player.Parent ~= Players or player.Character ~= character then return end
 
 		if not head and not upper then
 			-- R6 lub character zniszczony — bez warn'a, nie ma sensu.
@@ -790,13 +843,14 @@ local function asyncCacheJoints(player: Player, character: Model)
 		-- Drobny dodatkowy wait żeby Motor6Dy (jeśli istnieją) zdążyły się dopodpiąć
 		-- między body parts. Na praktyce <100ms wystarczy.
 		task.wait(0.2)
-		if player.Character ~= character then return end
+		if player.Parent ~= Players or player.Character ~= character then return end
 
 		local cache: JointCache = {
 			neck = findMotor6DBetween(character, "Head", "UpperTorso"),
 			waist = findMotor6DBetween(character, "UpperTorso", "LowerTorso"),
 			neckC0 = nil,
 			waistC0 = nil,
+			stance = 0,
 		}
 		if cache.neck then cache.neckC0 = cache.neck.C0 end
 		if cache.waist then cache.waistC0 = cache.waist.C0 end
@@ -853,32 +907,47 @@ local function restoreRestC0(cache: JointCache)
 	if cache.waist and cache.waistC0 then cache.waist.C0 = cache.waistC0 end
 end
 
-local function applyAim(player: Player, character: Model, yaw: number, pitch: number)
+local function applyAim(player: Player, character: Model, yaw: number, pitch: number, dt: number)
 	local cache = ensureJointCache(player)
 	if not cache then return end
 	if isCharacterRagdolled(character) then
 		-- `C0`, w odróżnieniu od `Transform`, NIE resetuje się sam — bez tego głowa leżałaby
 		-- wykręcona o ostatni kąt przez cały ragdoll.
 		restoreRestC0(cache)
+		cache.stance = 0 -- po wstaniu postawa wraca płynnie, nie skokiem
 		return
 	end
 
-	-- Pitch wyłącznie na neck. Yaw rozdzielamy: WaistYawRatio idzie na waist (talia
-	-- skręca lekko za kamerą), reszta na neck.
-	local waistYaw = yaw * CFG_HT.WaistYawRatio
-	local neckYaw = yaw - waistYaw
+	-- Yaw rozdzielamy: WaistYawRatio idzie na waist (talia skręca lekko za kamerą), reszta na
+	-- neck. Pitch zwykle tylko na neck; z narzędziem z `WaistPitchTools` (RPG, 24.10) część
+	-- pitch'a bierze talia — tułów i wyrzutnia celują w górę/dół. Narzędzie w ręce widzi każdy
+	-- klient, a pitch i tak jest replikowany, więc inni widzą to samo bez nowego remote'a.
+	local tool = character:FindFirstChildOfClass("Tool")
+	local toolName = if tool then tool.Name else ""
+	-- Postawa z narzędziem (`WaistYawTools`, RPG 25.10): tułów obrócony bokiem do celu, głowa
+	-- odkręca się z powrotem — patrzy tam gdzie przedtem. Szyja najwyżej MAX_YAW, nadmiar bierze
+	-- talia, więc głowa zawsze patrzy za kamerą (yaw w świecie = waist + neck).
+	local stanceTarget = math.rad(CFG_HT.WaistYawTools[toolName] or 0)
+	cache.stance += (stanceTarget - cache.stance) * (1 - math.exp(-CFG_HT.LerpSpeed * dt))
+	local neckYaw = math.clamp(yaw * (1 - CFG_HT.WaistYawRatio) - cache.stance, -MAX_YAW_RAD, MAX_YAW_RAD)
+	local waistYaw = yaw - neckYaw
+	local waistPitch = pitch * (CFG_HT.WaistPitchTools[toolName] or 0)
+	local neckPitch = pitch - waistPitch
 
 	-- Zawsze OD C0 SPOCZYNKOWEGO, nigdy od bieżącego — inaczej obrót kumulowałby się co
 	-- klatkę i głowa kręciłaby się w kółko.
 	if cache.waist and cache.waistC0 then
-		cache.waist.C0 = cache.waistC0 * CFrame.Angles(0, waistYaw, 0)
+		-- Waist C0 też bez rotacji (odczyt StarterCharacter 24.10) — znaki jak przy neck niżej.
+		-- Angles = Rx·Ry: najpierw obrót tułowia, potem pochylenie wokół osi X BIODER — przy
+		-- postawie bokiem lufa (po obrocie patrzy w przód bioder) pochyla się dokładnie w pionie.
+		cache.waist.C0 = cache.waistC0 * CFrame.Angles(waistPitch, waistYaw, 0)
 	end
 	if cache.neck and cache.neckC0 then
 		-- Znaki na tym rigu (C0 bez rotacji, przód = −Z): dodatnie rx podnosi przód głowy,
 		-- więc kamera w dół (pitch < 0) → głowa w dół; dodatni yaw skręca przód w −X, czyli
 		-- w lewo, zgodnie z `computeLocalAimFromCamera`. Sprawdzone rachunkiem 2026-09-23,
 		-- NIE okiem — wcześniej obrót nigdy nie był widoczny. Odwrotnie w grze = zmienić znak.
-		cache.neck.C0 = cache.neckC0 * CFrame.Angles(pitch, neckYaw, 0)
+		cache.neck.C0 = cache.neckC0 * CFrame.Angles(neckPitch, neckYaw, 0)
 	end
 end
 
@@ -931,14 +1000,14 @@ local function onRenderStepHeadAim(dt: number)
 	lerpAimState(localAim, dt)
 	-- Apply local (sami też widzimy swoją głowę kręcącą się w 3rd person — immersja).
 	if currentCharacter then
-		applyAim(localPlayer, currentCharacter, localAim.currentYaw, localAim.currentPitch)
+		applyAim(localPlayer, currentCharacter, localAim.currentYaw, localAim.currentPitch, dt)
 	end
 	-- Apply remote players
 	for player, state in pairs(remoteAim) do
 		lerpAimState(state, dt)
 		local char = player.Character
 		if char then
-			applyAim(player, char, state.currentYaw, state.currentPitch)
+			applyAim(player, char, state.currentYaw, state.currentPitch, dt)
 		end
 	end
 end
@@ -962,9 +1031,10 @@ end
 local function onRemoteHeadAim(sourcePlayer: Player, yaw: number, pitch: number)
 	-- Echo własnych danych nie powinien się stać (server skipuje sendera) ale guard.
 	if sourcePlayer == localPlayer then return end
+	local character = sourcePlayer.Character
 	local state = remoteAim[sourcePlayer]
-	if not state then
-		state = { targetYaw = 0, targetPitch = 0, currentYaw = 0, currentPitch = 0 }
+	if not state or state.character ~= character then
+		state = { character = character, targetYaw = 0, targetPitch = 0, currentYaw = 0, currentPitch = 0 }
 		remoteAim[sourcePlayer] = state
 	end
 	state.targetYaw = yaw
@@ -982,7 +1052,10 @@ end
 -- ====================================================================
 
 local function onCharacterAdded(character: Model)
+	characterTicket += 1
+	local ticket = characterTicket
 	currentCharacter = character
+	currentHumanoid = nil
 
 	-- Cleanup poprzedniego StateChanged connection (poprzedni character mógł go zostawić).
 	if stateChangedConn then
@@ -990,7 +1063,10 @@ local function onCharacterAdded(character: Model)
 		stateChangedConn = nil
 	end
 
-	currentHumanoid = character:WaitForChild("Humanoid", 5) :: Humanoid?
+	local humanoid = character:WaitForChild("Humanoid", 5)
+	-- Replikacja starej postaci może dokończyć się już po kolejnym respawnie.
+	if ticket ~= characterTicket or localPlayer.Character ~= character then return end
+	currentHumanoid = if humanoid and humanoid:IsA("Humanoid") then humanoid else nil
 
 	-- Fresh respawn = pełna stamina, czysty stan sprintu, FOV do bazy, camera effects reset.
 	currentStamina = CFG_STAM.Max
@@ -1005,6 +1081,10 @@ local function onCharacterAdded(character: Model)
 	freefallStartY = nil
 	shakeStart = -1
 	fovPunch = 0
+	-- Nowy Humanoid ma własne AutoRotate = true; profil celowania zdejmie RpgController
+	-- (po respawnie nie ma wyrzutni w ręce).
+	aimOwnsAutoRotate = false
+	aimBlend = 0
 	smoothedCam = nil  -- nowy character = kamera reinicjalizuje się (snap, bez swoopu)
 	-- Head tracking: invalidate joint cache (nowy character = nowe Motor6D) + reset aim state.
 	jointCache[localPlayer] = nil
@@ -1029,12 +1109,20 @@ end
 local function setupRemotePlayerHeadTrack(player: Player)
 	-- Lokalny obsługujemy w onCharacterAdded (z resztą stanu); tu tylko remote players.
 	if player == localPlayer then return end
-	player.CharacterAdded:Connect(function(character)
+	local function prepare(character: Model)
 		jointCache[player] = nil
+		local state = remoteAim[player]
+		-- CharacterAdded może być odroczone za pierwszym pakietem nowej postaci.
+		-- Zachowujemy go, ale nigdy nie przenosimy skrętu głowy z poprzedniego rigu.
+		if not state or state.character ~= character then
+			remoteAim[player] = { character = character,
+				targetYaw = 0, targetPitch = 0, currentYaw = 0, currentPitch = 0 }
+		end
 		asyncCacheJoints(player, character)
-	end)
+	end
+	player.CharacterAdded:Connect(prepare)
 	if player.Character then
-		asyncCacheJoints(player, player.Character)
+		prepare(player.Character)
 	end
 end
 
@@ -1088,7 +1176,9 @@ local function computeShoulderOffset(camera: Camera, base: CFrame, dt: number): 
 		return Vector3.zero
 	end
 
-	local target = so.Side
+	-- Lewe ramię z panelu ustawień (26.10) = to samo przesunięcie w drugą stronę; wygładzanie
+	-- niżej przenosi kamerę płynnie, ściany z boku sprawdza ten sam promień.
+	local target = so.Side * (if SettingsState.get("shoulder") == "left" then -1 else 1)
 
 	-- Ściana ZA PLECAMI: tryb `Zoom` Robloxa przysuwa wtedy kamerę do postaci, a pełne
 	-- przesunięcie z bliska dałoby widok z boku głowy — maleje więc razem z odległością.
@@ -1155,7 +1245,7 @@ local function computeLean(camera: Camera, dt: number): number
 	local target = 0
 	local hum = currentHumanoid
 	local root = hum and hum.RootPart
-	if cfg.MaxDegrees > 0 and root and isAlive() and not isRagdolled() then
+	if cfg.MaxDegrees > 0 and cameraFxOn() and root and isAlive() and not isRagdolled() then
 		local vel = root.AssemblyLinearVelocity
 		local right = camera.CFrame.RightVector
 		local lateral = vel.X * right.X + vel.Z * right.Z
@@ -1166,6 +1256,32 @@ local function computeLean(camera: Camera, dt: number): number
 		leanAngle = 0
 	end
 	return leanAngle
+end
+
+-- Celowanie: ciało obraca się tam, gdzie patrzy kamera (jak shift-lock). AutoRotate wyłączone,
+-- bo inaczej Humanoid w kroku fizyki obracałby postać z powrotem w stronę ruchu. Postacią
+-- steruje fizyka klienta, więc obrót replikuje się sam. Na drabinie kierunek trzyma drabina,
+-- w ragdollu — fizyka; wtedy oddajemy obrót.
+local function updateAimFacing(camera: Camera, dt: number)
+	local profile = aimProfile
+	local hum = currentHumanoid
+	local root = hum and hum.RootPart
+	if not (profile and hum and root) or not isAlive() or isRagdolled()
+		or hum:GetState() == Enum.HumanoidStateType.Climbing then
+		releaseAimRotation()
+		return
+	end
+	local look = camera.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 1e-3 then return end
+	if hum.AutoRotate then
+		hum.AutoRotate = false
+	end
+	aimOwnsAutoRotate = true
+	local pos = root.Position
+	local want = CFrame.lookAt(pos, pos + flat).Rotation
+	local alpha = 1 - math.exp(-profile.TurnSpeed * dt)
+	root.CFrame = root.CFrame.Rotation:Lerp(want, alpha) + pos
 end
 
 local function onRenderStepCamera(dt: number)
@@ -1186,6 +1302,7 @@ local function onRenderStepCamera(dt: number)
 		smoothedCam = nil
 		-- Po wyjściu ze sklepu przesunięcie wjeżdża płynnie od zera, zamiast skoczyć.
 		shoulderCurrent = 0
+		releaseAimRotation()
 		return
 	end
 
@@ -1217,8 +1334,22 @@ local function onRenderStepCamera(dt: number)
 	-- 3. Shake — camera-local translacja (X=right, Y=up, Z=back). Zero gdy nieaktywny.
 	--    + drżenie przy sprincie (11.10).
 	local offset = shoulder + computeShakeOffset() + computeSprintShake(dt)
-	-- 4. Przechył przy ruchu w bok (11.10) — obrót wokół osi patrzenia.
-	local roll = computeLean(camera, dt)
+	-- 3b. Celowanie (24.10): kamera podjeżdża bliżej (−Z = do przodu) i trochę w górę (26.10),
+	--     płynnie w obie strony.
+	local fade = aimFade
+	if fade then
+		local alpha = 1 - math.exp(-fade.BlendSpeed * dt)
+		aimBlend += ((if aimProfile then 1 else 0) - aimBlend) * alpha
+		if aimProfile == nil and aimBlend < 1e-3 then
+			aimBlend = 0
+		end
+		if aimBlend > 0 then
+			offset += Vector3.new(0, fade.Lift * aimBlend, -fade.PushIn * aimBlend)
+		end
+	end
+	-- 4. Przechył przy ruchu w bok (11.10) — obrót wokół osi patrzenia. W celowaniu gaśnie:
+	--    krok w bok przy celowniku na środku nie może przekrzywiać obrazu.
+	local roll = computeLean(camera, dt) * (1 - aimBlend)
 	-- 5. Podbicie w górę (odrzut RPG, 21.10) — gaśnie samo.
 	local pitch = kickPitch
 	if kickPitch > 0 then
@@ -1239,6 +1370,9 @@ local function onRenderStepCamera(dt: number)
 		end
 		camera.CFrame = keepLineOfSight(camera, cf)
 	end
+
+	-- Po ustawieniu kamery — ciało celuje tam, gdzie gracz WIDZI środek ekranu.
+	updateAimFacing(camera, dt)
 end
 
 local function enforceCameraZoom()
@@ -1270,11 +1404,19 @@ function MovementController.init()
 	-- Pasek staminy 3D — może yieldować na ReplicatedStorage.StaminaBar / PlayerGui.
 	task.spawn(setupStaminaBar)
 
-	-- Character hook (obecny + przyszłe respawny).
-	if localPlayer.Character then
-		onCharacterAdded(localPlayer.Character)
-	end
+	-- Podpinamy zdarzenia przed obsługą obecnej postaci: jej Humanoid może jeszcze
+	-- nie być zreplikowany, a czekanie nie może opóźnić listenerów trafień i celowania.
 	localPlayer.CharacterAdded:Connect(onCharacterAdded)
+	localPlayer.CharacterRemoving:Connect(function(character)
+		if currentCharacter ~= character then return end
+		characterTicket += 1
+		if stateChangedConn then stateChangedConn:Disconnect(); stateChangedConn = nil end
+		currentCharacter, currentHumanoid = nil, nil
+		jointCache[localPlayer] = nil
+	end)
+	if localPlayer.Character then
+		task.spawn(onCharacterAdded, localPlayer.Character)
+	end
 
 	-- Input: LeftShift hold. gameProcessed=true gdy fokus na TextBox (chat) — skip.
 	UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)

@@ -123,6 +123,12 @@ local function onSetLoadout(player: Player, raw: any)
 	end
 	lastSetAt[player] = now
 
+	-- Ukrycie panelu nie blokuje bezpośredniego wywołania remote'a w rundzie.
+	if GameLoopService.getState() ~= GameLoopService.STATE.LOBBY then
+		LoadoutService.replicateTo(player)
+		return
+	end
+
 	local loadout = sanitize(raw)
 	if not loadout then
 		LoadoutService.replicateTo(player)

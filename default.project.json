@@ -64,8 +64,8 @@
         "$className": "SunRaysEffect",
         "$properties": {
           "Enabled": true,
-          "Intensity": 0.483,
-          "Spread": 1
+          "Intensity": 0.2,
+          "Spread": 0.6
         }
       },
       "Blur": {

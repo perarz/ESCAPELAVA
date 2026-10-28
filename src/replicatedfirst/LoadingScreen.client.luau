@@ -190,9 +190,8 @@ local function collectAssets(): { Instance }
 	local assets: { Instance } = {}
 	local seen: { [Instance]: boolean } = {}
 
-	-- MaterialService jest tu NIEOCZYWISTY, ale kluczowy: cały wygląd mapy stoi na
-	-- `MaterialVariant "Studs"` z ColorMapem. Bez jego wgrania 25 tysięcy partów przez
-	-- chwilę po wejściu wygląda jak goły plastik.
+	-- MaterialService zawiera Studs używane przez otoczenie oraz warianty lawy.
+	-- Brak Studs od 26.10 dotyczy wyłącznie modeli itemów, nie mapy.
 	local roots: { Instance } = { Lighting, MaterialService, ReplicatedStorage, StarterGui, StarterPlayer, Workspace }
 	for _, root in ipairs(roots) do
 		for _, d in ipairs(root:GetDescendants()) do

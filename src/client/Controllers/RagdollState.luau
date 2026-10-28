@@ -30,7 +30,7 @@ function RagdollState.isRagdolled(hum: Humanoid): boolean
 	end
 	-- Flaga toolboxa istnieje tylko w NASZYM PlayerGui — cudzej postaci jej nie sprawdzimy.
 	local char = hum.Parent
-	if char and Players:GetPlayerFromCharacter(char) == localPlayer then
+	if char and char == localPlayer.Character then
 		return toolboxFlag()
 	end
 	return false

@@ -6,7 +6,8 @@
 -- KONTRAKT NAZW (Kacper buduje w StarterGui):
 --   StarterGui.HUD (ScreenGui, ResetOnSpawn=false)
 --     └── RoundTimer (Frame, od 10.10 projekt z Figmy — labele szukane po nazwie w całym HUD)
---         ├── Title.State.StateLabel (TextLabel) — stan: "LOBBY" / "ROUND" / "ROUND OVER" (GET READY usunięte 11.10)
+--         ├── Title.State.StateLabel (TextLabel) — LOBBY / GET READY / ROUND / ROUND OVER
+--         │   GET READY dotyczy PREPARING/COUNTDOWN (3-2-1 wróciło 18.10).
 --         │   (szerokość z tekstu, kreski LineLeft/LineRight trzyma przy nim UIListLayout)
 --         ├── TimerLabel (TextLabel) — countdown aktualnego stanu/fazy: "1:23"
 --         ├── *Shadow — cienie, tekst kopiuje TextShadowController
@@ -34,6 +35,7 @@ local CFG_T = Config.UI.Timer
 local stateName: string = "LOBBY"
 local stateDuration: number = 0
 local stateStartedAt: number = os.clock()
+local stateEndsAt: number? = nil
 
 
 local function findDescendantLabel(root: Instance, name: string): TextLabel?
@@ -66,7 +68,8 @@ end
 local function computeText(): (string, string, number?)
 	-- 1 licznik na całą rundę — TimerLabel pokazuje czas pozostały aktualnego stanu.
 	-- W ROUND stateDuration = `Config.Lava.RoundDuration` (runda bez faz od 11.10).
-	local remaining = math.max(stateDuration - (os.clock() - stateStartedAt), 0)
+	local remaining = math.max(if stateEndsAt then stateEndsAt - workspace:GetServerTimeNow()
+		else stateDuration - (os.clock() - stateStartedAt), 0)
 	if stateName == "ROUND" then
 		return "ROUND", Utils.formatTime(remaining), remaining
 	elseif stateName == "COUNTDOWN" then
@@ -75,7 +78,7 @@ local function computeText(): (string, string, number?)
 		return "GET READY", "", nil
 	elseif stateName == "RESETTING" then
 		return "ROUND OVER", "", nil
-	elseif stateName == "FINISHING" or stateName == "POST_ROUND" then
+	elseif stateName == "FINISHING" then
 		return "ROUND OVER", Utils.formatTime(remaining), remaining
 	else
 		-- LOBBY: countdown do startu rundy; duration=0 = czekamy na MinPlayers.
@@ -108,13 +111,20 @@ end
 function UIController.init()
 	-- Podpinamy listenery PRZED findLabels (które yielduje na WaitForChild),
 	-- żeby nie stracić eventów stanu, które server fires podczas naszego yieldu.
-	Remotes.GameStateChanged.OnClientEvent:Connect(function(newState: string, duration: number)
+	Remotes.GameStateChanged.OnClientEvent:Connect(function(newState: string, duration: number, endsAt: number?)
 		stateName = newState
 		stateDuration = duration or 0
 		stateStartedAt = os.clock()
+		-- Ten sam zegar co 3-2-1: opóźniony pakiet nie dodaje graczowi czasu na HUD.
+		stateEndsAt = if type(endsAt) == "number" then endsAt else nil
 	end)
 
 	local stateLabel, timerLabel = findLabels()
+
+	-- Napis stoi w Studio; numer bierzemy z Config, żeby wersja była w jednym miejscu.
+	local hud = localPlayer:WaitForChild("PlayerGui"):WaitForChild("HUD")
+	local versionLabel = findDescendantLabel(hud, "VersionLabel")
+	if versionLabel then versionLabel.Text = "v" .. Config.UI.Version end
 
 	local statePop = findPop(stateLabel)
 	local timerPop = findPop(timerLabel)
@@ -130,11 +140,11 @@ function UIController.init()
 			stateLabel.Text = stateText
 			popScale(statePop, CFG_T.StatePop, CFG_T.StatePopTime)
 		end
-		if timerLabel then timerLabel.Text = timerText end
+		if timerLabel and timerLabel.Text ~= timerText then timerLabel.Text = timerText end
 
 		-- Końcówka odliczania (poza ROUND OVER — tam nic nie grozi): czerwony gradient i wskok
 		-- przy każdej nowej sekundzie.
-		local urgent = remaining ~= nil and stateName ~= "POST_ROUND" and remaining > 0
+		local urgent = remaining ~= nil and stateName ~= "FINISHING" and remaining > 0
 			and remaining <= CFG_T.UrgentSeconds
 		if urgent ~= wasUrgent then
 			wasUrgent = urgent

@@ -9,9 +9,9 @@
 -- Flow:
 --   Klient X (~10Hz): Remotes.HeadAim:FireServer(yaw, pitch)
 --   Server: typecheck → rate limit (max 15Hz per gracz) → clamp do max angles
---   Server: FireClient(p, X, yaw, pitch) dla każdego p ≠ X
+--   Server: FireAllClients(X, yaw, pitch), klient nadawcy ignoruje własne echo
 --   Klient Y odbiera: zapisz target yaw/pitch dla X → MovementController lerpuje + aplikuje
---   na X.Character.Neck/Waist Transform w BindToRenderStep (po animatorze).
+--   na X.Character.Neck/Waist C0; Transform jest nadpisywany przez Animatora.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

@@ -579,19 +579,16 @@ end
 -- Plan kolapsu → kolejka (priorytet, koszt)
 -- ============================================================================
 
-local function priorityOf(g: CollapsePlanner.Group): number
+local function priorityOf(g: CollapsePlanner.Group, playerPositions: { Vector3 }): number
 	local best = 2
-	for _, player in ipairs(Players:GetPlayers()) do
-		local char = player.Character
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		if not hrp or not hrp:IsA("BasePart") then continue end
-		local feet = hrp.Position - Vector3.new(0, 2.5, 0)
+	for _, position in ipairs(playerPositions) do
+		local feet = position - Vector3.new(0, 2.5, 0)
 		local p = feet
 		if p.X >= g.min.X - 1 and p.X <= g.max.X + 1 and p.Z >= g.min.Z - 1 and p.Z <= g.max.Z + 1
 			and p.Y >= g.max.Y - 1 and p.Y <= g.max.Y + CFG.RiderHeight then
 			return 0
 		end
-		local d = (hrp.Position:Max(g.min):Min(g.max) - hrp.Position).Magnitude
+		local d = (position:Max(g.min):Min(g.max) - position).Magnitude
 		if d <= CFG.NearPlayerDistance then
 			best = 1
 		end
@@ -600,13 +597,23 @@ local function priorityOf(g: CollapsePlanner.Group): number
 end
 
 local function enqueue(rec: Rec, plan: any)
+	-- Wszystkie grupy tego planu powstają bez yieldów. Szukanie postaci raz daje
+	-- te same priorytety, bez ponownego GetPlayers/FindFirstChild dla każdej grupy.
+	local playerPositions: { Vector3 } = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		local char = player.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if hrp and hrp:IsA("BasePart") then
+			table.insert(playerPositions, hrp.Position)
+		end
+	end
 	for _, g in ipairs(plan.groups :: { CollapsePlanner.Group }) do
 		table.insert(queue, {
 			key = rec.id .. ":" .. g.groupId,
 			rec = rec,
 			def = g,
 			cause = plan.cause,
-			priority = priorityOf(g),
+			priority = priorityOf(g, playerPositions),
 			cost = 1 + #g.parts,
 			volume = g.volume,
 			center = (g.min + g.max) * 0.5,

@@ -106,6 +106,7 @@ function ItemService.give(player: Player, itemId: string, count: number): (boole
 	if not def then return false, "unknown_item" end
 
 	local newTotal = 0
+	local failureReason = "data_not_loaded"
 	-- Wynik update MUSI być propagowany. Gdy dane gracza nie są jeszcze załadowane
 	-- (cache pusty — join w trakcie retry DataStore), update nic nie zapisuje. Wcześniej
 	-- give i tak zwracało true, więc caller (sklep, nagroda, dev product) był przekonany
@@ -113,12 +114,20 @@ function ItemService.give(player: Player, itemId: string, count: number): (boole
 	local ok = PlayerDataService.update(player, function(data)
 		migrateInventory(data)
 		local current = data.inventory[itemId] or 0
-		local newAmount = math.min(current + count, def.maxStack)
+		-- Give jest całościowe: sklep nie może pobrać ceny za sztukę uciętą przez cap.
+		if current + count > def.maxStack then
+			failureReason = "inventory_full"
+			return nil
+		end
+		local newAmount = current + count
 		data.inventory[itemId] = newAmount
 		newTotal = newAmount
 		return data
 	end)
 	if not ok then
+		if failureReason == "inventory_full" then
+			return false, failureReason
+		end
 		warn(("[Item] give FAIL %s %s x%d — dane gracza niezaładowane"):format(player.Name, itemId, count))
 		return false, "data_not_loaded"
 	end

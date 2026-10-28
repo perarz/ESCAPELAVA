@@ -117,7 +117,7 @@ end
 
 -- Kawałek gruzu budynku (odłamek dziury albo posiekana bryła): box albo klin, lekki shrink
 -- i obrót (siatka nie może czytać się jak siatka), szary (odcień z listy), z materiałem i wariantem
--- źródła — mapa stoi na Plastic + „Studs” (hard rule 15). Jedno miejsce dla obu dróg.
+-- źródła (hard rule 15). Jedno miejsce dla obu dróg.
 local function makeChunk(rng: Random, cf: CFrame, size: Vector3, mat: any, var: any, tr: any): BasePart
 	local part: BasePart
 	if rng:NextNumber() < FRAC.WedgeChance then
@@ -663,8 +663,7 @@ local function sampleSurroundings(center: Vector3, radius: number): { Sample }
 		if part.Transparency > 0.6 then continue end
 		if not Destructible.canSpawnFXFrom(part, ctx) then continue end
 		if Destructible.isSmall(part) then continue end
-		-- Wariant materiału razem z materiałem: mapa to Plastic + MaterialVariant "Studs",
-		-- a sam Plastic daje gołe odłamki obok ściany pokrytej teksturą studsów.
+		-- Zachowujemy rzeczywisty wariant źródła, także pusty po usunięciu Studs.
 		table.insert(samples, { color = part.Color, material = part.Material, variant = part.MaterialVariant })
 		if #samples >= 6 then break end
 	end
@@ -898,8 +897,16 @@ end
 -- Przejęcie mebli i drobnicy od serwera (v3, Remotes.DebrisFall)
 -- ============================================================================
 
--- Już obsłużone (słabe klucze) — drugi wybuch w tym samym miejscu nie robi drugiej kopii.
-local handled: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+-- Mocny wpis aż do usunięcia oryginału: słabe klucze Instance mogły zniknąć
+-- między wybuchami i pozwolić na ponowne przejęcie tej samej dekoracji.
+local handled: { [Instance]: boolean } = {}
+
+local function claimHandoff(inst: Instance): boolean
+	if handled[inst] then return false end
+	handled[inst] = true
+	inst.Destroying:Once(function() handled[inst] = nil end)
+	return true
+end
 
 -- Oryginał znika u nas OD RAZU (serwer skasuje go za HandoffDelay). Tylko lokalnie:
 -- LocalTransparencyModifier i lokalne CanCollide/CanQuery nie wracają na serwer.
@@ -945,6 +952,32 @@ local function instancePosition(inst: Instance): Vector3?
 	return nil
 end
 
+-- Obie ścieżki przejęcia muszą wycinać te same skrypty i połączenia, zanim
+-- kopia trafi do świata. Inaczej poprawka jednej drogi zostawia drugą w tyle.
+local function cloneLooseParts(inst: Instance, profile: Profile): (Instance?, { BasePart }?)
+	local ok, copy = pcall(function() return inst:Clone() end)
+	if not ok or copy == nil then return nil, nil end
+	local root = copy :: Instance
+	local parts: { BasePart } = {}
+	local function prep(d: Instance)
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			makeGhostly(d, profile)
+			table.insert(parts, d)
+		elseif d:IsA("BaseScript") or d:IsA("ModuleScript")
+			or d:IsA("JointInstance") or d:IsA("WeldConstraint") or d:IsA("Constraint") then
+			d:Destroy()
+		end
+	end
+	prep(root)
+	for _, d in ipairs(root:GetDescendants()) do prep(d) end
+	if #parts == 0 then
+		root:Destroy()
+		return nil, nil
+	end
+	return root, parts
+end
+
 -- Kopia mebla/parta, która pada (albo leci) u nas. Kopia PRZED schowaniem oryginału —
 -- sklonowałaby się niewidzialna. Zwraca, ile partów postawiła (budżet trybu grafiki).
 --   * mebel (Model): przewraca się od wybuchu; w Pełnym potem rozsypuje się na części,
@@ -986,32 +1019,8 @@ local function spawnFall(
 		end
 	end
 
-	local ok, copy = pcall(function()
-		return inst:Clone()
-	end)
-	if not ok or copy == nil then return 0 end
-	local root = copy :: Instance
-
-	local parts: { BasePart } = {}
-	local function prep(d: Instance)
-		if d:IsA("BasePart") then
-			d.Anchored = true -- do czasu, aż zdecydujemy: przewracanie (zakotwiczone) albo lot
-			makeGhostly(d, profile)
-			table.insert(parts, d)
-		elseif d:IsA("BaseScript") or d:IsA("ModuleScript") then
-			d:Destroy() -- lokalna kopia dekoracji nie ma prawa niczego uruchamiać
-		elseif d:IsA("JointInstance") or d:IsA("WeldConstraint") or d:IsA("Constraint") then
-			d:Destroy() -- części mają być niezależne (rozsypanie mebla)
-		end
-	end
-	prep(root)
-	for _, d in ipairs(root:GetDescendants()) do
-		prep(d)
-	end
-	if #parts == 0 then
-		root:Destroy()
-		return 0
-	end
+	local root, parts = cloneLooseParts(inst, profile)
+	if not root or not parts then return 0 end
 	root.Parent = getFolder()
 
 	-- Mebel/drobnica dostaje tylko ułamek impulsu bomby — mebel to nie pocisk.
@@ -1092,30 +1101,8 @@ end
 -- Mebel rozpadający się od razu (26.09): części lecą od wybuchu i znikają po `ShatterLife`
 -- w obu trybach grafiki (decyzja Kacpra: „party, co szybko znikają”).
 local function spawnShatter(inst: Instance, center: Vector3, radius: number, impulse: number, rng: Random, profile: Profile): number
-	local ok, copy = pcall(function()
-		return inst:Clone()
-	end)
-	if not ok or copy == nil then return 0 end
-	local root = copy :: Instance
-	local parts: { BasePart } = {}
-	local function prep(d: Instance)
-		if d:IsA("BasePart") then
-			d.Anchored = true
-			table.insert(parts, d)
-		elseif d:IsA("BaseScript") or d:IsA("ModuleScript") then
-			d:Destroy()
-		elseif d:IsA("JointInstance") or d:IsA("WeldConstraint") or d:IsA("Constraint") then
-			d:Destroy()
-		end
-	end
-	prep(root)
-	for _, d in ipairs(root:GetDescendants()) do
-		prep(d)
-	end
-	if #parts == 0 then
-		root:Destroy()
-		return 0
-	end
+	local root, parts = cloneLooseParts(inst, profile)
+	if not root or not parts then return 0 end
 	root.Parent = getFolder()
 	local speed = impulse * SMALL.LaunchSpeedFactor
 	for _, p in ipairs(parts) do
@@ -1147,8 +1134,7 @@ local function onDebrisFall(fall: any)
 		-- dojeżdża jako nil i robi dziurę w tablicy.
 		for i = 1, math.min(count, 2000) do
 			local inst = list[i]
-			if typeof(inst) ~= "Instance" or handled[inst] then continue end
-			handled[inst] = true
+			if typeof(inst) ~= "Instance" or not claimHandoff(inst) then continue end
 			local pos = instancePosition(inst)
 			local near = pos ~= nil and (camPos == nil or (pos - camPos).Magnitude <= profile.FXDistance)
 			if near and budget > 0 then
@@ -1171,8 +1157,7 @@ local function onDebrisFall(fall: any)
 	if typeof(shatter) == "table" and typeof(nShatter) == "number" then
 		for i = 1, math.min(nShatter, 500) do
 			local inst = shatter[i]
-			if typeof(inst) ~= "Instance" or handled[inst] then continue end
-			handled[inst] = true
+			if typeof(inst) ~= "Instance" or not claimHandoff(inst) then continue end
 			local pos = instancePosition(inst)
 			local near = pos ~= nil and (camPos == nil or (pos - camPos).Magnitude <= profile.FXDistance)
 			if near and budget > 0 and countParts(inst) <= budget then

@@ -58,6 +58,9 @@ local ITEM_ID = "bridge_builder"
 local activeFolder: Folder? = nil
 -- Tool z blueprintem trzymany w ręce podczas build mode (per gracz).
 local equippedTools: { [Player]: Tool } = {}
+-- Budowanie działa także bez kosmetycznego modelu blueprinta. Autoryzacja
+-- należy do trybu serwera, a nie do obecności opcjonalnego assetu w dłoni.
+local building: { [Player]: boolean } = {}
 local initialized = false
 -- Rate limit per gracz (anti-spam BuildBridge). Klient mirrors z Config.RateLimits.BridgeBuild.
 local lastBuildAt: { [Player]: number } = {}
@@ -83,8 +86,7 @@ local function getOrCreateActiveFolder(): Folder
 end
 
 local function isValidVector3(v: any): boolean
-	if typeof(v) ~= "Vector3" then return false end
-	if v.X ~= v.X or v.Y ~= v.Y or v.Z ~= v.Z then return false end  -- NaN
+	if not Utils.isFiniteVector3(v) then return false end
 	if math.abs(v.X) > 1e6 or math.abs(v.Y) > 1e6 or math.abs(v.Z) > 1e6 then return false end
 	return true
 end
@@ -220,36 +222,8 @@ local function giveBlueprintTool(player: Player, def: any)
 		return
 	end
 
-	local model = template:Clone()
-	local primary = model.PrimaryPart or Utils.largestPart(model)
-	if not primary then
-		model:Destroy()
-		return
-	end
-
-	local tool = Instance.new("Tool")
-	tool.Name = "BlueprintTool"
-	tool.RequiresHandle = true
-	tool.CanBeDropped = false
-	tool:SetAttribute("ItemId", ITEM_ID)
-
-	primary.Name = "Handle"
-	local parts: { BasePart } = {}
-	for _, d in ipairs(model:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.CanCollide = false
-			d.Massless = true
-			table.insert(parts, d)
-		end
-	end
-	Utils.weldModel(model, primary)
-	for _, p in ipairs(parts) do
-		p.Parent = tool
-	end
-	for _, leftover in ipairs(model:GetChildren()) do
-		leftover.Parent = tool
-	end
-	model:Destroy()
+	local tool = Utils.makeHeldTool(template, "BlueprintTool", ITEM_ID)
+	if not tool then return end
 
 	tool.Parent = char
 	equippedTools[player] = tool
@@ -272,11 +246,13 @@ local function enterBuildMode(player: Player)
 	if def then
 		giveBlueprintTool(player, def)
 	end
+	building[player] = true
 	Remotes.BridgeBuildMode:FireClient(player, true)
 	log(player, "enter build mode", ("count=%d"):format(ItemService.getCount(player, ITEM_ID)))
 end
 
 local function exitBuildMode(player: Player)
+	building[player] = nil
 	removeBlueprintTool(player)
 	Remotes.BridgeBuildMode:FireClient(player, false)
 end
@@ -307,6 +283,10 @@ local function handleBuildBridge(player: Player, anchorPos: any, rotationY: any)
 	end
 
 	-- Item count
+	if not building[player] or not LoadoutService.canEquip(player, ITEM_ID) then
+		Remotes.BridgeResult:FireClient(player, false, "not_equipped")
+		return
+	end
 	local count = ItemService.getCount(player, ITEM_ID)
 	if count <= 0 then
 		Remotes.BridgeResult:FireClient(player, false, "no_items")
@@ -384,19 +364,18 @@ local function handleBuildBridge(player: Player, anchorPos: any, rotationY: any)
 end
 
 local function onEquipItem(player: Player, itemId: any)
+	-- Chowanie nie może przepaść przez cooldown wyciągania poprzedniego itemu.
+	if itemId ~= ITEM_ID then
+		if building[player] or equippedTools[player] then exitBuildMode(player) end
+		return
+	end
 	local now = os.clock()
 	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem * Config.RateLimits.ServerTolerance then return end
 	lastEquipAt[player] = now
 
-	if itemId == ITEM_ID then
-		-- Tylko item z loadoutu (18.10) — inaczej oszust wyciąga wszystko, co ma.
-		if not LoadoutService.canEquip(player, ITEM_ID) then return end
-		enterBuildMode(player)
-	else
-		-- Klient przełączył na inny slot — wyłącz nasz build mode jeśli był aktywny.
-		-- (Idempotentne; klient już sam w to wchodzi przez ChildSlot logic.)
-		exitBuildMode(player)
-	end
+	-- Tylko item z loadoutu (18.10) — inaczej oszust wyciąga wszystko, co ma.
+	if not LoadoutService.canEquip(player, ITEM_ID) then return end
+	enterBuildMode(player)
 end
 
 local function onUnequipItem(player: Player)
@@ -416,10 +395,15 @@ end
 -- Śmierć / LoadCharacter zabiera Tool razem z postacią — zostawiona referencja
 -- wskazywałaby na zniszczony obiekt i `removeBlueprintTool` udawałby, że coś sprząta.
 local function onCharacterRemoving(player: Player)
+	building[player] = nil
 	equippedTools[player] = nil
 end
 
 local function cleanupAll()
+	for _, player in ipairs(Players:GetPlayers()) do
+		if building[player] or equippedTools[player] then exitBuildMode(player) end
+	end
+	table.clear(building)
 	local folder = activeFolder
 	if folder then
 		folder:ClearAllChildren()

@@ -61,6 +61,8 @@ local StructuralService = require(script.Parent.StructuralService)
 local CollapseService = require(script.Parent.CollapseService)
 local PropService = require(script.Parent.PropService)
 local CarService = require(script.Parent.CarService)
+local GameLoopService = require(script.Parent.GameLoopService)
+local Pieces = require(script.Parent.Parent.Structure.Pieces)
 
 local DestructionService = {}
 
@@ -174,6 +176,8 @@ end
 local frameIndex = 0
 local spentFrame = -1
 local spentMs = 0
+-- Zaległy wybuch/pass może czekać na budżet dłużej niż reset mapy.
+local roundGeneration = 0
 
 local function charge(ms: number)
 	if spentFrame ~= frameIndex then
@@ -625,37 +629,6 @@ local function spawnRemnant(source: BasePart, cf: CFrame, size: Vector3): BasePa
 	return part
 end
 
--- Stopy graczy w local space parta — do wyboru resztki, która zostaje ORYGINAŁEM.
-local function feetIn(cf: CFrame, feetWorld: { Vector3 }): { Vector3 }
-	local out = table.create(#feetWorld)
-	for i, f in ipairs(feetWorld) do
-		out[i] = cf:PointToObjectSpace(f)
-	end
-	return out
-end
-
--- Która resztka dostaje ORYGINALNĄ instancję parta: ta, na której stoi najwięcej graczy,
--- a przy remisie największa. Tolerancja pionowa jest hojna, bo pozycja postaci na serwerze
--- jest spóźniona względem klienta (network ownership).
-local function pickReuse(rem: { Fracture.Chunk }, feetLocal: { Vector3 }): number
-	local best, bestScore, bestVolume = 1, -1, -1
-	for i, box in ipairs(rem) do
-		local h = box.size * 0.5
-		local score = 0
-		for _, lf in ipairs(feetLocal) do
-			local d = lf - box.offset
-			if math.abs(d.X) <= h.X + 1 and math.abs(d.Y) <= h.Y + 3 and math.abs(d.Z) <= h.Z + 1 then
-				score += 1
-			end
-		end
-		local volume = box.size.X * box.size.Y * box.size.Z
-		if score > bestScore or (score == bestScore and volume > bestVolume) then
-			best, bestScore, bestVolume = i, score, volume
-		end
-	end
-	return best
-end
-
 -- Świeży stan dla oryginału, który od teraz jest resztką (patrz spawnRemnant).
 local function makeFresh(part: BasePart)
 	local orig = part:GetAttribute(ORIG_COLOR_ATTR)
@@ -700,7 +673,7 @@ local function applyCut(
 		return 0
 	end
 
-	local reuse = pickReuse(rem, feetIn(cut.cf, feetWorld))
+	local reuse = Pieces.pickReuse(rem, cut.cf, feetWorld)
 	local created = 0
 	for i, box in ipairs(rem) do
 		if i ~= reuse then
@@ -1058,10 +1031,13 @@ local function settleLater(
 	damage: number,
 	impulse: number,
 	serverLeft: number,
-	stats: BlastStats
+	stats: BlastStats,
+	generation: number
 )
 	task.wait()
+	if generation ~= roundGeneration then return end
 	stats.frames += 1 + awaitBudget()
+	if generation ~= roundGeneration then return end
 	local t0 = os.clock()
 
 	local fell = settleGraph(graph, remnants, originOf, stale, ctx)
@@ -1130,7 +1106,9 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	local glassRadius = params.glassRadius or 0
 
 	local stats = newStats()
+	local generation = roundGeneration
 	stats.frames += awaitBudget()
+	if generation ~= roundGeneration then return nil end
 	local t0 = os.clock()
 	local ctx = buildCtx()
 
@@ -1655,6 +1633,7 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 	if #cuts > 0 or #v4Cuts > 0 or #launchServerList > 0 then
 		task.spawn(function()
 			task.wait()
+			if generation ~= roundGeneration then return end
 			local lateCtx = buildCtx()
 			local h = newHandoff()
 			for _, n in ipairs(Workspace:GetPartBoundsInRadius(center, radius + SMALL.AttachPadding * 2)) do
@@ -1684,7 +1663,7 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 
 	-- ===== 5. PODPARCIE „PO” — osobny wątek, klatkę później =======================
 	if graph then
-		task.spawn(settleLater, graph, remnants, originOf, stale, ctx, center, radius, damage, impulse, serverLeft, stats)
+		task.spawn(settleLater, graph, remnants, originOf, stale, ctx, center, radius, damage, impulse, serverLeft, stats, generation)
 	else
 		logBlast(radius, damage, stats)
 	end
@@ -1732,6 +1711,9 @@ function DestructionService.dropResting(pieces: { BasePart }, center: Vector3)
 end
 
 function DestructionService.init()
+	GameLoopService.RoundEnded:Connect(function()
+		roundGeneration += 1
+	end)
 	-- Licznik klatek dla budżetu CPU (awaitBudget). Heartbeat = jedna klatka serwera.
 	RunService.Heartbeat:Connect(function()
 		frameIndex += 1

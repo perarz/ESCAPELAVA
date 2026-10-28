@@ -123,7 +123,7 @@ def cut_face(name, polygon):
     mod=shell.modifiers.new(name,'BOOLEAN');mod.operation='DIFFERENCE';mod.solver='EXACT';mod.object=cutter
     bpy.ops.object.modifier_apply(modifier=mod.name)
     bpy.data.objects.remove(cutter,do_unlink=True)
-    face_border(polygon)
+    # Front openings intentionally have no black rim (27.10 feedback).
 for x in (-.255,.255):
     cut_face('Eye opening',[(x+.092*math.cos(i*math.tau/12),-.38+.145*math.sin(i*math.tau/12)) for i in range(12)])
 upper=[(-.43+.86*i/12,-.66-.16*(1-((- .43+.86*i/12)/.43)**2)) for i in range(13)]

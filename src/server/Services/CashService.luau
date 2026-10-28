@@ -18,7 +18,8 @@ local PlayerDataService = require(script.Parent.PlayerDataService)
 local CashService = {}
 
 local function log(player: Player, delta: number, reason: string, newBalance: number)
-	print(("[Cash] %s %+d (%s) → %d  t=%.1f"):format(player.Name, delta, reason, newBalance, os.clock()))
+	print(("[Cash] %s %+d (%s) → %d  unix_ms=%d"):format(
+		player.Name, delta, reason, newBalance, DateTime.now().UnixTimestampMillis))
 end
 
 local function replicate(player: Player, delta: number?, reason: string?)
@@ -75,6 +76,42 @@ function CashService.spend(player: Player, amount: number, reason: string): bool
 		replicate(player, -amount, reason)
 	end
 	return success
+end
+
+-- Permanent purchases save money and ownership in the SAME state replacement. The
+-- prepare callback must not yield or mutate its input: return a new state, or nil to
+-- reject. Subscribers/autosave can never observe money spent without the granted item.
+function CashService.purchase(
+	player: Player,
+	amount: number,
+	reason: string,
+	prepare: (any) -> (any?, string?)
+): (boolean, string?)
+	assert(amount >= 0 and amount < math.huge and amount % 1 == 0, "CashService.purchase: invalid amount")
+	if not PlayerDataService.isWritable(player) then return false, "data_not_ready" end
+	local success = false
+	local failure: string? = "data_not_ready"
+	local newBalance = 0
+	PlayerDataService.update(player, function(data)
+		local current = data.cash or 0
+		if current < amount then
+			failure = "not_enough_cash"
+			return nil
+		end
+		local replacement, rejected = prepare(data)
+		if not replacement then
+			failure = rejected or "purchase_rejected"
+			return nil
+		end
+		newBalance = current - amount
+		replacement.cash = newBalance
+		success = true
+		return replacement
+	end)
+	if not success then return false, failure end
+	log(player, -amount, reason, newBalance)
+	replicate(player, -amount, reason)
+	return true, nil
 end
 
 local STARTER_PACK = 100        -- jednorazowy bonus dla nowych graczy (production)

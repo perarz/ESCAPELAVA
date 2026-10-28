@@ -371,7 +371,7 @@ end
 local function onCashChanged(newBalance: any, delta: any)
 	if typeof(newBalance) ~= "number" then return end
 	-- Pierwszy stan (wczytanie danych, dołączenie) — bez animacji, licznik po prostu pokazuje kwotę.
-	if not known or typeof(delta) ~= "number" then
+	if not known then
 		known = true
 		balance = newBalance
 		pending = 0
@@ -380,6 +380,9 @@ local function onCashChanged(newBalance: any, delta: any)
 		return
 	end
 	balance = newBalance
+	-- Powtórny snapshot potwierdza saldo, ale nie oznacza, że banknoty już doleciały.
+	-- Zerowanie pending przy działających dolotach odejmowałoby ich udziały drugi raz.
+	if typeof(delta) ~= "number" then return end
 	if delta > 0 then
 		local n = notesFor(delta)
 		centerBurst(n)

@@ -136,7 +136,7 @@ function Pieces.setBox(part: BasePart, b: Box)
 end
 
 -- Nowy kawałek z wyglądem i zachowaniem źródła (hard rule 15: wygląd przez
--- Utils.copyAppearance — sam Material dałby goły plastik bez wariantu „Studs”).
+-- Utils.copyAppearance zachowuje także wariant, gdy źródło go używa).
 -- Tekstury (tapety) przechodzą, Decale nie — obrazek powieliłby się na każdym kawałku.
 function Pieces.spawn(source: BasePart, cf: CFrame, size: Vector3): Part
 	local part = Instance.new("Part")
@@ -172,12 +172,18 @@ end
 -- podłogę”): gracz na oryginale nie traci gruntu, bo nowe resztki powstają OBOK niego.
 -- Jedno miejsce dla dziur w konstrukcji (StructuralService) i w rumowisku (CollapseService).
 function Pieces.pickReuse(rem: { { offset: Vector3, size: Vector3 } }, cf: CFrame, feetWorld: { Vector3 }): number
+	-- Wszystkie resztki mają ten sam układ odniesienia; przeliczamy stopy raz,
+	-- zachowując identyczny scoring i tolerancje dla każdej resztki.
+	local feetLocal: { Vector3 } = table.create(#feetWorld)
+	for i, f in ipairs(feetWorld) do
+		feetLocal[i] = cf:PointToObjectSpace(f)
+	end
 	local best, bestScore, bestVolume = 1, -1, -1
 	for i, box in ipairs(rem) do
 		local h = box.size * 0.5
 		local score = 0
-		for _, f in ipairs(feetWorld) do
-			local d = cf:PointToObjectSpace(f) - box.offset
+		for _, f in ipairs(feetLocal) do
+			local d = f - box.offset
 			if math.abs(d.X) <= h.X + 1 and math.abs(d.Y) <= h.Y + 3 and math.abs(d.Z) <= h.Z + 1 then
 				score += 1
 			end

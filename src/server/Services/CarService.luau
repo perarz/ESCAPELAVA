@@ -26,6 +26,7 @@ local RunService = game:GetService("RunService")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
+local GameLoopService = require(script.Parent.GameLoopService)
 
 local CarService = {}
 
@@ -39,6 +40,8 @@ export type Injected = {
 }
 
 local deps: Injected? = nil
+local roundGeneration = 0
+local initialized = false
 
 -- Siła wybuchu i czas ognia dla modelu: profil folderu (beczki) albo domyślny (auta).
 local function profileOf(model: Instance): (any, number)
@@ -62,8 +65,9 @@ function CarService.ignite(car: Model, attacker: Player?)
 		return
 	end
 	exploded[car] = true
+	local generation = roundGeneration
 	task.delay(CARS.Delay, function()
-		if not car.Parent or not deps then
+		if generation ~= roundGeneration or not car.Parent or not deps then
 			return
 		end
 		local blast, fireTime = profileOf(car)
@@ -102,9 +106,10 @@ function CarService.drop(model: Model)
 	local FALL = CARS.Fall
 	local startY = primary.Position.Y
 	local startedAt = os.clock()
+	local generation = roundGeneration
 	local conn: RBXScriptConnection? = nil
 	conn = RunService.Heartbeat:Connect(function()
-		if not model.Parent or not primary.Parent or exploded[model] then
+		if generation ~= roundGeneration or not model.Parent or not primary.Parent or exploded[model] then
 			if conn then conn:Disconnect() end
 			return
 		end
@@ -119,6 +124,15 @@ end
 
 function CarService.inject(injected: Injected)
 	deps = injected
+	if initialized then return end
+	initialized = true
+	GameLoopService.RoundEnded:Connect(function()
+		-- MapService może zachować nietkniętą jednostkę. Samo Parent nie odróżnia
+		-- wtedy starego zapłonu od obiektu należącego już do następnej rundy.
+		roundGeneration += 1
+		table.clear(exploded)
+		table.clear(falling)
+	end)
 end
 
 return CarService

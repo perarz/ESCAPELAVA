@@ -30,6 +30,8 @@ local CooldownBarController = require(script.Parent.CooldownBarController)
 local MovementController = require(script.Parent.MovementController)
 local RagdollState = require(script.Parent.RagdollState)
 
+local ToolActivation = require(script.Parent.ToolActivation)
+
 local GrappleController = {}
 
 local CFG = Config.Grapple
@@ -276,7 +278,7 @@ local function startFlight(anchor: Vector3, goal: Vector3, maxTime: number)
 	-- Łuk od AKTUALNEJ pozycji postaci — to ona jest prawdą o tym, gdzie gracz jest.
 	-- Serwer liczył z pozycji opóźnionej o ping; różnica pokrywa się w TimeMargin.
 	local arc = GrappleArc.plan(hrp.Position, goal)
-	if arc.duration <= 0.01 then return end
+	if arc.duration <= CFG.MinFlightTime then return end
 
 	local s0, dsdu0 = GrappleArc.ease(0)
 	local v0 = GrappleArc.derivative(arc, s0) * (dsdu0 / arc.duration)
@@ -313,45 +315,30 @@ local function startFlight(anchor: Vector3, goal: Vector3, maxTime: number)
 end
 
 -- ── Strzał ───────────────────────────────────────────────────────────────────────────
-local function hookTool(tool: Tool)
-	if tool.Name ~= "GrappleTool" then return end
+local function onActivated()
+	if gameState ~= "" and gameState ~= "ROUND" then return end
 
-	tool.Activated:Connect(function()
-		if gameState ~= "" and gameState ~= "ROUND" then return end
+	-- Lokalny soft-cooldown: tylko po to, żeby nie zasypywać serwera RPC. Pasek
+	-- odpalamy dopiero po POTWIERDZENIU (Remotes.Grappled) — optymistyczny pasek przy
+	-- odrzuconym zaczepie to kłamstwo interfejsu, które zgłoszono już przy bombie.
+	local now = os.clock()
+	if now - lastFireAt < Config.RateLimits.Grapple then return end
 
-		-- Lokalny soft-cooldown: tylko po to, żeby nie zasypywać serwera RPC. Pasek
-		-- odpalamy dopiero po POTWIERDZENIU (Remotes.Grappled) — optymistyczny pasek przy
-		-- odrzuconym zaczepie to kłamstwo interfejsu, które zgłoszono już przy bombie.
-		local now = os.clock()
-		if now - lastFireAt < Config.RateLimits.Grapple then return end
+	local hum, hrp = getCharParts()
+	if not (hum and hrp) then return end
+	if isRagdolled(hum) then return end
 
-		local hum, hrp = getCharParts()
-		if not (hum and hrp) then return end
-		if isRagdolled(hum) then return end
+	local mouse = localPlayer:GetMouse()
+	local target = mouse.Hit and mouse.Hit.Position
+	if not target then return end
+	if (target - hrp.Position).Magnitude < 1 then return end
 
-		local mouse = localPlayer:GetMouse()
-		local target = mouse.Hit and mouse.Hit.Position
-		if not target then return end
-		if (target - hrp.Position).Magnitude < 1 then return end
-
-		lastFireAt = now
-		ItemEquipController.cancel()
-		Remotes.FireGrapple:FireServer(target)
-	end)
+	lastFireAt = now
+	ItemEquipController.cancel()
+	Remotes.FireGrapple:FireServer(target)
 end
 
-local function hookCharacter(char: Model)
-	char.ChildAdded:Connect(function(child)
-		if child:IsA("Tool") then
-			hookTool(child)
-		end
-	end)
-	for _, c in ipairs(char:GetChildren()) do
-		if c:IsA("Tool") then
-			hookTool(c)
-		end
-	end
-end
+
 
 -- Lot hakiem trwa (LadderController nie przyciąga wtedy do drabiny — lot sam ustawia prędkość).
 function GrappleController.isFlying(): boolean
@@ -359,10 +346,7 @@ function GrappleController.isFlying(): boolean
 end
 
 function GrappleController.init()
-	if localPlayer.Character then
-		hookCharacter(localPlayer.Character)
-	end
-	localPlayer.CharacterAdded:Connect(hookCharacter)
+	ToolActivation.bind("GrappleTool", onActivated)
 	localPlayer.CharacterRemoving:Connect(function()
 		endFlight("interrupted")
 	end)

@@ -44,6 +44,7 @@ local lastThrowAt: { [Player]: number } = {}
 -- Rate limit EquipItem/UnequipItem — spam clickowanie hotbar = flicker Tool w rękach
 -- innych klientów + bandwidth. Klient (HotbarController) też trzyma osobny debounce.
 local lastEquipAt: { [Player]: number } = {}
+local roundToken = 0
 
 local function log(player: Player, action: string, extra: string?)
 	print(("[Bomb] %s %s%s"):format(player.Name, action, extra and (" — " .. extra) or ""))
@@ -70,36 +71,8 @@ end
 local function buildToolVisual(tool: Tool, modelName: string?): BasePart
 	local template = if modelName then Utils.getAsset(modelName) else nil
 	if template and template:IsA("Model") then
-		local model = template:Clone()
-		local primary = model.PrimaryPart or Utils.largestPart(model)
-		if primary then
-			primary.Name = "Handle"
-
-			local parts: { BasePart } = {}
-			for _, d in ipairs(model:GetDescendants()) do
-				if d:IsA("BasePart") then
-					d.CanCollide = false
-					-- Massless: przedmiot w dłoni nie może zmieniać fizyki postaci.
-					-- Bez tego kilkanaście kilogramów bomby przechyla i spowalnia gracza.
-					d.Massless = true
-					table.insert(parts, d)
-				end
-			end
-
-			-- Welds PRZED odkotwiczeniem i przed wejściem do świata (patrz Utils.weldModel).
-			Utils.weldModel(model, primary)
-
-			for _, p in ipairs(parts) do
-				p.Parent = tool
-			end
-			-- Cokolwiek jeszcze siedziało w modelu (dźwięki, atrybuty-nośniki) idzie z nimi.
-			for _, leftover in ipairs(model:GetChildren()) do
-				leftover.Parent = tool
-			end
-			model:Destroy()
-			return primary
-		end
-		model:Destroy()
+		local primary = Utils.attachHeldModel(tool, template)
+		if primary then return primary end
 		warn(("[Bomb] model %s nie ma ani jednego BasePart — używam kuli z kodu"):format(modelName :: string))
 	elseif modelName then
 		warn(("[Bomb] brak ReplicatedStorage.%s (Model) — używam kuli z kodu"):format(modelName))
@@ -341,6 +314,20 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 	end
 end
 
+-- Każda broń zachowuje tę samą kolejność: zburzona ściana nie osłania obrażeń.
+-- Błąd destrukcji nie może anulować obrażeń, ale reset rundy podczas jej yieldu musi.
+local function destroyEnvironment(center: Vector3, def: any, attacker: Player?): boolean
+	local token = roundToken
+	local ok, err = xpcall(DestructionService.detonate, function(e: any): string
+		return tostring(e) .. "\n" .. debug.traceback()
+	end, center, def.destruction, attacker)
+	if not ok then
+		warn(("[Bomb] BŁĄD destrukcji przy wybuchu %s (%s): %s"):format(
+			tostring(center), tostring(def.id or "auto"), tostring(err)))
+	end
+	return token == roundToken
+end
+
 -- `root` to Model (bomba Kacpra) albo pojedynczy Part (fallback), więc środek wybuchu
 -- dostajemy osobno — z bryły niosącej fizykę, nie z roota, którego pozycja przy modelu
 -- zależy od pivota.
@@ -354,20 +341,7 @@ local function detonate(root: Instance, center: Vector3, thrower: Player, def: a
 	-- odczekać klatkę na budżet CPU, a bomba nie może wisieć w świecie po błysku.
 	root:Destroy()
 
-	-- Destrukcja PRZED damage: gdy bomba zdmuchnie ścianę, gracz za nią jest już odsłonięty
-	-- w momencie liczenia obrażeń (occlusion polega na tej kolejności). VFX wybuchu
-	-- odpala DestructionService (Remotes.BlastFX → klienci renderują).
-	-- ⚠️ W xpcall: błąd w destrukcji NIE MOŻE anulować obrażeń graczy — bez tego jeden wyjątek
-	-- w DestructionService zjadał całą resztę wybuchu. To jedna z dwóch możliwych przyczyn
-	-- zgłoszenia Kacpra 26.09 „czasem bomba nic mu nie robi, 0 ragdolla, 0 dmg” (druga:
-	-- warunki pominięcia niżej, logowane jako `miss`) — NIEPOTWIERDZONA, log rozstrzygnie.
-	-- Błąd drukujemy głośno, z miejscem wystąpienia, żeby dało się go naprawić u źródła.
-	local ok, err = xpcall(DestructionService.detonate, function(e: any): string
-		return tostring(e) .. "\n" .. debug.traceback() -- ślad z MIEJSCA błędu, nie z tego wywołania
-	end, center, def.destruction, thrower)
-	if not ok then
-		warn(("[Bomb] BŁĄD destrukcji przy wybuchu %s: %s"):format(tostring(center), tostring(err)))
-	end
+	if not destroyEnvironment(center, def, thrower) then return end
 
 	applyDamageAndKnockback(center, thrower, def)
 
@@ -379,13 +353,7 @@ end
 -- ItemDefinitions.bomb. Bez sprawcy (nikt nie rzucał) tylko otoczenie: tag zabójstwa
 -- i log potrzebują gracza. 20.10: woła to też RpgService (rakieta) i beczki (21.10).
 function BombService.explodeAt(center: Vector3, def: any, attacker: Player?)
-	local ok, err = xpcall(DestructionService.detonate, function(e: any): string
-		return tostring(e) .. "\n" .. debug.traceback()
-	end, center, def.destruction, attacker)
-	if not ok then
-		warn(("[Bomb] BŁĄD destrukcji przy wybuchu %s (%s): %s"):format(
-			tostring(center), tostring(def.id or "auto"), tostring(err)))
-	end
+	if not destroyEnvironment(center, def, attacker) then return end
 	if attacker and attacker.Parent then
 		applyDamageAndKnockback(center, attacker, def)
 		log(attacker, if type(def.id) == "string" then def.id else "car", "pos=" .. tostring(center))
@@ -454,9 +422,10 @@ function BombService.throw(player: Player, direction: any): (boolean, string?)
 
 	-- Walidacja Tool equipped
 	local tool = equippedTools[player]
-	if not tool or not tool.Parent then
+	if not tool or not player.Character or tool.Parent ~= player.Character then
 		return false, "not_equipped"
 	end
+	if not LoadoutService.canEquip(player, "bomb") then return false, "not_in_loadout" end
 
 	-- Walidacja direction (z klienta). `mag ~= mag` łapie NaN: porównania z NaN są zawsze
 	-- fałszem, więc samo `< 0.01 or > 1000` go przepuszczało — a wektor NaN wchodził w CFrame
@@ -636,21 +605,19 @@ local function onThrowBomb(player: Player, direction: any)
 end
 
 local function onEquipItem(player: Player, itemId: any)
+	-- Zmiana itemu musi schować bombę także podczas jej cooldownu equipowania.
+	-- RPG/C4 mają własne limity i mogły już przyjąć to samo żądanie.
+	if itemId ~= "bomb" then
+		BombService.unequip(player)
+		return
+	end
 	local now = os.clock()
 	if now - (lastEquipAt[player] or 0) < Config.RateLimits.EquipItem * Config.RateLimits.ServerTolerance then return end
 	lastEquipAt[player] = now
 
-	-- Dispatch po itemId. W przyszłości: shield, bridge_builder, etc.
-	if itemId == "bomb" then
-		-- Tylko item z loadoutu (18.10) — inaczej oszust wyciąga wszystko, co ma.
-		if not LoadoutService.canEquip(player, "bomb") then return end
-		BombService.equip(player, "bomb")
-	else
-		-- Klient przełączył na inny item (np. bridge_builder) — jeśli mieliśmy bomb tool
-		-- w ręku, schowaj go. Każdy service self-cleanups gdy klient zmienia equip;
-		-- alternatywa byłaby centralnym "EquipmentManager" ale to overengineering dla 2 itemów.
-		BombService.unequip(player)
-	end
+	-- Tylko item z loadoutu (18.10) — inaczej oszust wyciąga wszystko, co ma.
+	if not LoadoutService.canEquip(player, "bomb") then return end
+	BombService.equip(player, "bomb")
 end
 
 local function onUnequipItem(player: Player)
@@ -694,6 +661,7 @@ function BombService.init()
 	-- im w rękach, a `CharacterRemoving` (jedyny dotychczasowy cleanup) nigdy nie leciał.
 	-- BridgeService robił to od początku; tu po prostu tego brakowało.
 	GameLoopService.RoundEnded:Connect(function()
+		roundToken += 1
 		for _, player in ipairs(Players:GetPlayers()) do
 			BombService.unequip(player)
 		end

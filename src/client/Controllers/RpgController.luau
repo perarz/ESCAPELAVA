@@ -3,6 +3,8 @@
 --   1. Tool.Activated na `RpgTool` → FireRpg(punkt, w który celuje mysz)
 --   2. Remotes.RocketFired → KOPIA rakiety u siebie, lecąca po tej samej prostej co rakieta
 --      serwera; Remotes.RocketExploded → kopia znika (wybuch rysuje ExplosionFXController z BlastFX)
+--   3. (24.10) Celowanie na PPM / L2: zoom, ciało w stronę celu (MovementController.setAim)
+--      i celownik `HUD.Crosshair`; strzał z celowania leci w środek celownika.
 --
 -- Kopia to czysta kosmetyka: zero kolizji, zapytań i dotyku (lekcja 10 — nic, co istnieje tylko
 -- u jednego klienta, nie może wpływać na grę) i `Locked = true` (bez tego DebrisFXController
@@ -12,6 +14,8 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
@@ -21,6 +25,8 @@ local RagdollState = require(script.Parent.RagdollState)
 local ItemEquipController = require(script.Parent.ItemEquipController)
 local CooldownBarController = require(script.Parent.CooldownBarController)
 local MovementController = require(script.Parent.MovementController)
+
+local ToolActivation = require(script.Parent.ToolActivation)
 
 local RpgController = {}
 
@@ -224,14 +230,14 @@ end
 -- Kop ręki: ta sama technika co gest łyku / ItemEquipController — nakładka na
 -- `Motor6D.Transform` zdejmowana w PreAnimation i kładziona po Animatorze w PreSimulation.
 -- Tu DODAWANA do pozy chodu (base * obrót), bo wyrzutnia zostaje w ręce.
-type Kick = { started: number, shoulder: Motor6D, elbow: Motor6D, written: { [Motor6D]: { base: CFrame, w: CFrame } } }
+type Kick = { started: number, shoulder: Motor6D, elbow: Motor6D, written: { [Motor6D]: { base: CFrame?, w: CFrame? } } }
 local kicks: { [Player]: Kick } = {}
 
 local function restoreKick(k: Kick)
 	for motor, rec in pairs(k.written) do
-		if motor.Parent and motor.Transform == rec.w then motor.Transform = rec.base end
+		if motor.Parent and rec.base and rec.w and motor.Transform == rec.w then motor.Transform = rec.base end
+		rec.base, rec.w = nil, nil
 	end
-	table.clear(k.written)
 end
 
 local function startKick(shooter: Player)
@@ -246,7 +252,7 @@ local function startKick(shooter: Player)
 	if not (sh and el) then return end
 	local old = kicks[shooter]
 	if old then restoreKick(old) end
-	kicks[shooter] = { started = os.clock(), shoulder = sh, elbow = el, written = {} }
+	kicks[shooter] = { started = os.clock(), shoulder = sh, elbow = el, written = { [sh] = {}, [el] = {} } }
 end
 
 local function updateKicks()
@@ -254,7 +260,8 @@ local function updateKicks()
 	local now = os.clock()
 	for player, k in pairs(kicks) do
 		local t = now - k.started
-		if t >= RC.ArmTime or not k.shoulder.Parent or not k.shoulder.Enabled then
+		if t >= RC.ArmTime or not k.shoulder.Parent or not k.shoulder.Enabled
+			or not k.elbow.Parent or not k.elbow.Enabled then
 			restoreKick(k)
 			kicks[player] = nil
 			continue
@@ -262,54 +269,143 @@ local function updateKicks()
 		-- Szybkie wychylenie, potem spokojny powrót.
 		local w = if t < RC.ArmAttack then t / RC.ArmAttack
 			else (1 - (t - RC.ArmAttack) / (RC.ArmTime - RC.ArmAttack)) ^ 2
-		for motor, deg in pairs({ [k.shoulder] = RC.ArmShoulder, [k.elbow] = RC.ArmElbow }) do
+		-- Rekordy żyją tyle co gest, zamiast powstawać po trzy tabele na klatkę.
+		for motor, rec in pairs(k.written) do
+			local deg = if motor == k.shoulder then RC.ArmShoulder else RC.ArmElbow
 			local base = motor.Transform
 			local result = base * CFrame.Angles(math.rad(deg * w), 0, 0)
-			k.written[motor] = { base = base, w = result }
+			rec.base, rec.w = base, result
 			motor.Transform = result
 		end
 	end
 end
 
--- ── Strzał ───────────────────────────────────────────────────────────────────────────
-local function hookTool(tool: Tool)
-	if tool.Name ~= TOOL_NAME then return end
-	tool.Activated:Connect(function()
-		if gameState ~= "" and gameState ~= "ROUND" then return end
-		local now = os.clock()
-		if now - lastFireAt < Config.RateLimits.Rpg then return end
-		local char = localPlayer.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if not hum or hum.Health <= 0 or RagdollState.isRagdolled(hum) then return end
+-- ── Celowanie (24.10) ────────────────────────────────────────────────────────────────
+-- Stan liczony CO KLATKĘ z warunków (trzymany PPM/L2 + RPG w ręce + żywy, bez ragdolla,
+-- runda), a nie z osobnych zdarzeń: zdjęcie wyrzutni, ostatnia rakieta, ragdoll, śmierć
+-- i koniec rundy kończą celowanie same, bez listy hooków, z której łatwo coś wypaść.
+local AIM = CFG.Aim
+local aimHeld = false
+local aiming = false
+local crosshair: GuiObject? = nil
+local crosshairPop: UIScale? = nil
+local crosshairWarned = false
+local popTween: Tween? = nil
+local aimParams = RaycastParams.new()
+aimParams.FilterType = Enum.RaycastFilterType.Exclude
+aimParams.IgnoreWater = true
 
-		local mouse = localPlayer:GetMouse()
-		local target = mouse.Hit and mouse.Hit.Position
-		if not target then return end
-
-		lastFireAt = now
-		ItemEquipController.cancel()
-		Remotes.FireRpg:FireServer(target)
-	end)
+local function isAimInput(input: InputObject): boolean
+	return input.UserInputType == Enum.UserInputType.MouseButton2
+		or input.KeyCode == Enum.KeyCode.ButtonL2
 end
 
-local function hookCharacter(char: Model)
-	char.ChildAdded:Connect(function(child)
-		if child:IsA("Tool") then hookTool(child) end
-	end)
-	for _, c in ipairs(char:GetChildren()) do
-		if c:IsA("Tool") then hookTool(c) end
+-- Celownik stawia Kacper w Studio (`HUD.Crosshair`, kontrakt w STUDIO_CONTRACT). Brak = celowanie
+-- działa dalej, strzał leci w środek ekranu — tylko bez kresek.
+local function getCrosshair(): GuiObject?
+	if crosshair and crosshair.Parent then return crosshair end
+	local pg = localPlayer:FindFirstChildOfClass("PlayerGui")
+	local hud = pg and pg:FindFirstChild("HUD")
+	local found = hud and hud:FindFirstChild(AIM.CrosshairName)
+	if not (found and found:IsA("GuiObject")) then
+		if not crosshairWarned then
+			crosshairWarned = true
+			warn(("[RpgController] brak HUD.%s — celowanie bez celownika"):format(AIM.CrosshairName))
+		end
+		return nil
+	end
+	crosshair = found
+	local body = found:FindFirstChild("Body")
+	local pop = body and body:FindFirstChild("Pop")
+	crosshairPop = if pop and pop:IsA("UIScale") then pop else nil
+	return found
+end
+
+local function popCrosshair(from: number, style: Enum.EasingStyle)
+	local scale = crosshairPop
+	if not scale then return end
+	if popTween then popTween:Cancel() end
+	scale.Scale = from
+	popTween = TweenService:Create(scale, TweenInfo.new(AIM.PopTime, style, Enum.EasingDirection.Out), { Scale = 1 })
+	popTween:Play()
+end
+
+local function canAim(): boolean
+	if gameState ~= "" and gameState ~= "ROUND" then return false end
+	local char = localPlayer.Character
+	if not (char and char:FindFirstChild(TOOL_NAME)) then return false end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	return hum ~= nil and hum.Health > 0 and not RagdollState.isRagdolled(hum)
+end
+
+local function setAiming(on: boolean)
+	if on == aiming then return end
+	aiming = on
+	MovementController.setAim(if on then AIM.Profile else nil)
+	-- Kursor zostaje tam, gdzie wciśnięto PPM (kamera Robloxa blokuje go w miejscu) — przy
+	-- celowaniu chowamy go, celuje się celownikiem.
+	UserInputService.MouseIconEnabled = not on
+	local ch = getCrosshair()
+	if ch then
+		ch.Visible = on
+		if on then popCrosshair(AIM.ShowPop, Enum.EasingStyle.Back) end
 	end
 end
+
+-- Punkt pod środkiem celownika. Promień z punktu GUI = `ScreenPointToRay` (UI_RULES: dwa
+-- układy współrzędnych); bez celownika — środek ekranu.
+local function aimPoint(): Vector3?
+	local camera = Workspace.CurrentCamera
+	if not camera then return nil end
+	local ch = crosshair
+	local ray = if ch and ch.Parent
+		then camera:ScreenPointToRay(ch.AbsolutePosition.X + ch.AbsoluteSize.X * 0.5,
+			ch.AbsolutePosition.Y + ch.AbsoluteSize.Y * 0.5)
+		else camera:ViewportPointToRay(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y * 0.5)
+	-- Promień startuje na wysokości postaci, nie przy kamerze: to, co stoi między kamerą
+	-- a plecami (szyba, kolega za tobą), nie jest celem — rakieta i tak startuje z ramienia.
+	local char = localPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local skip = if root and root:IsA("BasePart")
+		then math.max(0, (root.Position - ray.Origin):Dot(ray.Direction)) else 0
+	local origin = ray.Origin + ray.Direction * skip
+	aimParams.FilterDescendantsInstances = if char then { char } else {}
+	local hit = Workspace:Raycast(origin, ray.Direction * AIM.RayLength, aimParams)
+	return if hit then hit.Position else origin + ray.Direction * AIM.RayLength
+end
+
+-- ── Strzał ───────────────────────────────────────────────────────────────────────────
+local function onActivated()
+	if gameState ~= "" and gameState ~= "ROUND" then return end
+	local now = os.clock()
+	if now - lastFireAt < Config.RateLimits.Rpg then return end
+	local char = localPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 or RagdollState.isRagdolled(hum) then return end
+
+	-- Z celowania w środek celownika, bez — w kursor (decyzja 24.10).
+	local target: Vector3?
+	if aiming then
+		target = aimPoint()
+	else
+		local mouse = localPlayer:GetMouse()
+		target = mouse.Hit and mouse.Hit.Position
+	end
+	if not target then return end
+
+	lastFireAt = now
+	ItemEquipController.cancel()
+	Remotes.FireRpg:FireServer(target)
+end
+
+
 
 local initialized = false
 function RpgController.init()
 	if initialized then return end
 	initialized = true
 
-	if localPlayer.Character then
-		hookCharacter(localPlayer.Character)
-	end
-	localPlayer.CharacterAdded:Connect(hookCharacter)
+	ToolActivation.bind("RpgTool", onActivated)
 
 	Remotes.RocketFired.OnClientEvent:Connect(function(id, shooter, origin, dir, speed, firedAt, maxTime)
 		if type(id) ~= "number" or typeof(origin) ~= "Vector3" or typeof(dir) ~= "Vector3"
@@ -324,6 +420,9 @@ function RpgController.init()
 			end
 			MovementController.screenShake(RC.Shake, RC.ShakeTime)
 			MovementController.fovKick(RC.FOVKick)
+			if aiming then
+				popCrosshair(AIM.FirePop, Enum.EasingStyle.Quad)
+			end
 		end
 		if typeof(shooter) == "Instance" and shooter:IsA("Player") then
 			playMuzzle(shooter, origin, dir)
@@ -351,12 +450,31 @@ function RpgController.init()
 		removeVisual(id)
 	end)
 
-	RunService.RenderStepped:Connect(update)
+	-- Celowanie: PPM nad przyciskiem GUI albo w czacie się nie liczy; puszczenie — zawsze.
+	-- Alt-tab gubi InputEnded, stąd WindowFocusReleased (jak sprint w MovementController).
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if not gameProcessed and isAimInput(input) then aimHeld = true end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if isAimInput(input) then aimHeld = false end
+	end)
+	UserInputService.WindowFocusReleased:Connect(function()
+		aimHeld = false
+	end)
+
+	RunService.RenderStepped:Connect(function()
+		setAiming(aimHeld and canAim())
+		update()
+	end)
 	RunService.PreAnimation:Connect(function()
 		for _, k in pairs(kicks) do restoreKick(k) end
 	end)
 	RunService.PreSimulation:Connect(updateKicks)
-	Players.PlayerRemoving:Connect(function(p) kicks[p] = nil end)
+	Players.PlayerRemoving:Connect(function(p)
+		local k = kicks[p]
+		if k then restoreKick(k) end
+		kicks[p] = nil
+	end)
 end
 
 return RpgController

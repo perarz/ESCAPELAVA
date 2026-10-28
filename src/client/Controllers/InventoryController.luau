@@ -14,7 +14,8 @@
 --       dookoła okna DETAILS.Window (ono pokazuje świat); klik NIE zamyka (19.10)
 --     Panel.Body (UIScale Pop): CloseButton (UIScale Hover), Card:
 --       Shelf.Grid (UIGridLayout) → ItemTemplate (Visible=false; UIScale Hover): SelectStroke,
---         Fill (+ Studs), Icon, ItemName, Count, Price, SlotTag.Label
+--         Fill (+ Pattern1/2, Sweep), Rim, Sparkles.Star1..4 (UIScale Twinkle), Icon, ItemName,
+--         Count, Price, SlotTag.Label — wzór kart: Config.UI.Inventory.CardStyles (23.10)
 --       LavaPool.Band.Lava1/Lava2 (przesuwane), Loadout: Status, Slot1..3 (klon HUD.Hotbar.Slot1:
 --         SelectStroke, Icon, ItemName, Count, Keybind + Empty „+”, UIScale Pop)
 --     DetailsPanel.Body (UIScale Pop): CloseButton (UIScale Hover), Card: Header.ItemName / Count,
@@ -42,6 +43,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local LoadoutState = require(script.Parent.LoadoutState)
+local ShopController = require(script.Parent.ShopController)
 
 local InventoryController = {}
 
@@ -343,6 +345,13 @@ local function placeShowcase(t: number)
 end
 
 -- Ściemnienie gry DOOKOŁA okna (cztery prostokąty), bo przez okno patrzymy na świat.
+local function placeBackdropPiece(name: string, x: number, y: number, w: number, h: number)
+	local piece = backdropPieces[name]
+	if not piece then return end
+	piece.Position = UDim2.fromOffset(x, y)
+	piece.Size = UDim2.fromOffset(math.max(w, 0), math.max(h, 0))
+end
+
 local function layoutBackdrop()
 	local root = gui
 	if not root then return end
@@ -354,19 +363,11 @@ local function layoutBackdrop()
 		x0, y0 = tl.X, tl.Y
 		x1, y1 = x0 + win.AbsoluteSize.X, y0 + win.AbsoluteSize.Y
 	end
-	local rects = {
-		Top = { 0, 0, W, y0 },
-		Bottom = { 0, y1, W, H - y1 },
-		Left = { 0, y0, x0, y1 - y0 },
-		Right = { x1, y0, W - x1, y1 - y0 },
-	}
-	for name, r in pairs(rects) do
-		local piece = backdropPieces[name]
-		if piece then
-			piece.Position = UDim2.fromOffset(r[1], r[2])
-			piece.Size = UDim2.fromOffset(math.max(r[3], 0), math.max(r[4], 0))
-		end
-	end
+	-- Te same cztery prostokąty bez pięciu tymczasowych tabel co klatkę.
+	placeBackdropPiece("Top", 0, 0, W, y0)
+	placeBackdropPiece("Bottom", 0, y1, W, H - y1)
+	placeBackdropPiece("Left", 0, y0, x0, y1 - y0)
+	placeBackdropPiece("Right", x1, y0, W - x1, y1 - y0)
 end
 
 -- ============================================================================
@@ -504,6 +505,105 @@ end
 -- Odświeżanie kart i slotów
 -- ============================================================================
 
+-- ── Wzór kart (23.10) — opis i liczby: Config.UI.Inventory.CardStyles ──────────────────────
+
+-- Paski z twardymi brzegami w jednym gradiencie przezroczystości. Pas = 4 punkty (jego dwa końce
+-- i dwa brzegi przerwy), a Roblox przyjmuje najwyżej 20 punktów — stąd do 4 pasów na warstwę.
+local function stripeSequence(count: number, width: number, alpha: number): NumberSequence
+	local n = math.clamp(math.floor(count), 1, 4)
+	local period = 1 / n
+	local w = math.clamp(width, 0.05, 0.95) * period
+	local e = 0.002
+	local kps: { NumberSequenceKeypoint } = {}
+	for i = 0, n - 1 do
+		local a = i * period
+		table.insert(kps, NumberSequenceKeypoint.new(a, alpha))
+		table.insert(kps, NumberSequenceKeypoint.new(a + w, alpha))
+		table.insert(kps, NumberSequenceKeypoint.new(a + w + e, 1))
+		table.insert(kps, NumberSequenceKeypoint.new(a + period - e, 1))
+	end
+	table.insert(kps, NumberSequenceKeypoint.new(1, 1))
+	return NumberSequence.new(kps)
+end
+
+type AnimatedCard = { sweep: UIGradient?, sweepEvery: number, stars: { UIScale }, phase: number }
+local animatedCards: { AnimatedCard } = {}
+
+-- Raz przy tworzeniu karty: wzór, ramka i które dodatki się ruszają. Kolor bazy zostaje
+-- w `paintCard` (x0 = szara), wzór i dodatki są takie same przy x0 — widać, co warto kupić.
+local function styleCard(tile: GuiButton, itemId: string)
+	local style = (CFG.CardStyles :: any)[itemId]
+	local fill = tile:FindFirstChild("Fill")
+	local layers = if style and style.Layers then style.Layers else {}
+	for i = 1, 2 do
+		local frame = fill and fill:FindFirstChild("Pattern" .. i)
+		local layer = layers[i]
+		if frame and frame:IsA("GuiObject") then
+			frame.Visible = layer ~= nil
+			local g = frame:FindFirstChildOfClass("UIGradient")
+			if layer and g then
+				frame.BackgroundColor3 = layer.Color
+				g.Rotation = layer.Rotation
+				g.Offset = Vector2.new(layer.Offset or 0, 0)
+				g.Transparency = stripeSequence(layer.Count, layer.Width, layer.Transparency)
+			end
+		end
+	end
+
+	local rim = tile:FindFirstChild("Rim")
+	if rim and rim:IsA("GuiObject") then
+		local colors = style and style.Rim
+		rim.Visible = colors ~= nil
+		local stroke = rim:FindFirstChildOfClass("UIStroke")
+		local g = stroke and stroke:FindFirstChildOfClass("UIGradient")
+		if colors and g then g.Color = ColorSequence.new(colors[1], colors[2]) end
+	end
+
+	-- Faza zależna od kolejności: dwie karty z błyskiem nie błyskają naraz.
+	local card: AnimatedCard = { sweep = nil, sweepEvery = 0, stars = {}, phase = #animatedCards * 0.9 }
+	local sweep = fill and fill:FindFirstChild("Sweep")
+	if sweep and sweep:IsA("GuiObject") then
+		sweep.Visible = style ~= nil and style.Sweep ~= nil
+		if sweep.Visible then
+			card.sweep = sweep:FindFirstChildOfClass("UIGradient")
+			card.sweepEvery = style.Sweep
+		end
+	end
+	local sparkles = tile:FindFirstChild("Sparkles")
+	if sparkles and sparkles:IsA("GuiObject") then
+		sparkles.Visible = style ~= nil and style.Sparkles == true
+		if sparkles.Visible then
+			for _, star in ipairs(sparkles:GetChildren()) do
+				local s = star:FindFirstChild("Twinkle")
+				if s and s:IsA("UIScale") then table.insert(card.stars, s) end
+			end
+		end
+	end
+	if card.sweep or #card.stars > 0 then
+		table.insert(animatedCards, card)
+	end
+end
+
+-- Błysk i iskierki liczone z zegara i tylko przy otwartym panelu: zamknięty ekwipunek nic nie
+-- kosztuje, a nie ma tweenów, które trzeba by przerywać przy zamknięciu.
+local function animateCards()
+	if not isOpen then return end
+	local now = os.clock()
+	for _, card in ipairs(animatedCards) do
+		local sweep = card.sweep
+		if sweep then
+			local t = ((now + card.phase) % card.sweepEvery) / CFG.CardSweepTime
+			-- Pas błysku w gradiencie stoi na 0,5: przesunięcie ±1,2 chowa go za krawędzią karty.
+			sweep.Offset = Vector2.new(if t < 1 then -1.2 + 2.4 * t else -1.2, 0)
+		end
+		for i, s in ipairs(card.stars) do
+			local u = (now / CFG.CardSparklePeriod + i / #card.stars + card.phase) % 1
+			-- Krótkie mignięcie na początku okresu, potem przerwa.
+			s.Scale = if u < 0.35 then math.sin(u / 0.35 * math.pi) else 0
+		end
+	end
+end
+
 local function paintCard(tile: GuiButton, itemId: string)
 	local def = ItemDefinitions.get(itemId)
 	local count = LoadoutState.getCount(itemId)
@@ -512,8 +612,6 @@ local function paintCard(tile: GuiButton, itemId: string)
 	local fill = tile:FindFirstChild("Fill")
 	if fill and fill:IsA("GuiObject") then
 		fill.BackgroundColor3 = color
-		local studs = fill:FindFirstChild("Studs")
-		if studs and studs:IsA("ImageLabel") then studs.ImageColor3 = color end
 	end
 	local icon = tile:FindFirstChild("Icon")
 	if icon and icon:IsA("ImageLabel") then
@@ -891,7 +989,8 @@ end
 
 local function setOpen(open: boolean)
 	if open == isOpen or not (panel and backdrop) then return end
-	if open and not LoadoutState.isLobby() then return end
+	-- W sklepie ekwipunku nie ma (23.10, Kacper) — panel wchodziłby na panel sklepu.
+	if open and (not LoadoutState.isLobby() or ShopController.isOpen() or Players.LocalPlayer:GetAttribute("CosmeticsOpen") == true) then return end
 	isOpen = open
 	openToken += 1
 	local token = openToken
@@ -1059,6 +1158,7 @@ local function hookUi(root: ScreenGui)
 			local tile = template:Clone()
 			tile.Name = itemId
 			tile.LayoutOrder = order
+			styleCard(tile, itemId)
 			tile.Visible = true
 			tile.Parent = grid
 			tiles[itemId] = tile
@@ -1102,6 +1202,13 @@ local function hookUi(root: ScreenGui)
 	refresh()
 end
 
+-- Przycisk widać tylko w lobby i poza sklepem.
+local function updateButton()
+	if inventoryButton then
+		inventoryButton.Visible = LoadoutState.isLobby() and not ShopController.isOpen() and Players.LocalPlayer:GetAttribute("CosmeticsOpen") ~= true
+	end
+end
+
 local function hookButton(hud: Instance)
 	local side = hud:WaitForChild("SideButtons")
 	local btn = side:WaitForChild("InventoryButton")
@@ -1109,7 +1216,7 @@ local function hookButton(hud: Instance)
 	local bd = btn:FindFirstChild("Badge")
 	badge = if bd and bd:IsA("GuiObject") then bd else nil
 	inventoryButton = btn
-	btn.Visible = LoadoutState.isLobby()
+	updateButton()
 	hookHover(btn, "Pop")
 	btn.Activated:Connect(function()
 		popScale(btn, "Pop", 0.9, 0.25)
@@ -1121,16 +1228,27 @@ local initialized = false
 function InventoryController.init()
 	if initialized then return end
 	initialized = true
+	Players.LocalPlayer:GetAttributeChangedSignal("CosmeticsOpen"):Connect(function()
+		if Players.LocalPlayer:GetAttribute("CosmeticsOpen") == true then setOpen(false) end
+		updateButton()
+	end)
 
 	-- Listenery stanu i klawiszy PRZED czekaniem na UI (zasada 9, paczka 3).
 	LoadoutState.onChanged(function()
 		updateBadge()
 		-- poza lobby ekwipunku nie ma: przycisk znika, otwarty panel się zamyka
 		local lobby = LoadoutState.isLobby()
-		if inventoryButton then inventoryButton.Visible = lobby end
+		updateButton()
 		if not lobby and isOpen then setOpen(false) end
 		refresh()
 	end)
+	-- Sklep otwarty → przycisk znika, otwarty panel się zamyka; po wyjściu przycisk wraca.
+	ShopController.onOpenChanged(function(shopOpen: boolean)
+		updateButton()
+		if shopOpen and isOpen then setOpen(false) end
+	end)
+
+	RunService.Heartbeat:Connect(animateCards)
 
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed or input.UserInputType ~= Enum.UserInputType.Keyboard then return end

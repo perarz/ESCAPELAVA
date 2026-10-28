@@ -1,5 +1,7 @@
 # Wyciąganie itemów — 20.10.2026
 
+> **Stan 23.10:** wdrożone; najnowsze wymagania w tabeli „Naturalniejszy chwyt” poniżej. Bomba/hak/blueprint 0,3 s, RPG 0,7 s i stały chwyt oburącz. Pierwotne 0,35 s / oddanie chwytu Animatorowi to historia etapów. Play nadal według TESTY, commit `0d6c63c` obejmuje tę pracę.
+
 Decyzje Kacpra: bomba i hak przy biodrze/kieszeni, blueprint zza pleców; krótko (~0,35 s), subtelnie, również w ruchu i skoku. Użycie dostępne natychmiast i przerywa gest.
 
 Plan przed implementacją:

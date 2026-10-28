@@ -22,6 +22,24 @@ local active: { [Player]: Gesture } = {}
 local watches: { [Player]: Watch } = {}
 local initialized = false
 
+local function angles(v: Vector3): CFrame
+	return CFrame.Angles(math.rad(v.X), math.rad(v.Y), math.rad(v.Z))
+end
+
+-- Config jest zamrożony. Te same kąty obsługują wszystkie postacie, więc ich
+-- przeliczenie nie musi powtarzać się dla każdego stawu w każdej klatce.
+local poseFrames: { [Vector3]: CFrame } = {}
+for _, keys in pairs(CFG.Profiles) do
+	for _, key in ipairs(keys) do
+		for _, value in pairs(key) do
+			if typeof(value) == "Vector3" then poseFrames[value] = angles(value) end
+		end
+	end
+end
+for _, pose in pairs(CFG.HoldPoses) do
+	for _, value in pairs(pose) do poseFrames[value] = angles(value) end
+end
+
 local function restore(gesture: Gesture)
 	for _, joint in pairs(gesture.joints) do
 		-- Animator may be throttled, so explicitly remove our previous pose before
@@ -135,10 +153,6 @@ local function watchPlayer(player: Player)
 	if player.Character then attach(player, player.Character, watch) end
 end
 
-local function angles(v: Vector3): CFrame
-	return CFrame.Angles(math.rad(v.X), math.rad(v.Y), math.rad(v.Z))
-end
-
 local function update()
 	local now = os.clock()
 	for player, gesture in pairs(active) do
@@ -178,9 +192,9 @@ local function update()
 			local base = motor.Transform
 			local result = base
 			local holdAngles = hold and hold[name]
-			if holdAngles then result = base:Lerp(angles(holdAngles), holdWeight) end
-			if a[name] and b[name] then
-				local pose = angles(a[name]):Lerp(angles(b[name]), alpha)
+			if holdAngles then result = base:Lerp(poseFrames[holdAngles], holdWeight) end
+			if weight ~= 0 and a[name] and b[name] then
+				local pose = poseFrames[a[name]]:Lerp(poseFrames[b[name]], alpha)
 				result = if name == "Waist" then base * CFrame.identity:Lerp(pose, weight)
 					else result:Lerp(pose, weight)
 			end

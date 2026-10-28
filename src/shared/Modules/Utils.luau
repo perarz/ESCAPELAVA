@@ -6,6 +6,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Utils = {}
 
+-- Długość też musi być skończona: ogromne składowe mogą przepełnić obliczenie
+-- Magnitude, a późniejsze .Unit da wtedy nieprawidłowy kierunek.
+function Utils.isFiniteVector3(value: any): boolean
+	return typeof(value) == "Vector3" and value == value and value.Magnitude < math.huge
+end
+
 -- "M:SS" — np. 125 → "2:05"
 function Utils.formatTime(seconds: number): string
 	local s = math.max(0, math.floor(seconds))
@@ -61,10 +67,9 @@ end
 -- z fall-fracture mają wyglądać dokładnie jak part, z którego powstały.
 --
 -- `MaterialVariant` to osobna właściwość od `Material` i JEST kluczowa w tym projekcie:
--- cała mapa Kacpra to Material=Plastic + MaterialVariant="Studs" (MaterialVariant
--- w MaterialService z teksturą studsów). Skopiowanie samego `Material` daje gładki
--- plastik — stąd "party po wybuchu zmieniają teksturę". Ustawiane PO `Material`,
--- bo wariant ma sens tylko przy zgodnym BaseMaterial.
+-- mapa nadal używa Studs; modele itemów od 26.10 mają pusty wariant. Kopiujemy
+-- rzeczywisty wariant źródła, aby gruz dziedziczył wygląd otoczenia, a itemy swój.
+-- Ustawiane PO Material, żeby zachować zgodność BaseMaterial.
 function Utils.copyAppearance(source: BasePart, target: BasePart)
 	target.Color = source.Color
 	target.Material = source.Material
@@ -177,14 +182,15 @@ function Utils.weldModel(model: Instance, primary: BasePart)
 	end
 end
 
--- Przedmiot w ręce z modelu Kacpra (20.10 — energy drink, RPG; ten sam wzorzec mają ręcznie
--- GrappleService i BridgeService): kopia spłaszczona do Toola, zweldowana do największej
+-- Przedmiot w ręce z modelu Kacpra: kopia spłaszczona do Toola, zweldowana do największej
 -- bryły (`Handle`), bez kolizji i masy — 20+ partów o realnej masie przechyla postać.
 -- `gripFor(model, handle)` (opcjonalne) liczy `Tool.Grip`, dopóki model stoi jeszcze w całości
 -- i w pozie z wystawy — po spłaszczeniu nie da się już znaleźć jego części po nazwie.
--- Zwraca Tool BEZ rodzica (wkłada go wołający) albo nil, gdy model nie ma żadnej bryły.
-function Utils.makeHeldTool(template: Model, toolName: string, itemId: string,
-	gripFor: ((Model, BasePart) -> CFrame)?): Tool?
+-- Zwraca Handle albo nil, gdy model nie ma żadnej bryły; nie zmienia rodzica Toola.
+-- Bomba ma dodatkowe właściwości i awaryjny Handle. Wspólny montaż modelu działa
+-- też na istniejącym Toolu, aby te wyjątki nie powielały weldowania/spłaszczania.
+function Utils.attachHeldModel(tool: Tool, template: Model,
+	gripFor: ((Model, BasePart) -> CFrame)?): BasePart?
 	local model = template:Clone()
 	local primary = model.PrimaryPart or Utils.largestPart(model)
 	if not primary then
@@ -192,11 +198,6 @@ function Utils.makeHeldTool(template: Model, toolName: string, itemId: string,
 		return nil
 	end
 
-	local tool = Instance.new("Tool")
-	tool.Name = toolName
-	tool.RequiresHandle = true
-	tool.CanBeDropped = false
-	tool:SetAttribute("ItemId", itemId)
 	if gripFor then
 		tool.Grip = gripFor(model, primary)
 	end
@@ -220,6 +221,21 @@ function Utils.makeHeldTool(template: Model, toolName: string, itemId: string,
 		leftover.Parent = tool
 	end
 	model:Destroy()
+	return primary
+end
+
+-- Zwraca Tool bez rodzica (wkłada go wołający); pusty model nie zostawia pustego Toola.
+function Utils.makeHeldTool(template: Model, toolName: string, itemId: string,
+	gripFor: ((Model, BasePart) -> CFrame)?): Tool?
+	local tool = Instance.new("Tool")
+	tool.Name = toolName
+	tool.RequiresHandle = true
+	tool.CanBeDropped = false
+	tool:SetAttribute("ItemId", itemId)
+	if not Utils.attachHeldModel(tool, template, gripFor) then
+		tool:Destroy()
+		return nil
+	end
 	return tool
 end
 

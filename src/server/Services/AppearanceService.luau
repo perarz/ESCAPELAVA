@@ -45,6 +45,14 @@ local PlayerDataService = require(script.Parent.PlayerDataService)
 
 local AppearanceService = {}
 
+local cosmeticsApplier: ((Player, Model) -> ())? = nil
+
+-- Injected before the first spawn. CharacterAdded is too early: stripping the base
+-- avatar afterwards would remove accessories restored by another listener.
+function AppearanceService.setCosmeticsApplier(apply: (Player, Model) -> ())
+	cosmeticsApplier = apply
+end
+
 
 export type Appearance = {
 	skin: string,
@@ -243,6 +251,9 @@ function AppearanceService.loadCharacter(player: Player)
 	local character = player.Character
 	if character then
 		AppearanceService.applyToCharacter(character, appearance)
+		if cosmeticsApplier and player.Character == character then
+			cosmeticsApplier(player, character)
+		end
 	end
 end
 

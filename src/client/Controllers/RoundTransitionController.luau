@@ -1,6 +1,6 @@
 --!strict
 -- Round transitions: cover teleport during PREPARING, show shared-clock 3/2/1,
--- cover cleanup after FINISHING, unveil lobby after POST_ROUND settles.
+-- cover cleanup after FINISHING, unveil lobby once the survivors' teleport settles.
 -- Visual templates live in StarterGui; flow tokens cancel obsolete sequences.
 -- No camera manipulation. AliveChanged(true) confirms the round teleport.
 
@@ -28,6 +28,7 @@ local alpha = 0 -- 0 = niewidoczna, 1 = w pełni zakrywa
 local fadeToken = 0 -- nowy fade unieważnia poprzedni
 local flowToken = 0 -- nowy stan gry unieważnia poprzednią sekwencję
 local aliveAt = -math.huge
+local lastState: string? = nil
 local countdownGui: ScreenGui? = nil
 local countdownTween: Tween? = nil
 local countdownConnection: RBXScriptConnection? = nil
@@ -205,19 +206,30 @@ local function onState(newState: string, duration: number?, endsAt: number?)
 	hideCountdown()
 	flowToken += 1
 	local token = flowToken
+	local fromRound = newState == "LOBBY" and lastState == "RESETTING"
+	lastState = newState
 
-	if newState == "LOBBY" and (duration or 0) > 0 then
-		-- Lobby z odliczaniem: ściemnianie tak, żeby skończyło się razem z nim. Zasłona z
-		-- poprzedniej rundy (gdyby jeszcze wisiała) najpierw schodzi.
-		if alpha > 0 then
+	if newState == "LOBBY" then
+		if fromRound then
+			-- Prosto z rundy (od 26.10 bez POST_ROUND): zasłona trzyma się ExitHold, aż serwer
+			-- przeniesie ocalałych do lobby i ruszy odbudowa mapy — dopiero wtedy odsłaniamy.
+			fadeTo(1, 0)
+			task.delay(CFG.ExitHold, function()
+				if token == flowToken then fadeTo(0, CFG.FadeOutTime) end
+			end)
+		elseif alpha > 0 then
+			-- Zasłona z przerwanego odliczania (ktoś wyszedł) nie zostaje na ekranie.
 			fadeTo(0, CFG.FadeOutTime)
 		end
-		local lead = math.max((duration or 0) - CFG.FadeInTime, 0)
-		task.delay(lead, function()
-			if token == flowToken then
-				fadeTo(1, CFG.FadeInTime)
-			end
-		end)
+		if (duration or 0) > 0 then
+			-- Lobby z odliczaniem: ściemnianie tak, żeby skończyło się razem z nim.
+			local lead = math.max((duration or 0) - CFG.FadeInTime, 0)
+			task.delay(lead, function()
+				if token == flowToken then
+					fadeTo(1, CFG.FadeInTime)
+				end
+			end)
+		end
 	elseif newState == "PREPARING" then
 		task.spawn(runRoundEntry, token)
 	elseif newState == "COUNTDOWN" then
@@ -225,11 +237,6 @@ local function onState(newState: string, duration: number?, endsAt: number?)
 		showCountdown(endsAt or (Workspace:GetServerTimeNow()+(duration or Config.Game.StartCountdown)))
 	elseif newState == "RESETTING" then
 		fadeTo(1, CFG.FadeInTime)
-	elseif newState == "POST_ROUND" then
-		fadeTo(1,0)
-		task.delay(CFG.ExitHold,function()
-			if token == flowToken then fadeTo(0,CFG.FadeOutTime) end
-		end)
 	elseif alpha > 0 then
 		-- Odliczanie przerwane albo inny stan — nie zostawiamy ciemnego ekranu.
 		fadeTo(0, CFG.FadeOutTime)
