@@ -808,9 +808,44 @@ end
 -- Start lotu
 -- ============================================================================
 
+-- POMIAR 31.10 (Kacper: „góra raczej znika, niż spada”): kolaps #7 w GreenBuilding miał 24
+-- grupy w kolejce, a „leci” zalogowała JEDNA — reszta wyszła tędy (zero kawałków) bez śladu.
+-- Rozstrzyga, czy geometrii już nie było (kto inny ją zabrał), czy jest, ale nie trafia w chunki.
+local function describeEmpty(a: Active): string
+	local st = a.rec.state
+	local states: { [string]: number } = {}
+	for _, cid in ipairs(a.def.chunkIds) do
+		local s = st.rt[cid].state
+		states[s] = (states[s] or 0) + 1
+	end
+	local stateText: { string } = {}
+	for s, n in pairs(states) do
+		table.insert(stateText, s .. "=" .. n)
+	end
+	local alive, touching = 0, 0
+	for _, partIndex in ipairs(a.def.parts) do
+		for _, piece in ipairs(StructuralService.piecesOf(a.rec, partIndex)) do
+			alive += 1
+			local pb = Pieces.boxOf(piece)
+			for _, cid in ipairs(a.def.chunkIds) do
+				local c = st.chunks[cid]
+				if Pieces.intersect(pb, { min = c.min, max = c.max }, 0) then
+					touching += 1
+					break
+				end
+			end
+		end
+	end
+	return ("chunków %d (%s), partów %d, kawałków w mapie %d, w tym dotykających chunków grupy %d"):format(
+		#a.def.chunkIds, table.concat(stateText, " "), #a.def.parts, alive, touching)
+end
+
 local function release(a: Active): boolean
 	local pieces = takePieces(a)
 	if #pieces == 0 then
+		if CFG.Debug then
+			log("%s: grupa %s bez kawałków — pomijam (%s)", a.rec.id, a.def.groupId, describeEmpty(a))
+		end
 		a.rec.state:retire(a.def.chunkIds)
 		a.phase = "Gone"
 		return false
@@ -1753,10 +1788,188 @@ local function reweld(a: Active)
 	end
 end
 
+-- Bryła przecięta na wylot (31.10, zgłoszenie Kacpra: „środek filaru zniknął, a końce dalej
+-- ruszają się razem”). `reweld` spawał wszystkie resztki z korzeniem, więc połówki po dwóch
+-- stronach dziury były jedną bryłą połączoną powietrzem. Teraz kawałki dzielimy na skupiska,
+-- które się stykają: największe zostaje tą grupą, każde inne staje się osobną osiadłą bryłą
+-- (jak fragment — bez chunków). Styk liczymy w układzie jednego z kawałków: kawałki grupy
+-- mają wspólny obrót, więc tam pudełka są dokładne, a pudełka świata obróconej bryły — za duże.
+local splitSeq = 0
+
+local function localBox(frame: CFrame, p: BasePart): Box
+	local rel = frame:ToObjectSpace(p.CFrame)
+	local h = p.Size * 0.5
+	local mn, mx = Vector3.one * math.huge, -Vector3.one * math.huge
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sy in ipairs({ -1, 1 }) do
+			for _, sz in ipairs({ -1, 1 }) do
+				local c = rel * Vector3.new(h.X * sx, h.Y * sy, h.Z * sz)
+				mn, mx = mn:Min(c), mx:Max(c)
+			end
+		end
+	end
+	return { min = mn, max = mx }
+end
+
+local function boxesTouch(x: Box, y: Box, tol: number): boolean
+	return x.min.X - tol <= y.max.X and y.min.X - tol <= x.max.X
+		and x.min.Y - tol <= y.max.Y and y.min.Y - tol <= x.max.Y
+		and x.min.Z - tol <= y.max.Z and y.min.Z - tol <= x.max.Z
+end
+
+-- Zwraca korzenie nowych brył — wybuch, który je rozdzielił, budzi też je (decyzja Kacpra
+-- 31.10: obie połówki odskakują). Woła się PRZED `reweld(a)`: zostawia w `a` tylko główne skupisko.
+local function splitApart(a: Active): { BasePart }
+	local pieces: { BasePart } = {}
+	for _, p in ipairs(a.pieces) do
+		if p.Parent then
+			table.insert(pieces, p)
+		end
+	end
+	if #pieces < 2 then
+		return {}
+	end
+	local frame = pieces[1].CFrame
+	local tol = CFG.StubContact
+	local boxes: { Box } = {}
+	for i, p in ipairs(pieces) do
+		boxes[i] = localBox(frame, p)
+	end
+	local compOf: { number } = {}
+	local comps: { { number } } = {}
+	for i = 1, #pieces do
+		if compOf[i] then continue end
+		local ci = #comps + 1
+		local list = { i }
+		compOf[i] = ci
+		local k = 1
+		while k <= #list do
+			local u = list[k]
+			k += 1
+			for j = 1, #pieces do
+				if not compOf[j] and boxesTouch(boxes[u], boxes[j], tol) then
+					compOf[j] = ci
+					table.insert(list, j)
+				end
+			end
+		end
+		comps[ci] = list
+	end
+	if #comps < 2 then
+		return {}
+	end
+
+	local function volumeOf(list: { number }): number
+		local v = 0
+		for _, i in ipairs(list) do
+			local s = pieces[i].Size
+			v += s.X * s.Y * s.Z
+		end
+		return v
+	end
+	local main, mainVolume = 1, -1
+	for ci, list in ipairs(comps) do
+		local v = volumeOf(list)
+		if v > mainVolume then
+			main, mainVolume = ci, v
+		end
+	end
+	-- Listwa jedzie ze skupiskiem, którego dotyka. Niedotykająca niczego zostaje przy głównym,
+	-- jak przed podziałem — nowego znikania tu nie chcemy.
+	local followersOf: { [number]: { BasePart } } = {}
+	for _, f in ipairs(a.followers) do
+		if not f.Parent then continue end
+		local fb = localBox(frame, f)
+		local target = main
+		for i, b in ipairs(boxes) do
+			if boxesTouch(fb, b, tol) then
+				target = compOf[i]
+				break
+			end
+		end
+		followersOf[target] = followersOf[target] or {}
+		table.insert(followersOf[target], f)
+	end
+
+	local now = os.clock()
+	local roots: { BasePart } = {}
+	for ci, list in ipairs(comps) do
+		if ci == main then continue end
+		splitSeq += 1
+		local id = a.def.groupId .. "/" .. splitSeq
+		local ps: { BasePart } = {}
+		local mn, mx = Vector3.one * math.huge, -Vector3.one * math.huge
+		for _, i in ipairs(list) do
+			local p = pieces[i]
+			table.insert(ps, p)
+			local wb = Pieces.boxOf(p)
+			mn, mx = mn:Min(wb.min), mx:Max(wb.max)
+		end
+		local fs = followersOf[ci] or {}
+		local collide: { [BasePart]: boolean } = {}
+		for _, f in ipairs(fs) do
+			collide[f] = a.followerCollide[f]
+		end
+		local volume = volumeOf(list)
+		local b: Active = {
+			key = a.rec.id .. ":" .. id,
+			rec = a.rec,
+			def = {
+				groupId = id, chunkIds = {}, depth = 0, pivot = {}, parts = {}, splitParts = {},
+				followers = {}, volume = volume, min = mn, max = mx,
+			},
+			cause = a.cause,
+			priority = 2,
+			cost = 1 + #ps,
+			volume = volume,
+			center = (mn + mx) * 0.5,
+			pieces = ps,
+			followers = fs,
+			followerCollide = collide,
+			filters = {},
+			root = nil,
+			phase = "Settled",
+			queuedAt = now,
+			releasedAt = now,
+			startCF = CFrame.identity,
+		}
+		for _, p in ipairs(ps) do
+			rubbleOf[p] = b
+		end
+		for _, f in ipairs(fs) do
+			rubbleOf[f] = b
+		end
+		reweld(b)
+		b.restMin, b.restMax = groupBox(b)
+		b.supportCheckedAt = now
+		b.recheck = true -- połówka mogła zostać bez oparcia (zwisa z krawędzi)
+		table.insert(settledAll, b)
+		-- Małe — ta sama zasada co przy osiadaniu (twarde ruiny).
+		if volume < CFG.SmallRubbleVolume then
+			b.keep = rng:NextNumber() < CFG.KeepSmallRubbleChance
+			if not b.keep then
+				b.retireAt = now + CFG.SmallRubbleLifetime
+				table.insert(settledTemp, b)
+			end
+		end
+		if b.root then
+			table.insert(roots, b.root)
+		end
+	end
+	local mainPieces: { BasePart } = {}
+	for _, i in ipairs(comps[main]) do
+		table.insert(mainPieces, pieces[i])
+	end
+	a.pieces, a.followers = mainPieces, followersOf[main] or {}
+	log("%s: grupa %s przecięta na %d brył", a.rec.id, a.def.groupId, #comps)
+	return roots
+end
+
 -- Dziura w leżącym kawałku. Zwraca payload dla klientów (ten sam format co dziura v4 —
--- `win` = prostokąt zabrany z kolizji) i żywy kawałek grupy do obudzenia, albo nil, gdy
--- wybuch kawałka nie sięga albo to nie jest leżące rumowisko.
-function CollapseService.cutRubble(part: BasePart, center: Vector3, holeRadius: number, feetWorld: { Vector3 }): ({ [string]: any }?, BasePart?)
+-- `win` = prostokąt zabrany z kolizji), żywy kawałek grupy do obudzenia i korzenie brył,
+-- które dziura od niej oddzieliła — albo nil, gdy wybuch kawałka nie sięga albo to nie jest
+-- leżące rumowisko.
+function CollapseService.cutRubble(part: BasePart, center: Vector3, holeRadius: number, feetWorld: { Vector3 }): ({ [string]: any }?, BasePart?, { BasePart }?)
 	local a = rubbleOf[part]
 	if not a or a.phase ~= "Settled" then
 		return nil, nil
@@ -1805,11 +2018,12 @@ function CollapseService.cutRubble(part: BasePart, center: Vector3, holeRadius: 
 		part.Size = rem[reuse].size
 		part.CFrame = cf * CFrame.new(rem[reuse].offset)
 	end
+	local split = splitApart(a)
 	reweld(a)
 	if a.phase == "Settled" then
 		a.restMin, a.restMax = groupBox(a)
 	end
-	return payload, a.root
+	return payload, a.root, split
 end
 
 local function clearAll()

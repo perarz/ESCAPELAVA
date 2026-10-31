@@ -154,13 +154,22 @@ local function update()
 end
 
 -- ── Łyk z kliknięcia ─────────────────────────────────────────────────────────────────
+-- POMIAR 31.10 (patrz EnergyDrinkService): każde kliknięcie puszką w logu klienta — z powodem
+-- odmowy albo jako wysłany łyk. Usunąć po rozstrzygnięciu.
+local function trace(what: string)
+	print(("[EnergyDrink] klik: %s"):format(what))
+end
+
 local function onActivated()
-	if gameState ~= "" and gameState ~= "ROUND" then return end
+	if gameState ~= "" and gameState ~= "ROUND" then trace("poza rundą (" .. gameState .. ")") return end
 	local now = os.clock()
-	if now - lastDrinkAt < Config.RateLimits.EnergyDrink then return end
+	if now - lastDrinkAt < Config.RateLimits.EnergyDrink then
+		trace(("cooldown, minęło %.2f s"):format(now - lastDrinkAt))
+		return
+	end
 	local char = localPlayer.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if not hum or hum.Health <= 0 or RagdollState.isRagdolled(hum) then return end
+	if not hum or hum.Health <= 0 or RagdollState.isRagdolled(hum) then trace("martwy albo ragdoll") return end
 
 	lastDrinkAt = now
 	ItemEquipController.cancel()
@@ -169,6 +178,7 @@ local function onActivated()
 	localSipAt = now
 	begin(localPlayer)
 	Remotes.DrinkEnergy:FireServer()
+	trace("łyk wysłany do serwera")
 end
 
 
@@ -200,6 +210,19 @@ function EnergyDrinkController.init()
 		watchPlayer(player)
 	end
 	Players.PlayerRemoving:Connect(stop)
+
+	-- POMIAR 31.10: kiedy puszka naprawdę jest w ręce. Kliknięcie przed „w ręce” nie ma Toola,
+	-- więc nie zostawi linii „klik” — brak jej między tymi dwiema znaczy „za wcześnie”.
+	local function watchCan(character: Model)
+		character.ChildAdded:Connect(function(child)
+			if child.Name == TOOL_NAME and child:IsA("Tool") then print("[EnergyDrink] puszka w ręce") end
+		end)
+		character.ChildRemoved:Connect(function(child)
+			if child.Name == TOOL_NAME and child:IsA("Tool") then print("[EnergyDrink] puszka schowana") end
+		end)
+	end
+	localPlayer.CharacterAdded:Connect(watchCan)
+	if localPlayer.Character then watchCan(localPlayer.Character) end
 
 	-- Animator pisze Transform między tymi fazami (jak w ItemEquipController).
 	RunService.PreAnimation:Connect(function()

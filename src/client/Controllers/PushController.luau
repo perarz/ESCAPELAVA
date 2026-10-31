@@ -101,8 +101,16 @@ local function applyPushVelocity(velocity: Vector3)
 	hrp.AssemblyLinearVelocity = velocity
 end
 
+-- Item w ręce (Config.Push.BlockWithToolInHand) = brak pchnięcia. Serwer sprawdza to samo;
+-- tu po to, żeby nie było gestu i paska odnowienia za pchnięcie, którego nie będzie.
+local function holdsBlockedTool(): boolean
+	local char = localPlayer.Character
+	return CFG.BlockWithToolInHand and char ~= nil and char:FindFirstChildOfClass("Tool") ~= nil
+end
+
 -- Wspólne dla F i przycisku PUSH na telefonie.
 local function tryPush()
+	if holdsBlockedTool() then return end
 	local now = os.clock()
 	local cd = Config.RateLimits.Push
 	if now - lastPushAt < cd then return end
@@ -132,6 +140,8 @@ function PushController.init()
 	end)
 	-- Monitor only an active gesture; the toolbox can change its flag before Humanoid state.
 	RunService.Heartbeat:Connect(function()
+		-- PUSH na telefonie znika z itemem w ręce, wraca po jego schowaniu.
+		TouchControlsController.setShown("Push", not holdsBlockedTool())
 		local track, hum = pushTrack, pushHumanoid
 		if track and track.IsPlaying and hum and (hum.Health <= 0 or RagdollState.isRagdolled(hum)) then
 			track:Stop(CFG.AnimationFadeOut)
@@ -144,7 +154,7 @@ function PushController.init()
 		tryPush()
 	end)
 	TouchControlsController.bind("Push", { press = tryPush })
-	TouchControlsController.setShown("Push", true)
+	TouchControlsController.setShown("Push", not holdsBlockedTool())
 
 	Remotes.Pushed.OnClientEvent:Connect(function(velocity)
 		if typeof(velocity) ~= "Vector3" then return end

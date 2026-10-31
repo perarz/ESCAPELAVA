@@ -99,6 +99,8 @@ export type BlastStats = {
 	felledServer: number,   -- z tego zostało gruzem serwera (duże płyty)
 	pushed: number,         -- już-nieanchorowanych obiektów pchniętych falą
 	rubbleCut: number,      -- leżących kawałków rumowiska v4 z dziurą (25.09)
+	rubbleSeen: number,     -- leżących kawałków rumowiska w zasięgu wybuchu (pomiar 31.10)
+	rubbleNearest: number,  -- odległość najbliższego od środka wybuchu (-1 = brak)
 	stripCut: number,       -- listew v4, z których bomba wycięła odcinek (26.09)
 	stripFell: number,      -- kawałków listew v4, które straciły ostatnie oparcie (26.09)
 	cars: number,           -- aut zapalonych tym wybuchem (27.09)
@@ -1000,6 +1002,7 @@ type Damaged = { part: BasePart, hpLeft: number, maxHp: number }
 local function newStats(): BlastStats
 	return {
 		structural = 0, cut = 0, remnants = 0, launchedServer = 0, damaged = 0, glass = 0, rubbleCut = 0,
+		rubbleSeen = 0, rubbleNearest = -1,
 		stripCut = 0, stripFell = 0, vaporized = 0, shattered = 0, propPushed = 0, orphans = 0, cars = 0,
 		smallParts = 0, handoff = 0, felled = 0, felledServer = 0, pushed = 0,
 		cpuMs = 0, frames = 0,
@@ -1008,11 +1011,11 @@ end
 
 local function logBlast(radius: number, damage: number, stats: BlastStats)
 	if not CFG.Debug then return end
-	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d listwy cięte=%d bez oparcia=%d | rekwizyty: znikło=%d rozpad=%d odepchnięte=%d osierocone=%d | auta=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
+	print(("[Destr] r=%d dmg=%d | konstrukcja=%d dziur=%d (nowych resztek %d) wyrzut=%d rannych=%d szkło=%d | drobnica→klienci %d partów w %d mebl./partach | spadło=%d (serwer %d) pchnięte=%d rumowisko cięte=%d/%d (najbliżej %.1f) listwy cięte=%d bez oparcia=%d | rekwizyty: znikło=%d rozpad=%d odepchnięte=%d osierocone=%d | auta=%d | gruz serwera=%d/%d | cpu=%.1fms klatek=%d"):format(
 		radius, damage,
 		stats.structural, stats.cut, stats.remnants, stats.launchedServer, stats.damaged, stats.glass,
 		stats.smallParts, stats.handoff,
-		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut, stats.stripCut, stats.stripFell, stats.vaporized, stats.shattered, stats.propPushed, stats.orphans, stats.cars,
+		stats.felled, stats.felledServer, stats.pushed, stats.rubbleCut, stats.rubbleSeen, stats.rubbleNearest, stats.stripCut, stats.stripFell, stats.vaporized, stats.shattered, stats.propPushed, stats.orphans, stats.cars,
 		DebrisService.getTotalCount(), DBR.MaxTotalDebris,
 		stats.cpuMs, stats.frames))
 end
@@ -1344,22 +1347,35 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 		end
 		StructuralService.structuralDamage(center, radius, damage, cause)
 	end
-	-- Leżące rumowisko v4: ta sama dziura-prostokąt i ten sam próg co konstrukcja. Resztka,
-	-- którą trzeba potem obudzić, może być innym kawałkiem niż trafiony (trafiony mógł zniknąć).
+	-- Leżące rumowisko v4: ta sama dziura-prostokąt co konstrukcja, ale z niższym progiem
+	-- (`RubbleHoleThreshold`, 31.10) — szerszy zasięg i większa dziura. Resztka, którą trzeba
+	-- potem obudzić, może być innym kawałkiem niż trafiony (trafiony mógł zniknąć).
 	table.sort(rubbleHits, function(a, b)
 		return a.distance < b.distance
 	end)
+	local rubbleHoleRadius = math.clamp(radius * (1 - SD.RubbleHoleThreshold / math.max(damage, 0.001)), SD.MinHoleRadius, radius)
+	stats.rubbleSeen = #rubbleHits
+	stats.rubbleNearest = if rubbleHits[1] then rubbleHits[1].distance else -1
+	-- Bryły odcięte dziurą od trafionej (31.10) — budzi je ten sam wybuch, z odległością
+	-- trafienia. Dopisane PO pętli cięcia, żeby ta pętla nie cięła ich drugi raz.
+	local splitHits: { Hit } = {}
 	for _, hit in ipairs(rubbleHits) do
-		if hit.dmg >= SD.HoleThreshold and hit.part.Parent then
-			local payload, live = CollapseService.cutRubble(hit.part, center, holeRadius, feetWorld)
+		if hit.dmg >= SD.RubbleHoleThreshold and hit.part.Parent then
+			local payload, live, split = CollapseService.cutRubble(hit.part, center, rubbleHoleRadius, feetWorld)
 			if payload then
 				table.insert(v4Cuts, payload)
 				stats.rubbleCut += 1
 				if live then
 					hit.part = live
 				end
+				for _, root in ipairs(split or {}) do
+					table.insert(splitHits, { part = root, distance = hit.distance, dmg = hit.dmg })
+				end
 			end
 		end
+	end
+	for _, hit in ipairs(splitHits) do
+		table.insert(rubbleHits, hit)
 	end
 	-- Listwy v4: wycięty odcinek, na którym wybuch przekracza próg drobnicy (26.09). Zasięg
 	-- progu liczony jak `holeRadius`, tylko z progiem drobnicy zamiast progu dziury.

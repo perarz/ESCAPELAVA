@@ -99,10 +99,18 @@ local function pickBarrel(pusherHRP: BasePart): (Model?, number)
 	return best, bestDist
 end
 
+-- Item w ręce = Tool w postaci (schowany leży w Backpack). Wołane też po Windup, więc
+-- item wyjęty w trakcie zamachu też odwołuje pchnięcie i beczkę.
+local function holdsBlockedTool(character: Model): boolean
+	return Config.Push.BlockWithToolInHand and character:FindFirstChildOfClass("Tool") ~= nil
+end
+
 local function canPush(pusher: Player): boolean
-	local hum = pusher.Character and pusher.Character:FindFirstChildOfClass("Humanoid")
+	local character = pusher.Character
+	local hum = character and character:FindFirstChildOfClass("Humanoid")
 	return GameLoopService.getState() == "ROUND" and PlayerService.isAlive(pusher)
 		and hum ~= nil and hum.Health > 0 and not RagdollService.isRagdolled(pusher)
+		and not holdsBlockedTool(character :: Model)
 end
 
 local function resolvePush(pusher: Player)

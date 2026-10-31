@@ -133,6 +133,15 @@ local function unsupportedStrips(rec: Rec): { StripPiece }
 	-- Kikut = zakotwiczony kawałek konstrukcji, który nie leży w ŻADNYM żywym chunku swojego
 	-- parta. Kruszenie i start grupy odcinają swoje kawałki po granicy chunka i je zwalniają,
 	-- więc zostaje tu wyłącznie to, co po dziurze przecinającej chunk na wylot (Severed).
+	--
+	-- Chunk `Falling` NIE robi kikuta (31.10, Kacper: „góra raczej znika, niż spada”): jego
+	-- kawałki należą do grupy kolapsu, która czeka w kolejce, i zabierze je `takePieces`. Log
+	-- z GreenBuilding: kolaps #8 = 25 grup, wszystkie „bez kawałków” — kruszenie tuż po planie
+	-- uznało całe górne piętra za kikuty bez oparcia i oddało je klientom jako drobnicę, zanim
+	-- którakolwiek grupa zdążyła wystartować (w #7 to samo zrobił start pierwszej grupy).
+	local function ownsPiece(cid: number): boolean
+		return st:isAlive(cid) or st:stateOf(cid) == "Falling"
+	end
 	local minOverlap = CFG.Collapse.MinPieceSize
 	local stub: { [BasePart]: boolean } = {}
 	local stubsOf: { [number]: { BasePart } } = {}
@@ -150,7 +159,7 @@ local function unsupportedStrips(rec: Rec): { StripPiece }
 			local inAlive = false
 			for _, cid in ipairs(st.partChunks[index] or NONE) do
 				local c = st.chunks[cid]
-				if st:isAlive(cid) and Pieces.intersect(b, { min = c.min, max = c.max }, minOverlap) then
+				if ownsPiece(cid) and Pieces.intersect(b, { min = c.min, max = c.max }, minOverlap) then
 					inAlive = true
 					break
 				end

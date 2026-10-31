@@ -1,5 +1,22 @@
 # CO PRZETESTOWAĆ
 
+## 31.10 — po pierwszej rundzie Kacpra (NIEPRZETESTOWANE)
+
+Pierwsza runda 31.10: log czysty. RPG, C4 (4 serie po 3 ładunki, G odpala wszystkie), napój, kolaps, koniec rundy, lobby i odbudowa działają. Zgłoszenia: góra budynku „raczej znika, niż spada”, przerwany łyk napoju, pchanie z RPG. Kod zsynchronizowany i parsuje się (odczyt Edit).
+
+- [x] **RPG + F:** z wyrzutnią w ręce F nie pcha (Kacper 31.10: „rpg git”).
+- [ ] **F tylko z pustymi rękami** (decyzja 31.10): z KAŻDYM itemem w ręce (bomba, most, hak, napój, RPG, C4) F nic nie robi — bez gestu i paska odnowienia. Schowaj item (ten sam klawisz) → F pcha. Bomba po rzucie sama wraca do ręki, więc żeby pchnąć, schowaj ją klawiszem 1. Na telefonie (emulator) PUSH znika z itemem w ręce i wraca po schowaniu.
+- [ ] **Beczka:** F przy beczce odpala ją tylko z pustymi rękami (decyzja 31.10, ta sama zasada).
+- [ ] **Gruz:** zawal budynek → więcej kawałków zostaje leżeć do końca rundy (około 2 z 3 małych, było 1 z 4).
+- [x] **Duże bryły z budynku** (runda 3, Kacper: „spoko”; kolaps #8 bez `bez kawałków`, grupy po 14–21 kawałków) — (zgłoszenie 31.10: „więcej dużych brył, nie małe”; przyczyna z logu poprawiona): zwal GreenBuilding od parteru (C4 ×3 przy ścianach parteru) → górne piętra lecą jako duże płyty / kawałki ścian i zostają leżeć, a nie rozsypują się w drobny gruz, który znika. W logu NIE ma linii `bez kawałków — pomijam`; są `grupa … leci` z dużą liczbą kawałków. Wklej log — policzę też linie `ponad budżet` (te grupy dalej spadają u graczy jako drobnica).
+- [ ] **POMIAR: napój** — powtórz dokładnie to, co nie działało (klik pić → od razu inny item), 3–4 razy, i wklej linie `[EnergyDrink]`. Napisz też, czy ręka zdążyła podnieść puszkę do ust.
+- [x] **RPG w leżący gruz** (runda 4, Kacper: „lepiej to wygląda”) (zgłoszenie 31.10: „pchnęło, ale nic się nie rozwaliło”): strzel RPG w ułamaną część budynku leżącą na ziemi → za każdym razem coś odpada (dziura ~2× większa niż wcześniej), a płyta trafiona blisko środka pęka na dwie bryły. Strzał obok (do ~7 studów) też tnie. Wklej log: linie `[Rpg] … wybuch na …` i `rumowisko cięte=X/Y (najbliżej D)` powiedzą, w co trafiła rakieta, jeśli dalej tylko pcha.
+- [ ] C4 / bomba przy leżącym gruzie: robi duże dziury (~13 studów), ale nie zjada całego rumowiska jednym wybuchem — jeśli za dużo znika, zgłoś (gałka `RubbleHoleThreshold`).
+- [ ] **Przestrzelony leżący filar** (zgłoszenie 31.10: „środek zniknął, a końce dalej razem”): strzel RPG / bombą w środek leżącego filaru → oba końce odskakują OSOBNO, każdy w swoją stronę, i leżą osobno. W logu `[Collapse] … przecięta na 2 brył`. Dziura nie na wylot (z boku zostaje pasek) → dalej jedna bryła.
+- [ ] Przestrzel duży leżący strop na pół → dwie płyty osobno; połówka zwisająca nad krawędzią spada po chwili (sprawdzanie oparcia), nie wisi w powietrzu.
+- [ ] **Róg murku** (zgłoszenie 31.10, test z komendą: „git lepie”): sprint + skok w róg wyższego murku → postać nie wchodzi w ścianę i nie jest wypychana szarpnięciem; ten sam efekt co z komendą, ale już bez niej, także po śmierci i respawnie.
+- [ ] Po tej zmianie: ragdoll (bomba / upadek) leży normalnie i wstaje bez podskoku; drabina, hak, most, pływanie w lawie i pchanie działają jak wcześniej; wejście w drzwi i wąskie przejścia bez zahaczania.
+
 ## 📱 Telefon — przyciski dotykowe (28.10) — NIEPRZETESTOWANE
 
 Kod zsynchronizowany i parsuje się (odczyt Edit), przyciski postawione przez MCP. **Przed testem Cmd+S.** Test: Play z emulatorem urządzenia w Studio (pasek Test → Device, np. iPhone 14 i iPad), a potem na prawdziwym telefonie.

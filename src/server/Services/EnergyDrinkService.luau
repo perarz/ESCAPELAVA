@@ -124,12 +124,24 @@ local function handleDrink(player: Player)
 
 	-- 3. Pije to, co TRZYMA. Tool daje tylko equip, a equip pilnuje loadoutu — bez tego
 	--    oszust piłby napój spoza swoich 3 slotów.
+	-- POMIAR 31.10 (Kacper: „klikam pić, od razu zmieniam item — nie napije się”): odmowy po
+	-- cooldownie idą do logu z powodem. Najwyżej jedna linia na cooldown, więc spam remote'a
+	-- nie zaleje Output. Usunąć po rozstrzygnięciu.
 	local tool = equippedTools[player]
-	if not (tool and tool.Parent ~= nil and tool.Parent == player.Character) then return end
-	if ItemService.getCount(player, ITEM_ID) <= 0 then return end
+	if not (tool and tool.Parent ~= nil and tool.Parent == player.Character) then
+		log(player, "łyk odrzucony", "— puszki nie ma w ręce na serwerze")
+		return
+	end
+	if ItemService.getCount(player, ITEM_ID) <= 0 then
+		log(player, "łyk odrzucony", "— brak puszek")
+		return
+	end
 
 	-- 4. Zużycie PRZED efektem (atomic, race-safe — jak hak i most).
-	if not ItemService.consume(player, ITEM_ID, 1) then return end
+	if not ItemService.consume(player, ITEM_ID, 1) then
+		log(player, "łyk odrzucony", "— zużycie nie przeszło")
+		return
+	end
 
 	-- 5. Okno działania. Drugi napój w trakcie działania ODNAWIA czas do pełna (nie sumuje się)
 	--    i nie robi przerwy na łyk: początek zostaje stary, przesuwa się tylko koniec.

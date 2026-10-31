@@ -1161,6 +1161,11 @@ Config.Push = {
 	PushShakeIntensity = 0.45,
 	PushShakeDuration = 0.18,
 	PushFOVKick = 4,     -- stopnie (wraca sam, jak FOV punch od bomby)
+	-- 31.10 (Kacper): F i przycisk PUSH działają tylko z PUSTYMI rękami — każdy item w ręce
+	-- (bomba, most, hak, napój, RPG, C4) blokuje pchnięcie i odpalenie beczki. Najpierw było
+	-- tylko RPG; po teście: „podczas wszystkich itemów nie można pushować”. Sprawdza serwer
+	-- (PushService) i klient (bez gestu i paska odnowienia, PUSH na telefonie znika).
+	BlockWithToolInHand = true,
 }
 
 -- Rate limits per akcja (sekundy). Server enforces, klient mirrors dla wizualizacji
@@ -2329,6 +2334,12 @@ Config.Structure = {
 	-- Fracture.MinHoleRadius) — dwie kopie tylko do końca migracji, v3 zniknie.
 	Damage = {
 		HoleThreshold = 100,       -- obrażenia na powierzchni parta, od których powstaje dziura
+		-- To samo dla LEŻĄCEGO rumowiska kolapsu (31.10, Kacper: „strzeliłem w ułamaną część
+		-- budynku, pchnęło ją, ale nic się nie rozwaliło — więcej dmg”). Przy progu ściany RPG
+		-- (115 w promieniu 18) ciął tylko w ~2,4 studa od powierzchni i robił dziurę 3,5, więc
+		-- wybuch obok kawałka tylko go budził. 70 → RPG tnie do ~7 studów dziurą ~7 (2× szerszą),
+		-- C4 i bomba ~13. Dziura na wylot dzieli bryłę (`CollapseService.splitApart`).
+		RubbleHoleThreshold = 70,
 		MinHoleRadius = 3.5,
 		MinStrip = 1.4,            -- pas „okna” węższy niż tyle nie zostaje (dziura do krawędzi)
 		SeverTolerance = 0.3,      -- dziura musi pokryć przekrój nośny chunka z taką dokładnością
@@ -2457,7 +2468,9 @@ Config.Structure = {
 		--   * Mały fragment kruszenia (FragmentMinVolume > objętość ≥ SolidFragmentMinVolume) z tą
 		--     szansą spada fizyką serwera jak duży, zamiast u graczy bez kolizji — i zostaje. W tym
 		--     samym budżecie (MaxCost): bez miejsca idzie do graczy jak dotąd.
-		KeepSmallRubbleChance = 0.25,
+		-- 31.10 (Kacper: „góra raczej znika, niż spada”): 0,25 → 0,67 — około 2 z 3 małych
+		-- brył zostaje, żeby po zawaleniu było widać ruinę, a nie pusty plac.
+		KeepSmallRubbleChance = 0.67,
 		SolidFragmentChance = 0.25,
 		SolidFragmentMinVolume = 8, -- okruchy mniejsze niż ~2×2×2 zawsze u graczy (drgałyby i plątały się pod nogami)
 		LavaCullMargin = 1,

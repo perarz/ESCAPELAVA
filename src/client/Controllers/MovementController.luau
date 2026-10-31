@@ -682,11 +682,29 @@ local function updateStaminaBar(dt: number)
 	applyBarAlpha()
 end
 
+-- Kolizja HumanoidRootPart (31.10, test Kacpra z komendą: „git lepie”). Toolbox ragdolla
+-- wyłącza ją przy starcie postaci (ragdollserver:245), więc ze światem zderzały się tylko
+-- tułów i głowa — części ruszane animacją biegu i obrotem pasa za kamerą. Sprint ze skokiem
+-- w róg murku: biodra wchodziły w ścianę, a wbity tułów fizyka wypychała szarpnięciem. Zwykły
+-- Roblox zderza się blokiem HRP, który animacja nie rusza — przywracamy to poza ragdollem
+-- i śmiercią (tam blok na sztywno przy tułowiu psułby leżące ciało). Tylko u klienta: fizykę
+-- postaci liczy jej właściciel (zasada 12), serwer zostaje przy ustawieniu toolboxa.
+local function syncRootCollision()
+	local char = currentCharacter
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not (hrp and hrp:IsA("BasePart")) then return end
+	local want = isAlive() and not isRagdolled()
+	if hrp.CanCollide ~= want then
+		hrp.CanCollide = want
+	end
+end
+
 -- ====================================================================
 -- UPDATE LOOP
 -- ====================================================================
 
 local function updateLoop(dt: number)
+	syncRootCollision()
 	if not currentHumanoid then
 		activeSprintNow = false
 		updateEnergyTint(dt) -- filtr ekranu gaśnie także po śmierci
