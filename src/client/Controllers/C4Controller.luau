@@ -22,6 +22,7 @@ local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local C4Path = require(ReplicatedStorage.Shared.Modules.C4Path)
 local RagdollState = require(script.Parent.RagdollState)
 local ItemEquipController = require(script.Parent.ItemEquipController)
 local CooldownBarController = require(script.Parent.CooldownBarController)
@@ -165,9 +166,111 @@ local function updateSwings()
 	end
 end
 
+-- ── Płynny lot ───────────────────────────────────────────────────────────────────────
+-- Serwer przestawia ładunek co klatkę, a to dojeżdża do klienta skokowo (zgłoszenie Kacpra
+-- 01.11). W locie rysujemy więc KOPIĘ liczoną z tego samego wzoru co serwer (C4Path) od czasu
+-- serwera, a sam ładunek jest u nas niewidoczny. Po przyklejeniu kopia w LandBlend dojeżdża do
+-- prawdziwego ładunku (który dotąd tylko czytamy — nie piszemy w jego CFrame, więc zawsze
+-- jest tam, gdzie postawił go serwer) i znika.
+local FLIGHT = CFG.Flight
+type Visual = { clone: Model, primary: BasePart, at: number, start: CFrame, vel: Vector3,
+	axis: Vector3, offset: CFrame, landFrom: CFrame?, landAt: number }
+local visuals: { [Model]: Visual } = {}
+
+local function setHidden(model: Model, hidden: boolean)
+	local v = if hidden then 1 else 0
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") or d:IsA("Decal") then
+			d.LocalTransparencyModifier = v
+		end
+	end
+end
+
+local function dropVisual(model: Model)
+	local vis = visuals[model]
+	if not vis then return end
+	visuals[model] = nil
+	vis.clone:Destroy()
+	if model.Parent then setHidden(model, false) end
+end
+
+local function refreshFlight(model: Model)
+	local at = model:GetAttribute(FLIGHT.At)
+	local vis = visuals[model]
+	if type(at) ~= "number" then
+		-- Koniec lotu: dosiadanie (albo nic, jeśli kopii nie było).
+		if vis and not vis.landFrom then
+			vis.landFrom = vis.primary.CFrame
+			vis.landAt = os.clock()
+		end
+		return
+	end
+	local start, vel = model:GetAttribute(FLIGHT.Start), model:GetAttribute(FLIGHT.Vel)
+	local axis, offset = model:GetAttribute(FLIGHT.Axis), model:GetAttribute(FLIGHT.Offset)
+	if typeof(start) ~= "CFrame" or typeof(vel) ~= "Vector3" or typeof(axis) ~= "Vector3"
+		or typeof(offset) ~= "CFrame" then
+		return
+	end
+	if not vis then
+		local clone = model:Clone()
+		local primary = clone.PrimaryPart
+		if not primary then
+			clone:Destroy()
+			return
+		end
+		-- Dioda świeci z prawdziwego ładunku (miga po serwerze) — w kopii byłaby druga.
+		for _, d in ipairs(clone:GetDescendants()) do
+			if d:IsA("Light") then d:Destroy() end
+		end
+		clone.Name = "C4Visual"
+		vis = { clone = clone, primary = primary, at = at, start = start, vel = vel, axis = axis,
+			offset = offset, landFrom = nil, landAt = 0 }
+		visuals[model] = vis
+		clone.Parent = Workspace
+		setHidden(model, true)
+	end
+	local v = vis :: Visual
+	v.at, v.start, v.vel, v.axis, v.offset, v.landFrom = at, start, vel, axis, offset, nil
+end
+
+local function updateVisuals()
+	if next(visuals) == nil then return end
+	local serverNow = Workspace:GetServerTimeNow()
+	local now = os.clock()
+	for model, vis in pairs(visuals) do
+		local real = model.PrimaryPart
+		if not (model.Parent and real) then
+			dropVisual(model) -- wybuch albo sprzątanie w locie
+			continue
+		end
+		local from = vis.landFrom
+		if from then
+			local alpha = math.clamp((now - vis.landAt) / CFG.LandBlend, 0, 1)
+			if alpha >= 1 then
+				dropVisual(model)
+				continue
+			end
+			alpha = alpha * alpha * (3 - 2 * alpha)
+			vis.primary.CFrame = from:Lerp(real.CFrame, alpha)
+		else
+			local t = math.clamp(serverNow - vis.at, 0, CFG.MaxFlightTime)
+			vis.primary.CFrame = C4Path.frame(vis.start, vis.vel, vis.axis, t) * vis.offset:Inverse()
+		end
+	end
+end
+
+local function trackCharge(child: Instance)
+	if not child:IsA("Model") then return end
+	child:GetAttributeChangedSignal(FLIGHT.At):Connect(function()
+		refreshFlight(child)
+	end)
+	refreshFlight(child)
+end
+
 -- Cudzy rzut: ładunek wpada do folderu z atrybutem właściciela. Tylko świeży — blisko dłoni
 -- rzucającego; wczytany później (streaming, dołączenie w trakcie) leży daleko i ręka nie macha.
 local function onChargeAdded(child: Instance)
+	trackCharge(child)
 	if not child:IsA("Model") then return end
 	local id = child:GetAttribute(CFG.OwnerAttribute)
 	if type(id) ~= "number" or id == localPlayer.UserId then return end
@@ -248,6 +351,7 @@ function C4Controller.init()
 		for _, sw in pairs(swings) do restoreSwing(sw) end
 	end)
 	RunService.PreSimulation:Connect(updateSwings)
+	RunService.PreRender:Connect(updateVisuals)
 	Players.PlayerRemoving:Connect(function(p)
 		local sw = swings[p]
 		if sw then restoreSwing(sw) end
@@ -257,6 +361,10 @@ function C4Controller.init()
 		local charges = Workspace:WaitForChild("ActiveCharges", 30)
 		if charges then
 			charges.ChildAdded:Connect(onChargeAdded)
+			-- Już lecące (dołączenie w trakcie) — tylko kopia lotu, bez machania ręką.
+			for _, c in ipairs(charges:GetChildren()) do
+				trackCharge(c)
+			end
 		end
 	end)
 

@@ -125,7 +125,7 @@ Pytania mają być **konkretne** ("X czy Y?", "Jak nazwać Z?", "Czy chcesz tu A
 
 - **Rojo 7.7.0-rc.1** (Aftman), VS Code, Luau, Roblox Studio.
 - **Struktura repo** (sprawdzona 2026-10-23):
-  - `src/server/Services/` — 33 serwisy; `src/client/Controllers/` — 37 modułów (kontrolery i helpery; stan 27.10) (opisy, pułapki i historia decyzji: **`docs/ARCHITECTURE.md`**)
+  - `src/server/Services/` — 33 serwisy; `src/client/Controllers/` — 44 moduły (kontrolery i helpery; stan 03.11) (opisy, pułapki i historia decyzji: **`docs/ARCHITECTURE.md`**)
   - `src/server/Structure/` — **NOWE 2026-09-24, destrukcja v4**: czyste moduły konstrukcji spoza `Services` (nie mają `init`): `StructureCore` (klasyfikacja, solver, odcisk geometrii — wspólne dla bake'u i gry), `StructureBake` (analiza budynku, podgląd kolorami, zapis danych), `BuildingState` (stan chunków jednego budynku, CAS), `CollapsePlanner` (grupy kolapsu), `Pieces` (geometria kawałków), `StructureTests` (scenariusze offline). W grze ładują je `StructuralService` i `CollapseService`; w Studio — skrypty `STRUCTURE_*.luau` z korzenia repo.
   - `src/shared/Modules/` — `Config` (WSZYSTKIE liczby), `ItemDefinitions`, `Remotes` (tworzy RemoteEventy w runtime — folderu `src/shared/Remotes` nie ma), `Utils`, `Destructible`, `Fracture`, `Shockwave`, `Dev`, `AppearanceDefinitions`, `GrappleArc`, `Ladders`
   - **`docs/`** — dokumentacja referencyjna, czytana na żądanie (mapa niżej). **`docs/PROJECT_CONTEXT.md`** — kontekst dla asystenta od planowania (perspektywa gracza, bez kodu); Nie kopiować statusu: aktualizować `docs/STATUS.md`, a kontekst gracza ma do niego odsyłać. `docs/DESTRUCTION_PLAN.md` — aktualne reguły v4 na początku i historia v2/v3/v4 niżej — czytać przed dotykaniem destrukcji.

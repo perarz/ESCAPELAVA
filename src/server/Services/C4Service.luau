@@ -15,9 +15,16 @@
 --      (postacie przelatuje), pierwsza trafiona część mapy = przyklejenie
 --   4. DetonateC4 → wszystkie ładunki gracza wybuchają po kolei (Config.C4.ChainDelay)
 --
--- DLACZEGO LOT Z PROMIENI, A NIE FIZYCZNY POCISK (jak RpgService): fizyczna kostka odbija się
--- i toczy, zanim zdążymy ją przykleić, a przy 90 stud/s przeskakuje cienką ścianę między
--- klatkami. Promień z odcinka klatki trafia dokładnie w miejsce styku.
+-- DLACZEGO PRZYKLEJA PROMIEŃ, A NIE KOLIZJA: fizyczna kostka odbija się i toczy, zanim zdążymy
+-- ją przykleić, a przy 90 stud/s przeskakuje cienką ścianę między klatkami. Promień z odcinka
+-- klatki trafia dokładnie w miejsce styku.
+-- DLACZEGO LOT ZE WZORU I KOPIA U KLIENTA (01.11, Kacper: „bomba leci normalnie, C4 jakoś
+-- dziwnie”): serwer przestawia zakotwiczony model co klatkę, a takie przestawienia dojeżdżają
+-- do klientów skokowo. Próba z fizyką serwera (jak bomba) dała opóźnienie na starcie i przeskok
+-- przy przyklejeniu (bufor wygładzania klienta). Teraz tor to wzór od czasu (`C4Path`), jego
+-- parametry jadą w atrybutach modelu (`Config.C4.Flight`), a klienci rysują płynną kopię
+-- liczoną od czasu serwera (C4Controller). Serwer liczy z tego samego wzoru i sam decyduje,
+-- gdzie się przyklei.
 --
 -- ⚠️ ŁADUNEK NIE JEST PRZYSPAWANY DO MAPY. Destrukcja i kolaps czytają połączenia części
 -- (`GetJoints`) — spaw do ściany wciągnąłby ładunek w ich grupy (kolaps, przekazanie klientom,
@@ -48,6 +55,7 @@ local PlayerService = require(script.Parent.PlayerService)
 local GameLoopService = require(script.Parent.GameLoopService)
 local RagdollService = require(script.Parent.RagdollService)
 local BombService = require(script.Parent.BombService)
+local C4Path = require(ReplicatedStorage.Shared.Modules.C4Path)
 
 local C4Service = {}
 
@@ -56,6 +64,7 @@ local TOOL_NAME = "C4Tool"
 local FOLDER_NAME = "ActiveCharges"
 local SURFACE_GAP = 0.02 -- spód kostki tuż nad powierzchnią, nie w niej
 local CFG = Config.C4
+local FLIGHT = CFG.Flight
 
 type Charge = {
 	owner: Player,
@@ -69,7 +78,10 @@ type Charge = {
 	along: Vector3,       -- długi bok w świecie (oś koziołkowania; po upadku leży tak samo)
 	host: BasePart?,
 	offset: CFrame?,      -- `primary` w układzie hosta, gdy host się rusza
-	vel: Vector3?,        -- nie-nil = leci (rzut albo spadanie)
+	vel: Vector3?,        -- nie-nil = leci (rzut albo spadanie); prędkość startu
+	lastPos: Vector3,     -- środek bbox w poprzedniej klatce lotu — początek promienia
+	start: CFrame,        -- ramka bbox przy starcie lotu (C4Path)
+	launchAt: number,     -- czas serwera (GetServerTimeNow) startu lotu
 	flightStarted: number,
 	nextCheck: number,
 }
@@ -129,7 +141,7 @@ local function giveTool(player: Player)
 	if not tool then
 		return
 	end
-	tool.Parent = char
+	Utils.holdTool(char, tool)
 	equippedTools[player] = tool
 end
 
@@ -223,6 +235,8 @@ local function stick(c: Charge, hit: RaycastResult)
 	c.host = if hit.Instance:IsA("BasePart") then hit.Instance else nil
 	c.offset = nil
 	c.vel = nil
+	-- Po ustawieniu pozycji: klient, który zobaczy koniec lotu, ma już dokąd dosiąść kopią.
+	c.root:SetAttribute(FLIGHT.At, nil)
 	c.nextCheck = 0
 end
 
@@ -275,6 +289,9 @@ local function buildCharge(owner: Player, hint: Vector3): Charge?
 		host = nil,
 		offset = nil,
 		vel = nil,
+		lastPos = Vector3.zero,
+		start = CFrame.identity,
+		launchAt = 0,
 		flightStarted = 0,
 		nextCheck = 0,
 	}
@@ -294,11 +311,22 @@ local function onHost(c: Charge, host: BasePart): boolean
 end
 
 -- Rzut (prędkość z ręki) albo spadanie po utracie podłoża (prędkość zero) — ten sam lot.
+-- Parametry toru w atrybutach modelu: z nich klienci liczą płynną kopię (C4Controller).
+-- Koziołkowanie wokół długiego boku (`along`) — przy rzucie leży on w poprzek lotu.
 local function launch(c: Charge, vel: Vector3, now: number)
 	c.host = nil
 	c.offset = nil
 	c.vel = vel
 	c.flightStarted = now
+	c.start = c.primary.CFrame * c.boxOffset
+	c.lastPos = c.start.Position
+	c.launchAt = Workspace:GetServerTimeNow()
+	local m = c.root
+	m:SetAttribute(FLIGHT.Start, c.start)
+	m:SetAttribute(FLIGHT.Vel, vel)
+	m:SetAttribute(FLIGHT.Axis, c.along)
+	m:SetAttribute(FLIGHT.Offset, c.boxOffset)
+	m:SetAttribute(FLIGHT.At, c.launchAt) -- ostatni: klient czyta resztę, gdy zobaczy ten
 end
 
 -- Jedna klatka lotu. false = poleciał poza mapę (do usunięcia, bez wybuchu).
@@ -307,23 +335,25 @@ local function fly(c: Charge, dt: number, now: number, params: RaycastParams): b
 		log(c.owner, "ładunek poza mapą — znika")
 		return false
 	end
-	local v = c.vel :: Vector3
-	v = Vector3.new(v.X, math.max(v.Y - CFG.Gravity * dt, -CFG.FallMaxSpeed), v.Z)
-	c.vel = v
-	local move = v * dt
-	local dist = move.Magnitude
-	if dist < 1e-4 then return true end
-	local dir = move / dist
-	local box = c.primary.CFrame * c.boxOffset
-	local hit = Workspace:Raycast(box.Position, dir * (dist + halfExtent(box, c.size, dir)), params)
-	if hit then
-		stick(c, hit)
-		log(c.owner, "przyklejony", ("na %s"):format(hit.Instance:GetFullName()))
-		return true
+	local vel = c.vel :: Vector3
+	local t = Workspace:GetServerTimeNow() - c.launchAt
+	local box = C4Path.frame(c.start, vel, c.along, t)
+	-- Promień od pozycji z poprzedniej klatki do tej za klatkę: przyklejamy, zanim kopia
+	-- u klienta zdąży wejść w ścianę.
+	local from = c.lastPos
+	local path = C4Path.position(c.start.Position, vel, t + dt) - from
+	local dist = path.Magnitude
+	if dist > 1e-4 then
+		local dir = path / dist
+		local hit = Workspace:Raycast(from, dir * (dist + halfExtent(box, c.size, dir)), params)
+		if hit then
+			stick(c, hit)
+			log(c.owner, "przyklejony", ("na %s"):format(hit.Instance:GetFullName()))
+			return true
+		end
 	end
-	-- Koziołkowanie wokół długiego boku w świecie (bok gracza przy rzucie).
-	local spun = CFrame.new(box.Position + move) * CFrame.fromAxisAngle(c.along, CFG.Spin * dt) * box.Rotation
-	c.primary.CFrame = spun * c.boxOffset:Inverse()
+	c.lastPos = box.Position
+	c.primary.CFrame = box * c.boxOffset:Inverse()
 	return true
 end
 
@@ -449,9 +479,19 @@ local function handleThrow(player: Player, targetPos: any)
 	if delta.Magnitude < 0.1 then return end
 	local handle = tool:FindFirstChild("Handle")
 	local start = if handle and handle:IsA("BasePart") then handle.Position else eye
+	-- Biegnąc rzucasz dalej, ale prędkość postaci (liczona u klienta) ma sufit.
+	local inherit = hrp.AssemblyLinearVelocity
+	if inherit.Magnitude > CFG.InheritMaxSpeed then
+		inherit = inherit.Unit * CFG.InheritMaxSpeed
+	end
+	local vel = delta.Unit * CFG.ThrowSpeed + Vector3.new(0, CFG.ThrowLift, 0) + inherit
+	-- Oś koziołkowania = poziomo w poprzek RZECZYWISTEGO lotu (z pędem), nie bok postaci:
+	-- w biegu ciało patrzy tam, gdzie biegnie, i rzut w bok kręcił kostką jak wiertłem.
+	local flat = Vector3.new(vel.X, 0, vel.Z)
+	local spinAxis = if flat.Magnitude > 1 then Vector3.yAxis:Cross(flat).Unit else hrp.CFrame.RightVector
 
 	-- 6. Ładunek gotowy PRZED zużyciem — brak modelu nie może zjeść C4.
-	local charge = buildCharge(player, hrp.CFrame.RightVector)
+	local charge = buildCharge(player, spinAxis)
 	if not charge then
 		warn("[C4] brak modelu ładunku — nie rzucam")
 		return
@@ -468,16 +508,12 @@ local function handleThrow(player: Player, targetPos: any)
 	local wall = if reach.Magnitude > 0.05 then Workspace:Raycast(eye, reach, castParams()) else nil
 	if wall then
 		stick(charge, wall)
+		charge.root.Parent = folder
 	else
 		place(charge, surfaceFrame(charge.size, start, Vector3.yAxis, perpendicular(Vector3.yAxis, charge.along, Vector3.zAxis)))
-		-- Biegnąc rzucasz dalej, ale prędkość postaci (liczona u klienta) ma sufit.
-		local inherit = hrp.AssemblyLinearVelocity
-		if inherit.Magnitude > CFG.InheritMaxSpeed then
-			inherit = inherit.Unit * CFG.InheritMaxSpeed
-		end
-		launch(charge, delta.Unit * CFG.ThrowSpeed + Vector3.new(0, CFG.ThrowLift, 0) + inherit, now)
+		charge.root.Parent = folder
+		launch(charge, vel, now)
 	end
-	charge.root.Parent = folder
 	list = charges[player] or {}
 	table.insert(list :: { Charge }, charge)
 	charges[player] = list

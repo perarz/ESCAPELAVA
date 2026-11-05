@@ -542,7 +542,10 @@ end
 -- ramek. Bez GUI w placu — nic (UI nie budujemy w kodzie).
 local vignetteGui: ScreenGui? = nil
 local vignetteEdges: { GuiObject } = {}
+local vignetteLines: ImageLabel? = nil -- 01.11: `EnergyVignette.Speedlines`, opcjonalne
 local vignetteAlpha = 0
+local linesNextFlick = 0
+local linesRng = Random.new()
 local function findVignette(): ScreenGui?
 	if vignetteGui and vignetteGui.Parent then return vignetteGui end
 	local pg = localPlayer:FindFirstChildOfClass("PlayerGui")
@@ -553,6 +556,8 @@ local function findVignette(): ScreenGui?
 	for _, e in ipairs(if holder then holder:GetChildren() else {}) do
 		if e:IsA("GuiObject") then table.insert(vignetteEdges, e) end
 	end
+	local lines = gui:FindFirstChild("Speedlines")
+	vignetteLines = if lines and lines:IsA("ImageLabel") then lines else nil
 	vignetteGui = gui
 	return gui
 end
@@ -580,6 +585,16 @@ local function updateEnergyTint(dt: number)
 	for _, e in ipairs(vignetteEdges) do
 		e.BackgroundColor3 = color
 		e.BackgroundTransparency = 1 - vignetteAlpha * pulse
+	end
+	local lines = vignetteLines
+	if lines then
+		lines.ImageTransparency = 1 - vignetteAlpha * CFG_ENERGY.SpeedlinesAlpha
+		if now >= linesNextFlick then
+			linesNextFlick = now + CFG_ENERGY.SpeedlinesFlicker
+			local s = linesRng:NextNumber(CFG_ENERGY.SpeedlinesScaleMin, CFG_ENERGY.SpeedlinesScaleMax)
+			lines.Size = UDim2.fromScale(s, s)
+			lines.Rotation = if linesRng:NextNumber() < 0.5 then 0 else 180
+		end
 	end
 end
 
@@ -768,9 +783,10 @@ local function updateLoop(dt: number)
 
 	-- WalkSpeed lerp (framerate-independent). alpha = dt/lerpTime z clampem.
 	-- Snap do target gdy bardzo blisko (uniknięcie infinitesimal residuum).
-	-- Energy drink: +WalkBonus tylko do chodu (decyzja Kacpra 21.10: „speed bez sprinta”).
+	-- Energy drink: szybszy chód i sprint (01.11; limit sprintu zna AntiCheatService).
 	local walk = CFG.WalkSpeed + (if energyNow then CFG_ENERGY.WalkBonus else 0)
-	local targetSpeed = (activeSprint and CFG.SprintSpeed or walk) * speedFactor()
+	local sprint = CFG.SprintSpeed + (if energyNow then CFG_ENERGY.SprintBonus else 0)
+	local targetSpeed = (if activeSprint then sprint else walk) * speedFactor()
 		* (if aimProfile then aimProfile.WalkFactor else 1)
 	local alpha = math.clamp(dt / CFG.SpeedLerpTime, 0, 1)
 	currentWalkSpeed = currentWalkSpeed + (targetSpeed - currentWalkSpeed) * alpha

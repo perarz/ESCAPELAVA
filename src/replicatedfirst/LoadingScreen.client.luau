@@ -61,6 +61,28 @@ local MIN_SCALE = 0.5
 local MAX_SCALE = 2
 local FILL_SPEED = 8          -- jak szybko pasek dogania postęp (1/s): płynnie, bez skoków
 
+-- Tytuł „ESCAPE LAVA” żyje (01.11, Kacper: „żeby więcej się działo”): po obrysie płynie lawa,
+-- która oddycha jasnością, a napis lekko się buja. Obrys cienia zostaje czarny.
+-- 03.11: napis już NIE rośnie. Roblox rysuje tekst tylko w całych rozmiarach fontu (zmierzone:
+-- przy +2,5% szerokość skacze 624 → 626 → 636 px), a przesunięcie w UDim to całe piksele, więc
+-- „oddychanie” skalą było widać jako przeskakiwanie napisu. Oddycha teraz jasność lawy.
+-- Lawa = UIGradient dokładany do KLONU obrysu (obrys tekstury nie przyjmuje), kolory z szumu
+-- przesuwanego w czasie. Najgorętszy kolor musi zostać DUŻO ciemniejszy od żółtego „ESCAPE”
+-- i pomarańczowego „LAVA”: żar (235, 85, 0) z 01.11 zlewał się z „LAVA”.
+local TITLE_LAVA_COLORS = {
+	Color3.fromRGB(20, 4, 4),   -- zastygła skorupa
+	Color3.fromRGB(120, 12, 0), -- ciemny żar
+	Color3.fromRGB(205, 45, 0), -- najgorętsze plamy
+}
+local TITLE_LAVA_POINTS = 20  -- punktów gradientu (limit ColorSequence)
+local TITLE_LAVA_BLOBS = 3    -- gęstość plam na szerokość napisu
+local TITLE_LAVA_FLOW = 0.35  -- jak szybko lawa płynie wzdłuż napisu
+local TITLE_LAVA_CHURN = 0.25 -- jak szybko plamy zmieniają kształt
+local TITLE_GLOW_AMOUNT = 0.12 -- oddychanie: ± tyle „ciepła” całej lawy
+local TITLE_GLOW_HZ = 0.8
+local TITLE_SWAY_DEG = 1      -- bujanie ± stopni (2 za mocno)
+local TITLE_SWAY_HZ = 0.35
+
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
@@ -123,6 +145,63 @@ end
 applyScale()
 gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyScale)
 
+-- Tytuł i jego cień bujają się razem (ten sam kąt), więc cień nie odjeżdża od napisu.
+-- Gradient lawy dokładamy w kodzie do KLONU — to nie budowa UI, tylko uchwyt animacji.
+-- Gradient mnoży kolor obrysu, więc obrys klonu jest biały: widać czyste kolory lawy.
+local logo = center and center:FindFirstChild("Logo")
+local titleLabel = logo and logo:FindFirstChild("Title") :: TextLabel?
+local titleStroke = titleLabel and titleLabel:FindFirstChildOfClass("UIStroke")
+local lava: UIGradient? = nil
+if titleStroke then
+	titleStroke.Color = Color3.new(1, 1, 1)
+	local g = Instance.new("UIGradient")
+	g.Name = "Lava"
+	g.Parent = titleStroke
+	lava = g
+end
+local swaying: { TextLabel } = {}
+for _, name in ipairs({ "Title", "TitleShadow" }) do
+	local label = logo and logo:FindFirstChild(name)
+	if label and label:IsA("TextLabel") then
+		table.insert(swaying, label)
+	end
+end
+
+local function lavaColor(heat: number): Color3
+	local h = math.clamp(heat, 0, 1)
+	if h < 0.5 then
+		return TITLE_LAVA_COLORS[1]:Lerp(TITLE_LAVA_COLORS[2], h * 2)
+	end
+	return TITLE_LAVA_COLORS[2]:Lerp(TITLE_LAVA_COLORS[3], (h - 0.5) * 2)
+end
+
+local function animateTitle(now: number)
+	local g, label = lava, titleLabel
+	if g and label then
+		-- Gradient obejmuje CAŁĄ etykietę (ok. 2× szerszą od napisu), więc punkty skupiamy na
+		-- samym tekście; skrajne dwa tylko domykają sekwencję 0..1 kolorem brzegu napisu.
+		local share = if label.AbsoluteSize.X > 0 then label.TextBounds.X / label.AbsoluteSize.X else 1
+		local margin = math.clamp((1 - share) / 2, 0.01, 0.45)
+		local glow = TITLE_GLOW_AMOUNT * math.sin(now * TITLE_GLOW_HZ * 2 * math.pi)
+		local keys = table.create(TITLE_LAVA_POINTS)
+		for i = 0, TITLE_LAVA_POINTS - 1 do
+			local inner = (i - 1) / (TITLE_LAVA_POINTS - 3) -- 0..1 wzdłuż napisu dla i = 1..N-2
+			local pos = if i == 0 then 0
+				elseif i == TITLE_LAVA_POINTS - 1 then 1
+				else margin + (1 - 2 * margin) * inner
+			local u = math.clamp(inner, 0, 1) * TITLE_LAVA_BLOBS
+			local n = math.noise(u - now * TITLE_LAVA_FLOW, now * TITLE_LAVA_CHURN, 0.37)
+				+ 0.5 * math.noise(u * 2.3 + now * TITLE_LAVA_FLOW * 0.6, now * TITLE_LAVA_CHURN, 4.1)
+			keys[i + 1] = ColorSequenceKeypoint.new(pos, lavaColor(0.42 + 1.2 * n + glow))
+		end
+		g.Color = ColorSequence.new(keys)
+	end
+	local angle = TITLE_SWAY_DEG * math.sin(now * TITLE_SWAY_HZ * 2 * math.pi)
+	for _, l in ipairs(swaying) do
+		l.Rotation = angle
+	end
+end
+
 local function setText(label: TextLabel?, text: string)
 	if not label then return end
 	label.Text = text
@@ -152,6 +231,7 @@ local function render(dt: number)
 		screen.fill.Visible = shown > 0.03
 	end
 	setText(screen.percent, string.format("%d%%", math.floor(shown * 100 + 0.5)))
+	animateTitle(os.clock())
 end
 RunService:BindToRenderStep("LoadingScreen", Enum.RenderPriority.Last.Value, render)
 

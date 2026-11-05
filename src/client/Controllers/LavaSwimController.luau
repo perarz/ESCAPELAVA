@@ -14,7 +14,13 @@
 -- upadek do lawy nie rani (FallDamageService). Sterowanie skokiem przez `Humanoid.Jump`, które
 -- moduł sterowania ustawia co klatkę, póki skok jest trzymany — klawiatura, pad i dotyk naraz.
 -- ⚠️ W ragdollu nic nie robimy: ciało ma wtedy fizykę serwera, a nasze prędkości walczyłyby
--- z toolboxem. Ragdoll w lawie opada więc jak dawniej, do wstania (~2 s).
+-- z toolboxem. Ragdoll w lawie opada więc jak dawniej, do wstania (~2 s) — bez zatrzymania
+-- (decyzja Kacpra 01.11); plusk i tak widać, bo LavaSplashController patrzy na ruch.
+-- ZATRZYMANIE (01.11, Kacper: „splash, lekko się zatrzymuje, później spada”): wpadnięcie
+-- z dużą prędkością w dół łapie postać tuż pod taflą na `CatchTime`, potem zwykłe opadanie.
+-- Twarde hamowanie NIE zależy od głębokości — zwykły opór przy samej tafli jest prawie zerowy
+-- (`immersion`), więc z dachu leciało się kilka studów w głąb. Anty-cheat mierzy tylko ruch
+-- poziomy, więc nagłe wyhamowanie w pionie nie daje strike'a.
 -- ⚠️ Anty-cheat (plan paczki 6): wznoszenie w lawie trwa dłużej niż sekundę — reguła
 -- „ciągłe wznoszenie > 1 s” musi lawę pomijać.
 
@@ -39,6 +45,10 @@ local WHITE = Color3.new(1, 1, 1)
 local localPlayer = Players.LocalPlayer
 local slowed = false
 local nextExitAt = 0
+-- Czy stopy były pod taflą w poprzedniej klatce; nil = nie wiadomo (nowa postać, wyjście
+-- z ragdolla) — wtedy tylko zapamiętujemy, żeby respawn ani teleport nie odpalały zatrzymania.
+local wasInLava: boolean? = nil
+local catchUntil = 0
 local viewIntensity = 0
 local colorFx: ColorCorrectionEffect? = nil
 local blurFx: BlurEffect? = nil
@@ -60,11 +70,16 @@ local function swimStep(dt: number)
 	local top = Utils.lavaSurfaceY()
 	if not (hum and hrp and hrp:IsA("BasePart") and top) or hum.Health <= 0 or RagdollState.isRagdolled(hum) then
 		release()
+		wasInLava = nil
+		catchUntil = 0
 		return
 	end
 	local depth = top - (hrp.Position.Y - Config.Lava.FeetOffset)
+	local entered = wasInLava == false and depth > 0
+	wasInLava = depth > 0
 	if depth <= 0 then
 		release()
+		catchUntil = 0
 		return
 	end
 
@@ -75,11 +90,19 @@ local function swimStep(dt: number)
 
 	local v = hrp.AssemblyLinearVelocity
 	local now = os.clock()
+	if entered and v.Y <= -SWIM.CatchMinFallSpeed then
+		catchUntil = now + SWIM.CatchTime
+	end
 	local vy: number
 	if hum.Jump and depth <= SWIM.ExitDepth and now >= nextExitAt then
 		-- Wyskok przy powierzchni: prędkość zwykłego skoku na wysokość ExitJumpHeight.
+		-- Działa też w trakcie zatrzymania — złapany przy tafli może od razu wyskoczyć.
 		nextExitAt = now + SWIM.ExitCooldown
+		catchUntil = 0
 		vy = math.sqrt(2 * Workspace.Gravity * SWIM.ExitJumpHeight)
+	elseif now < catchUntil then
+		local a = 1 - math.exp(-SWIM.CatchDamping * dt)
+		vy = v.Y + (-SWIM.CatchSinkSpeed - v.Y) * a
 	else
 		local target = if hum.Jump then SWIM.SwimUpSpeed else -SWIM.SinkSpeed
 		local a = 1 - math.exp(-SWIM.Damping * immersion * dt)

@@ -1,6 +1,8 @@
 --!strict
 -- LavaSplashController.luau — rozbryzg, dym i krótki błysk, gdy czyjaś postać WPADA do lawy
--- (27.10, tylko GRAPHICS HIGH). Czysto u klienta: wejście wykrywamy z ruchu postaci, którą
+-- (27.10). 01.11: + fala żaru po tafli i plusk także na GRAPHICS LOW (lżejszy: bez dymu
+-- i błysku, mniej kropel). Zatrzymanie postaci przy tafli robi LavaSwimController (ruch
+-- własnej postaci); tu tylko widok, dla każdej postaci w pobliżu. Czysto u klienta: wejście wykrywamy z ruchu postaci, którą
 -- i tak widzimy (pozycje są replikowane), więc nie ma remote'ów ani pracy serwera. Serwerowy
 -- efekt śmierci w lawie (LavaService) jest osobny i zostaje.
 --
@@ -26,7 +28,7 @@ local FEET = Config.Lava.FeetOffset
 
 type Rig = {
 	anchor: Part, drops: ParticleEmitter, sparks: ParticleEmitter, smoke: ParticleEmitter,
-	light: PointLight, flash: number, strength: number,
+	waves: { ParticleEmitter }, light: PointLight, flash: number, strength: number,
 }
 type Track = { y: number, inLava: boolean, lastSplash: number }
 
@@ -35,7 +37,7 @@ local nextRig = 1
 -- Słabe klucze: model postaci po respawnie / wyjściu znika z tabeli sam.
 local tracks: { [Model]: Track } = setmetatable({}, { __mode = "k" }) :: any
 local accumulator = 0
-local enabled = true
+local low = false
 local initialized = false
 
 local function emitter(name: string, parent: Instance, texture: string): ParticleEmitter
@@ -103,6 +105,32 @@ local function buildRigs()
 		smoke.Rotation = NumberRange.new(-180, 180)
 		smoke.RotSpeed = NumberRange.new(-25, 25)
 
+		-- Fala: po jednym emiterze na kierunek, każdy na własnym Attachmencie obróconym w poziomie
+		-- (Front = na zewnątrz). Lekko w górę, żeby kule ślizgały się PO tafli, a nie w niej.
+		local waves: { ParticleEmitter } = {}
+		for d = 1, CFG.WaveDirections do
+			local att = Instance.new("Attachment")
+			att.Name = "Wave" .. d
+			att.CFrame = CFrame.Angles(0, 2 * math.pi * d / CFG.WaveDirections, 0) * CFrame.Angles(math.rad(4), 0, 0)
+			att.Parent = anchor
+			local wave = emitter("Wave", att, FX.SmokeTexture)
+			wave.EmissionDirection = Enum.NormalId.Front
+			wave.Color = ColorSequence.new(FX.HotColor, FX.CoolColor)
+			wave.Size = NumberSequence.new(CFG.WaveSizeStart, CFG.WaveSizeEnd)
+			wave.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.6, 0.4),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			wave.Lifetime = NumberRange.new(CFG.WaveLifetime * 0.8, CFG.WaveLifetime)
+			wave.Speed = NumberRange.new(CFG.WaveSpeed * 0.85, CFG.WaveSpeed)
+			-- Bez rozrzutu: kierunki leżą co 30°, a kule rosną do WaveSizeEnd, więc pierścień się domyka.
+			wave.SpreadAngle = Vector2.zero
+			wave.Drag = CFG.WaveDrag
+			wave.Rotation = NumberRange.new(-180, 180)
+			wave.LightEmission = 0.9
+			table.insert(waves, wave)
+		end
+
 		-- Reguła 21.09: Range = przebicie stropu, więc błysk nie mocniej niż jedna kondygnacja.
 		local light = Instance.new("PointLight")
 		light.Color = FX.LightColor
@@ -113,7 +141,7 @@ local function buildRigs()
 		light.Parent = anchor
 
 		table.insert(rigs, { anchor = anchor, drops = drops, sparks = sparks, smoke = smoke,
-			light = light, flash = 0, strength = 0 })
+			waves = waves, light = light, flash = 0, strength = 0 })
 	end
 end
 
@@ -122,8 +150,14 @@ local function play(at: Vector3, strength: number)
 	if not rig then return end
 	nextRig = nextRig % #rigs + 1
 	rig.anchor.Position = at + Vector3.new(0, 0.3, 0)
-	rig.drops:Emit(math.max(1, math.floor(CFG.DropBurst * strength)))
-	rig.sparks:Emit(math.max(1, math.floor(CFG.SparkBurst * strength)))
+	local burst = if low then CFG.LowBurstScale else 1
+	rig.drops:Emit(math.max(1, math.floor(CFG.DropBurst * strength * burst)))
+	rig.sparks:Emit(math.max(1, math.floor(CFG.SparkBurst * strength * burst)))
+	local perDirection = math.max(1, math.floor(CFG.WavePerDirection * strength + 0.5))
+	for _, wave in ipairs(rig.waves) do
+		wave:Emit(perDirection)
+	end
+	if low then return end
 	rig.smoke:Emit(math.max(1, math.floor(CFG.SmokeBurst * strength)))
 	rig.flash = 1
 	rig.strength = strength
@@ -160,7 +194,7 @@ local function update(dt: number)
 		end
 		-- Prędkość z ruchu między odczytami, nie z fizyki — działa tak samo dla cudzych postaci.
 		local fallSpeed = (track.y - pos.Y) / elapsed
-		if enabled and surfaceY and inLava and not track.inLava and fallSpeed >= CFG.MinFallSpeed
+		if surfaceY and inLava and not track.inLava and fallSpeed >= CFG.MinFallSpeed
 			and now - track.lastSplash >= CFG.Cooldown and (pos - cameraPos).Magnitude <= CFG.Distance then
 			track.lastSplash = now
 			local strength = math.clamp(fallSpeed / CFG.FullFallSpeed, CFG.MinStrength, 1)
@@ -172,7 +206,7 @@ local function update(dt: number)
 end
 
 local function applyQuality()
-	enabled = SettingsState.get("graphics") ~= "low"
+	low = SettingsState.get("graphics") == "low"
 end
 
 function LavaSplashController.init()

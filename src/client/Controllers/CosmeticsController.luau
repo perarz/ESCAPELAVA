@@ -13,6 +13,7 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local State = require(script.Parent.CosmeticsState)
 local Preview = require(script.Parent.CosmeticsPreview)
 local Shop = require(script.Parent.ShopController)
+local LobbySign = require(script.Parent.LobbySign)
 
 local Controller = {}
 local player = Players.LocalPlayer
@@ -594,6 +595,20 @@ function Controller.init()
 	player.CharacterRemoving:Connect(close)
 	player.CharacterAdded:Connect(close)
 	Shop.onOpenChanged(function(isOpen: boolean) if isOpen then close() end; updateButton() end)
+	-- COSMETICS sign above the seller: HUD-button colours flow through the letters and the
+	-- sign hides behind walls, same as SHOP (LobbySign, 03.11).
+	task.spawn(function()
+		local lobby = workspace:WaitForChild("Lobby", 30)
+		local sign = lobby and lobby:FindFirstChild(Config.Cosmetics.SignName, true)
+		local label = sign and sign:FindFirstChild("Label")
+		local grad = label and label:FindFirstChildOfClass("UIGradient")
+		if not (sign and sign:IsA("BillboardGui") and grad) then
+			warn("[Cosmetics] missing Lobby." .. Config.Cosmetics.SignName .. ".Label.UIGradient — sign stays static")
+			return
+		end
+		local own = (lobby :: Instance):FindFirstChild(Config.Cosmetics.ShopModelName, true) or sign.Parent :: Instance
+		LobbySign.start(sign :: BillboardGui, grad, own, Config.Cosmetics.SignFlowColors, Config.Cosmetics.SignFlowSpeed, Config.Cosmetics.SignFlowSpan)
+	end)
 	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
 		if prompt.Name == Config.Cosmetics.PromptName then open("shop") end
 	end)

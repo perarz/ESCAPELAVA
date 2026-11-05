@@ -7,6 +7,9 @@ local Config = {}
 
 -- Cosmetic upper-body overlay; times are normalized to Duration, angles in degrees.
 Config.ItemEquip = {
+	-- ToolActivation (02.11): klik myszą i `Tool.Activated` tego samego kliknięcia przychodzą
+	-- osobno — w tym oknie liczą się jako jedno użycie itemu (jak `THROW_DEDUPE` C4 z 25.10).
+	ActivationDedupe = 0.1, -- s
 	Enabled = true,
 	Duration = 0.3,
 	ProfileDurations = { Rpg = 0.7 },
@@ -224,6 +227,16 @@ Config.Lava = {
 		ExitDepth = 1.5,     -- stud: stopy najwyżej tyle pod taflą = można wyskoczyć
 		ExitJumpHeight = 6,  -- stud
 		ExitCooldown = 0.6,  -- s między wyskokami
+		-- ZATRZYMANIE PRZY POWIERZCHNI (01.11, Kacper: „najpierw splash, lekko się zatrzymuje,
+		-- później spada”). Wpadnięcie z prędkością w dół ≥ CatchMinFallSpeed → przez CatchTime
+		-- lawa łapie postać tuż pod taflą (droga hamowania ≈ prędkość / CatchDamping, z 45 stud/s
+		-- ~1,5 studa), potem zwykłe opadanie. Próg wyżej niż spadanie po zwykłym skoku (~17),
+		-- żeby hop z brzegu i powrót po wyskoku z lawy nie zatrzymywały. Lawa rani w tym czasie
+		-- jak zawsze (stopy są pod taflą). W ragdollu bez zatrzymania (fizyka serwera).
+		CatchMinFallSpeed = 20, -- stud/s w dół przy wejściu w taflę
+		CatchTime = 0.5,        -- s zatrzymania
+		CatchDamping = 30,      -- 1/s: jak twardo łapie (niezależnie od głębokości)
+		CatchSinkSpeed = 0.5,   -- stud/s: lekkie osiadanie w trakcie zatrzymania
 	},
 	-- Widok spod tafli (LavaSwimController): kamera pod powierzchnią = gęsto i pomarańczowo,
 	-- nic nie widać na wylot (zgłoszenie Kacpra 01.10: „wpadniesz i przezroczysto”). Same
@@ -431,10 +444,12 @@ Config.Lava = {
 		AshEndColor = Color3.fromRGB(55, 53, 58),
 	},
 
-	-- 27.10, tylko GRAPHICS HIGH (LavaSplashController). Rozbryzg, dym i krótki błysk, gdy
-	-- czyjaś postać WPADA stopami pod taflę. Liczone z ruchu postaci po stronie klienta —
-	-- bez remote'ów. Lawa podchodząca pod stojącego gracza = bez efektu (`MinFallSpeed`).
-	-- Śmierć w lawie ma osobny, serwerowy efekt (LavaService) — ten zostaje.
+	-- 27.10 (LavaSplashController). Rozbryzg, dym i krótki błysk, gdy czyjaś postać WPADA
+	-- stopami pod taflę. Liczone z ruchu postaci po stronie klienta — bez remote'ów. Lawa
+	-- podchodząca pod stojącego gracza = bez efektu (`MinFallSpeed`). Śmierć w lawie ma osobny,
+	-- serwerowy efekt (LavaService) — ten zostaje.
+	-- 01.11 (Kacper: „splash na lawę”): + fala — pierścień żaru rozchodzący się po tafli —
+	-- i plusk także na GRAPHICS LOW, w lżejszej wersji (bez dymu i błysku, mniej kropel).
 	Splash = {
 		UpdateHz = 15,
 		Distance = 160,      -- stud od kamery
@@ -451,6 +466,15 @@ Config.Lava = {
 		FlashRange = 12,     -- reguła 21.09 jak Glow
 		FlashBrightness = 6,
 		FlashTime = 0.35,
+		-- Fala: kule żaru wystrzelone płasko po tafli w `WaveDirections` kierunkach, hamowane
+		-- oporem — zasięg ≈ WaveSpeed / WaveDrag (~5 studów).
+		WaveDirections = 12,
+		WavePerDirection = 2,
+		WaveSpeed = 18,      -- stud/s na starcie
+		WaveDrag = 3.5,      -- ParticleEmitter.Drag
+		WaveLifetime = 0.8,
+		WaveSizeStart = 1.2, WaveSizeEnd = 3.2,
+		LowBurstScale = 0.5, -- GRAPHICS LOW: krople i iskry × tyle, dym i błysk wyłączone
 	},
 }
 
@@ -488,6 +512,14 @@ Config.UI = {
 		StrokeTime = 0.2,     -- s: zmiana ramki (czarna ↔ biała)
 		DeselectDelay = 0.12, -- s: zwłoka opadnięcia, gdy NIC innego nie jest wybrane (auto-re-equip
 		                      --    bomby po rzucie nie szarpie slotem); przy zmianie slotu — od razu
+	},
+
+	-- Napisy SHOP / COSMETICS nad sprzedawcami (LobbySign, 03.11): chowają się za ścianami.
+	-- Promień kamera → środek napisu co CheckInterval; własny stragan i postacie nie zasłaniają.
+	LobbySign = {
+		CheckInterval = 0.1,         -- s: jak często sprawdzać zasłonięcie
+		SeeThroughTransparency = 0.5, -- part co najmniej tak przezroczysty (szyba, niewidzialna ściana) nie zasłania
+		MaxSeeThroughHits = 4,       -- tyle przezroczystych partów z rzędu promień przebija
 	},
 
 	-- Przyciski dotykowe (TouchControlsController, 28.10). Kontrakt: STUDIO_CONTRACT → „Telefon”.
@@ -651,6 +683,45 @@ Config.Spawn = {
 	-- Fallback gdyby Workspace.Lobby.Spawn nie istniał (na czas zanim Kacper postawi).
 	FallbackLobbyPosition = Vector3.new(0, 10, 0),
 	FallbackRoundPosition = Vector3.new(0, 10, 0),
+}
+
+-- Klimat przy wieży maga (TowerAmbienceController, 02.11, decyzja Kacpra: „lekka mgła i trochę
+-- mroczniej, tylko przy wieży”). Tylko u gracza: własny ColorCorrectionEffect, neutralny z dala
+-- od wieży. Mgła to cząsteczki postawione w placu (`WizardTower.Grounds.Mist`).
+Config.Ambience = {
+	Tower = {
+		ModelName = "WizardTower",       -- Workspace.<ModelName>; środek = środek jego obrysu
+		MistPath = { "Grounds", "Mist" }, -- emitery mgły; atrybut BaseRate = Rate na GRAPHICS HIGH
+		InnerRadius = 40,   -- studs w poziomie od środka wieży: pełny efekt (płaskowyż, górne schody)
+		OuterRadius = 75,   -- dalej brak efektu; między nimi płynnie (dół schodów = początek)
+		BlendSpeed = 1.2,   -- na sekundę — teleport do lobby/rundy nie „przeskakuje” obrazem
+		-- 03.11 (Kacper: „bardziej immersyjnie, niebo też ma ciemnieć”): mocniej + ekspozycja + Atmosphere.
+		Brightness = -0.08,
+		Contrast = 0.08,
+		Saturation = -0.25,
+		Tint = Color3.fromRGB(214, 208, 236), -- chłodny fiolet (mocniejszy zalewał obraz na podglądzie)
+		-- Lighting.ExposureCompensation u gracza: przyciemnia CAŁY obraz razem z niebem. Wartość
+		-- dodawana do tej z placu, przy odejściu wraca dokładnie do niej.
+		Exposure = -0.55,
+		-- 03.11 (Kacper: „słońce dalej razi”): przy pełnej sile tarcza słońca (Sky.SunAngularSize)
+		-- i promienie (SunRaysEffect.Intensity) mnożone przez te liczby — 0 = znikają. Po odejściu
+		-- wracają do wartości z placu.
+		SunSizeFactor = 0,
+		SunRaysFactor = 0,
+		-- Lokalna Atmosphere (w placu nie ma żadnej): mglisty ciemny horyzont i zamglenie w oddali.
+		-- Powstaje tylko przy wieży i znika po odejściu — reszta lobby i mapa jej nie mają.
+		-- Gdy Kacper doda w placu własną Atmosphere, kontroler jej nie dubluje (pomija ten efekt).
+		-- Wartości dobrane na podglądzie w Edit 03.11 (0,32 / 2,4 / jaśniejszy fiolet = wszystko tonęło).
+		Atmosphere = {
+			Density = 0.24,
+			Offset = 0.2,
+			Haze = 1.6,
+			Glare = 0,
+			Color = Color3.fromRGB(78, 72, 100),
+			Decay = Color3.fromRGB(58, 50, 78),
+		},
+		LowMistFactor = 0.5, -- GRAPHICS LOW: połowa cząsteczek mgły
+	},
 }
 
 -- Odbudowa mapy po rundzie (MapService, 07.10). Do tej pory po KAŻDEJ rundzie kasowane
@@ -949,6 +1020,13 @@ Config.Movement = {
 		LerpSpeed = 10,
 		-- Replikacja do innych klientów (Hz). 10Hz dla 20 graczy = 200 events/s — OK.
 		ReplicateHz = 10,
+		-- 02.11: ruch głowy dostają tylko gracze w pobliżu (HeadTrackingService). Głowa ma ~1 stud —
+		-- przy 150 studach to kilka pikseli, obrót jest niewidoczny nawet w zoomie RPG. Wyjście
+		-- z zasięgu dopiero po +Hysteresis, żeby para na granicy nie migała. Zasięg liczony co
+		-- SweepInterval s; po wejściu w zasięg odbiorca od razu dostaje aktualną pozę.
+		ReplicateRange = 150,
+		ReplicateRangeHysteresis = 20,
+		ReplicateSweepInterval = 1,
 		-- Próg zmiany (rad) poniżej którego nie wysyłamy do serwera (skip dla micro-jitter).
 		ReplicateEpsilon = 0.02,  -- ~1.1°
 		-- Część yaw'a przejmuje waist (talia) — daje bardziej naturalne skręcanie ciała,
@@ -1188,7 +1266,7 @@ Config.Push = {
 --     (LinearVelocity) po łuku, który z definicji kończy się w punkcie. Spełnia wszystkie
 --     trzy naraz. ⚠️ Nie wracać do „dostrajania" ①/②: to nie była kwestia liczb.
 Config.Grapple = {
-	MaxRange = 70,        -- stud; dalej serwer odrzuca (mierzone od HRP do punktu)
+	MaxRange = 70,        -- stud od HRP; dalej lina nie sięga — pudło (02.11, wcześniej klik nic nie robił)
 
 	-- ── Kształt i tempo lotu (GrappleArc) ──
 	-- Średnia prędkość WZDŁUŻ łuku; czas lotu = długość łuku / FlightSpeed.
@@ -1249,9 +1327,14 @@ Config.Grapple = {
 	-- ── Lina (kosmetyka, rysowana lokalnie u KAŻDEGO klienta — Remotes.GrappleFX) ──
 	-- Trwa przez CAŁY lot i skraca się razem z nim. Bez tego lot wygląda jak lewitacja,
 	-- a inni gracze widzą kolegę odlatującego bez powodu.
-	RopeThickness = 0.12,
+	RopeThickness = 0.2, -- 03.11: 0,12 za cienka (Kacper)
 	RopeColor = Color3.fromRGB(70, 60, 50),
 	RopeFadeTime = 0.12,
+	-- Pudło (02.11, Remotes.GrappleMiss): lina wylatuje do końca zasięgu albo do przeszkody nie
+	-- do złapania i się zwija — „szybko wraca” (Kacper). Prędkość końca liny w stud/s: 70 studów
+	-- tam ≈ 0,28 s, z powrotem ≈ 0,18 s.
+	MissOutSpeed = 250,
+	MissBackSpeed = 380,
 
 	-- Feedback u strzelca — szarpnięcie na starcie ma być czuć.
 	ShakeIntensity = 1.3,
@@ -1259,8 +1342,8 @@ Config.Grapple = {
 }
 
 -- Energy drink (20.10, decyzje Kacpra): pijesz w biegu, przez `Duration` sprint nie zużywa
--- staminy, a pasek staminy mieni się kolorami. Napój NIE przyspiesza — sprint jest tak samo
--- szybki, więc anti-cheat nie musi o nim wiedzieć. Serwer (EnergyDrinkService) zapisuje okno
+-- staminy, a pasek staminy mieni się kolorami. Od 01.11 przyspiesza też sprint, więc
+-- AntiCheatService podnosi limit w oknie napoju. Serwer (EnergyDrinkService) zapisuje okno
 -- działania w dwóch atrybutach gracza (czas serwera); efekt liczy MovementController
 -- właściciela, gest łyku widzą wszyscy (EnergyDrinkController).
 Config.EnergyDrink = {
@@ -1286,9 +1369,11 @@ Config.EnergyDrink = {
 		{ Time = 0.62, Weight = 1, Shoulder = Vector3.new(87.5, 30, -56.5), Elbow = Vector3.new(42.5, 0, 0), Wrist = Vector3.new(9.5, 33.5, 55.5) },
 		{ Time = 1, Weight = 0, Shoulder = Vector3.new(87.5, 30, -56.5), Elbow = Vector3.new(42.5, 0, 0), Wrist = Vector3.new(9.5, 33.5, 55.5) },
 	},
-	-- 21.10 (Kacper): w trakcie działania szybszy CHÓD (sprint bez zmian) i szersza kamera.
-	-- Chód 12 + 3 = 15 < sprint 20 — anti-cheat dalej nic nie musi wiedzieć.
-	WalkBonus = 3,        -- stud/s do chodu
+	-- 21.10 (Kacper): w trakcie działania szybszy chód i szersza kamera. 01.11 (Kacper:
+	-- „zwiększ speed chodzenia i sprintu”): chód 12 → 16, sprint 20 → 25. Sprint szybszy niż
+	-- zwykły = AntiCheatService doliczy SprintBonus do limitu, póki trwa okno napoju.
+	WalkBonus = 4,        -- stud/s do chodu
+	SprintBonus = 5,      -- stud/s do sprintu
 	FOVBonus = 5,         -- stopni do kamery (chód i sprint)
 	-- Pasek staminy (21.10, druga wersja — Kacper: „pogrubiona obramówka, różne odcienie
 	-- przechodzące, środek też w różnych odcieniach”): obrys i wypełnienie płyną po palecie
@@ -1318,6 +1403,12 @@ Config.EnergyDrink = {
 	VignettePulseHz = 1.2,
 	VignetteMin = 0.55,
 	VignetteFade = 0.35,
+	-- Linie prędkości (01.11) `EnergyVignette.Speedlines`: wchodzą i gasną razem z winietą.
+	-- Co `SpeedlinesFlicker` s losowe odbicie i powiększenie — jedna statyczna klatka nie „pędzi”.
+	SpeedlinesAlpha = 0.55, -- maks. widoczność (1 = pełna)
+	SpeedlinesFlicker = 0.07,
+	SpeedlinesScaleMin = 1.0,
+	SpeedlinesScaleMax = 1.08,
 	SipSound = "",        -- dźwięk łyku, rbxassetid od Kacpra; "" = cisza
 	SipSoundVolume = 0.8,
 }
@@ -1412,7 +1503,7 @@ Config.C4 = {
 	ThrowSpeed = 45,        -- stud/s w kierunku celu
 	ThrowLift = 45,         -- stud/s w górę — to robi łuk
 	InheritMaxSpeed = 50,   -- tyle najwyżej prędkości postaci dostaje rzut (biegnąc rzucasz dalej)
-	Spin = 9,               -- rad/s — kostka koziołkuje w locie
+	Spin = 9,               -- rad/s — kostka koziołkuje w locie (przodem, w poprzek kierunku lotu)
 	-- Gest rzutu (Kacper 25.10: zamach od góry): nakładka na prawy bark i łokieć, stopnie
 	-- względem trzymania. Widzą go wszyscy — u siebie od kliknięcia, u innych od pojawienia się
 	-- ładunku w dłoni rzucającego (atrybut OwnerAttribute, bez osobnego remote'a).
@@ -1440,11 +1531,23 @@ Config.C4 = {
 	CheckInterval = 0.1,
 	-- Zapas przy sprawdzaniu „punkt styku nadal leży na tej części” (przycięta ściana).
 	HostMargin = 0.4,
-	-- Lot po rzucie i spadanie, gdy podłoże zniknie — ten sam ruch: grawitacja, promień co klatkę,
-	-- przyklejenie na pierwszej trafionej części. Bez trafienia po MaxFlightTime (poleciał
-	-- poza mapę) znika bez wybuchu.
+	-- Lot po rzucie i spadanie, gdy podłoże zniknie — ten sam ruch: tor ze wzoru (C4Path),
+	-- promień co klatkę, przyklejenie na pierwszej trafionej części. Bez trafienia po
+	-- MaxFlightTime (poleciał poza mapę) znika bez wybuchu.
 	Gravity = 196.2,        -- stud/s² — jak grawitacja gry (bomba leci tą samą)
 	FallMaxSpeed = 90,
+	-- Płynny lot u klientów (01.11): serwer zapisuje parametry toru w atrybutach modelu
+	-- ładunku, klient rysuje kopię liczoną od czasu serwera. `At` = czas startu; brak = nie leci.
+	Flight = {
+		At = "FlightAt",
+		Start = "FlightStart",   -- CFrame: ramka bbox przy starcie
+		Vel = "FlightVel",       -- Vector3: prędkość startu
+		Axis = "FlightAxis",     -- Vector3: oś koziołkowania
+		Offset = "FlightOffset", -- CFrame: ramka bbox w układzie PrimaryPart
+	},
+	-- s — po przyklejeniu kopia klienta dojeżdża do miejsca ładunku zamiast przeskoczyć
+	-- (u klienta kopia jest o opóźnienie sieci za serwerem, a ładunek obraca się płasko na ścianę).
+	LandBlend = 0.08,
 	MaxFlightTime = 6,
 	-- Dioda: miga na czerwono, żeby dało się wypatrzyć ładunek i uciec.
 	LightColor = Color3.fromRGB(255, 40, 30),
@@ -1520,7 +1623,7 @@ Config.AntiCheat = {
 	-- właściwości Humanoida ustawiane lokalnie NIE replikują się na serwer, więc stary
 	-- cap na WalkSpeed nie wykrywał niczego.
 	CheckIntervalSec = 2,   -- co ile server próbkuje pozycje (heartbeat throttled)
-	-- Dozwolona prędkość = SprintSpeed + tolerancja. Tolerancja pokrywa lag, zbiegi
+	-- Dozwolona prędkość = SprintSpeed + tolerancja (+ EnergyDrink.SprintBonus w oknie napoju). Tolerancja pokrywa lag, zbiegi
 	-- ze skarpy, schody i zjazd po pochyłym gruzie.
 	SpeedTolerance = 8,
 	-- Ile próbek pod rząd musi przekroczyć limit zanim ukarzemy. Cheater biegnący 100
@@ -1549,6 +1652,20 @@ Config.WinMessage = {
 	FadeTime = 0.35,
 	PopScale = 1.35,
 	PopTime = 0.3,
+	-- 01.11: złote promienie `Body.Burst` za napisem kręcą się, póki komunikat jest widoczny.
+	BurstSpin = 25, -- °/s
+}
+
+-- Błysk gwiazdek (01.11, efekt z ui-resources.com — artifacts/ui-effects/ASSETS.md): kontener
+-- w Studio z ukrytym `StarTemplate`, kod klonuje gwiazdki w losowe miejsca kontenera.
+-- Używa go „YOU SURVIVED!” (`HUD.WinMessage.Body.Sparkles`) i zakup (`ShopUI.Panel.BuySparkles`).
+Config.UIEffects = {
+	SparkleCount = 7,
+	SparkleStagger = 0.06, -- s między kolejnymi gwiazdkami
+	SparkleGrowTime = 0.16, -- s wskoku jednej gwiazdki
+	SparkleFadeTime = 0.3, -- s gaśnięcia (kurczy się i obraca)
+	SparkleScaleMin = 0.55, -- wielkość względem szablonu
+	SparkleScaleMax = 1.1,
 }
 
 Config.Rewards = {
@@ -1599,7 +1716,7 @@ Config.Shop = {
 	PromptName = "ShopPrompt",
 	-- Napis „SHOP” nad sprzedawcą (19.10, wybór Kacpra: „płynąca lawa”): BillboardGui `ShopSign`
 	-- w głowie NPC (MaxDistance 90 = widać tylko w lobby — mapa jest 300+ studów dalej). Kolory
-	-- lawy płyną przez litery w kółko (`Body.Label.Lava`, kod przelicza gradient co klatkę).
+	-- lawy płyną przez litery w kółko (`Body.Label.Lava`, LobbySign przelicza gradient co klatkę).
 	SignName = "ShopSign",
 	SignFlowSpeed = 0.35, -- cykle palety na sekundę (szybkość płynięcia)
 	SignFlowSpan = 1.0,   -- ile cykli palety mieści się na szerokości napisu
@@ -2641,6 +2758,18 @@ Config.Cosmetics = {
 	AssetFolder = "Cosmetics",
 	ShopModelName = "ClothesShop",
 	NpcName = "NPC",
+	-- Napis „COSMETICS” nad sprzedawcą (03.11, Kacper: kolory jak przycisk COSMETICS w HUD,
+	-- intensywniejsze, i ruszający się gradient — jak lawa w SHOP). BillboardGui `CosmeticsSign`,
+	-- kolory płyną przez `Label.Gradient` (LobbySign). Paleta zapętlona jak `Config.Shop.SignFlowColors`.
+	SignName = "CosmeticsSign",
+	SignFlowSpeed = 0.35,
+	SignFlowSpan = 1.0,
+	SignFlowColors = { -- fiolet → niebieski z HUD → jasny błękit → niebieski → …
+		Color3.fromRGB(130, 50, 235),
+		Color3.fromRGB(45, 98, 250),
+		Color3.fromRGB(110, 170, 255),
+		Color3.fromRGB(45, 98, 250),
+	},
 	PromptName = "CosmeticsPrompt",
 	PromptMaxDistance = 12,
 	InteractDistance = 18,

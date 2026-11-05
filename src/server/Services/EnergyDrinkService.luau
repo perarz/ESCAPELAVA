@@ -94,7 +94,7 @@ local function giveTool(player: Player)
 		return
 	end
 
-	tool.Parent = char
+	Utils.holdTool(char, tool)
 	equippedTools[player] = tool
 end
 

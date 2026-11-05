@@ -12,7 +12,8 @@
 -- Model:
 --   * Co CheckIntervalSec próbkujemy pozycję poziomą (Y ignorujemy — spadanie i skoki
 --     to nie jest prędkość biegu, a lawa i tak załatwia spadających).
---   * Prędkość > SprintSpeed + SpeedTolerance = jeden "strike". Strikes pod rząd = kara.
+--   * Prędkość > SprintSpeed + SpeedTolerance (+ SprintBonus w oknie energy drinka) = jeden
+--     "strike". Strikes pod rząd = kara.
 --     Pojedynczy przekroczony pomiar to prawie zawsze fizyka (gruz, zbieg ze skarpy),
 --     a nie cheat — cheater przekracza limit w każdej próbce.
 --   * Impulsy nadane PRZEZ SERWER (knockback bomby, push) dają okno bezkarności —
@@ -29,6 +30,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local GameLoopService = require(script.Parent.GameLoopService)
@@ -47,8 +49,23 @@ local graceUntil: { [Player]: number } = {}
 local accumulator = 0
 local initialized = false
 
-local function maxAllowedSpeed(): number
-	return Config.Movement.SprintSpeed + Config.AntiCheat.SpeedTolerance
+-- Energy drink (01.11) przyspiesza sprint — w oknie napoju limit rośnie o SprintBonus.
+-- Okno to atrybuty gracza pisane przez EnergyDrinkService (atrybut ustawiony u klienta nie
+-- replikuje się na serwer, więc nie da się go podrobić). Próbka mierzy ŚREDNIĄ z ostatnich
+-- `dt` sekund, więc okno liczy się jeszcze `dt` po końcu napoju — inaczej szybki bieg sprzed
+-- końca dawałby strike w pierwszej próbce po nim.
+local function maxAllowedSpeed(player: Player, dt: number): number
+	local limit = Config.Movement.SprintSpeed + Config.AntiCheat.SpeedTolerance
+	local energy = Config.EnergyDrink
+	local s = player:GetAttribute(energy.StartAttribute)
+	local e = player:GetAttribute(energy.EndAttribute)
+	if type(s) == "number" and type(e) == "number" then
+		local now = Workspace:GetServerTimeNow()
+		if now >= s and now < e + dt then
+			limit += energy.SprintBonus
+		end
+	end
+	return limit
 end
 
 -- Okno bezkarności. Woła BombService (knockback) i PushService — wszystko, co serwer
@@ -65,11 +82,11 @@ local function clearSample(player: Player)
 	samples[player] = nil
 end
 
-local function punish(player: Player, speed: number)
+local function punish(player: Player, speed: number, limit: number)
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	warn(("[AntiCheat] %s — %.1f stud/s (limit %.1f) przez %d próbki z rzędu, killing"):format(
-		player.Name, speed, maxAllowedSpeed(), Config.AntiCheat.Strikes))
+		player.Name, speed, limit, Config.AntiCheat.Strikes))
 	if hum then
 		hum:TakeDamage(hum.MaxHealth)
 	end
@@ -115,10 +132,11 @@ local function checkPlayer(player: Player, now: number)
 	local horizontal = Vector3.new(to.X - from.X, 0, to.Z - from.Z).Magnitude
 	local speed = horizontal / dt
 
-	if speed > maxAllowedSpeed() then
+	local limit = maxAllowedSpeed(player, dt)
+	if speed > limit then
 		previous.strikes += 1
 		if previous.strikes >= Config.AntiCheat.Strikes then
-			punish(player, speed)
+			punish(player, speed, limit)
 			return
 		end
 	else

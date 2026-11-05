@@ -239,6 +239,21 @@ function Utils.makeHeldTool(template: Model, toolName: string, itemId: string,
 	return tool
 end
 
+-- Jedyne miejsce, które wkłada Tool itemu do ręki (serwer): NAJPIERW zabiera z postaci każdy
+-- inny Tool itemu, dopiero potem podaje nowy. Każdy serwis itemu ma własny handler EquipItem,
+-- a kolejność handlerów nie jest gwarantowana — nowy Tool mógł trafić do postaci, zanim serwis
+-- starego go zabrał, i przez chwilę gracz trzymał dwa. Podejrzana przyczyna zgłoszenia 01.11:
+-- napój → od razu RPG = wyrzutnia w ręce, ale klik nie odpala `Tool.Activated`. Serwis starego
+-- Toola dostaje ten sam EquipItem i sprząta swój stan jak dotąd (Destroy zniszczonego = nic).
+function Utils.holdTool(char: Model, tool: Tool)
+	for _, child in ipairs(char:GetChildren()) do
+		if child ~= tool and child:IsA("Tool") and child:GetAttribute("ItemId") ~= nil then
+			child:Destroy()
+		end
+	end
+	tool.Parent = char
+end
+
 -- Wierzch stosu lawy (najwyższa warstwa w `Workspace.Lava`) albo nil, gdy lawy nie ma. Dla
 -- klienta — serwer ma `LavaService.getSurfaceY`. Czytane za każdym razem, bo tafla rośnie
 -- i faluje co klatkę; warstw jest dwie-trzy, więc to kilka porównań.

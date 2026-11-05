@@ -3,12 +3,13 @@
 -- Zarządza spawn/respawn i trackuje żywych. Wstrzykuje getAliveCount do GameLoopService.
 --
 -- KONTRAKT NAZW (Kacper buduje w Studio):
---   Workspace.Map.<dowolnie>.Spawn (BasePart) — punkt respu / teleportu do lobby
+--   Workspace.Lobby.SpawnPoints (Folder) └── * (BasePart'y) — punkty lobby, kod losuje z puli
+--   Workspace.Lobby.Spawn / Workspace.Map.<dowolnie>.Spawn (BasePart) — zapas, gdy folderu brak
 --   Workspace.Map.Locked.SpawnPoints (Folder, recursive)
 --     └── *  (dowolne BasePart'y, np. "Spawn") — punkty spawn na rundę; kod losuje z puli
 --
 -- Filozofia: CharacterAutoLoads = false. Każdy spawn jest jawny:
---   - LOBBY             → wszyscy w Workspace.Map.Spawn
+--   - LOBBY             → losowy punkt z Workspace.Lobby.SpawnPoints/*
 --   - ROUND start       → load + teleport na losowy Map.Locked.SpawnPoints/*
 --   - Death (ZAWSZE)    → po DeathRagdollTime do lobby; w ROUND dodatkowo aliveSet -= player
 --                         (także poza rundą — decyzja Kacpra 26.09)
@@ -58,29 +59,45 @@ local initialized = false
 local warnedNoLobby = false
 local warnedNoSpawns = false
 
-local function getLobbyTargetPosition(): Vector3
-	-- Preferowany: Workspace.Lobby.Spawn (BasePart w wizualnym lobby)
-	-- Fallback: Workspace.Map.Spawn (legacy)
+local function getLobbyPool(): { Vector3 }
+	-- Preferowany: Workspace.Lobby.SpawnPoints/* (02.11) — kilka punktów, żeby wracający po
+	--   rundzie nie lądowali jeden na drugim
+	-- Fallback 1: Workspace.Lobby.Spawn (pojedynczy BasePart w wizualnym lobby)
+	-- Fallback 2: Workspace.Map.Spawn (legacy)
+	local pool: { Vector3 } = {}
+	local function add(part: Instance?)
+		if part and part:IsA("BasePart") then
+			table.insert(pool, part.Position + Vector3.new(0, part.Size.Y / 2 + Config.Spawn.LobbyYOffset, 0))
+		end
+	end
 	local lobby = Workspace:FindFirstChild("Lobby")
-	if lobby then
-		local spawn = lobby:FindFirstChild("Spawn")
-		if spawn and spawn:IsA("BasePart") then
-			return spawn.Position + Vector3.new(0, spawn.Size.Y / 2 + Config.Spawn.LobbyYOffset, 0)
+	local folder = lobby and lobby:FindFirstChild("SpawnPoints")
+	if folder then
+		for _, child in ipairs(folder:GetChildren()) do
+			add(child)
 		end
 	end
-	local map = Workspace:FindFirstChild("Map")
-	if map then
+	if #pool == 0 and lobby then
+		add(lobby:FindFirstChild("Spawn"))
+	end
+	if #pool == 0 then
+		local map = Workspace:FindFirstChild("Map")
 		-- recursive — Kacper może trzymać Spawn pod Map.Locked żeby bomba go nie ruszała
-		local spawn = map:FindFirstChild("Spawn", true)
-		if spawn and spawn:IsA("BasePart") then
-			return spawn.Position + Vector3.new(0, spawn.Size.Y / 2 + Config.Spawn.LobbyYOffset, 0)
+		if map then add(map:FindFirstChild("Spawn", true)) end
+	end
+	if #pool == 0 then
+		if not warnedNoLobby then
+			warnedNoLobby = true
+			warn("[PlayerService] Workspace.Lobby.SpawnPoints, Lobby.Spawn ani Map.Spawn (BasePart) nie istnieją — używam fallback")
 		end
+		table.insert(pool, Config.Spawn.FallbackLobbyPosition)
 	end
-	if not warnedNoLobby then
-		warnedNoLobby = true
-		warn("[PlayerService] Workspace.Lobby.Spawn ani Workspace.Map.Spawn (BasePart) nie istnieje — używam fallback")
-	end
-	return Config.Spawn.FallbackLobbyPosition
+	return pool
+end
+
+local function getLobbyTargetPosition(): Vector3
+	local pool = getLobbyPool()
+	return pool[math.random(#pool)]
 end
 
 local function getRoundSpawnPool(): { Vector3 }
@@ -146,13 +163,15 @@ local function anchorSpawnMarkers()
 		end
 	end
 
+	local folders: { Instance } = {}
 	local lobby = Workspace:FindFirstChild("Lobby")
 	if lobby then
 		anchor(lobby:FindFirstChild("Spawn"))
+		local lf = lobby:FindFirstChild("SpawnPoints")
+		if lf then table.insert(folders, lf) end
 	end
 
 	local map = Workspace:FindFirstChild("Map")
-	local folders: { Instance } = {}
 	if map then
 		local f = map:FindFirstChild("SpawnPoints", true)
 		if f then table.insert(folders, f) end
@@ -331,7 +350,13 @@ local function sendSurvivorsToLobby()
 	-- Martwi spectator'zy są już w lobby po onDeath — nie chcemy ich znowu LoadCharacter.
 	-- Martwy, który jeszcze leży jako ragdoll (DeathRagdollTime), wróci sam — bez tego
 	-- śmierć ostatniego gracza (runda kończy się od razu) przenosiła jego ciało do lobby.
-	local target = getLobbyTargetPosition()
+	local pool = getLobbyPool()
+	local function nearLobby(pos: Vector3): boolean
+		for _, point in ipairs(pool) do
+			if (pos - point).Magnitude <= LOBBY_NEAR_THRESHOLD then return true end
+		end
+		return false
+	end
 	for _, p in ipairs(Players:GetPlayers()) do
 		if joining[p] then continue end -- pierwszy spawn zrobi onPlayerAdded, po wczytaniu danych
 		local char = p.Character
@@ -349,10 +374,10 @@ local function sendSurvivorsToLobby()
 		if not hrp then
 			-- Brak postaci (np. fresh join w trakcie RESETTING) — zwykły load+teleport.
 			sendToLobby(p)
-		elseif (hrp.Position - target).Magnitude > LOBBY_NEAR_THRESHOLD then
+		elseif not nearLobby(hrp.Position) then
 			-- Daleko od lobby → survivor jeszcze na mapie. Teleport bez LoadCharacter
 			-- (zachowujemy skin/health/inventory).
-			char:PivotTo(CFrame.new(target))
+			char:PivotTo(CFrame.new(pool[math.random(#pool)]))
 		end
 	end
 	aliveSet = {}

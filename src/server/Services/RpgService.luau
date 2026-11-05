@@ -114,8 +114,9 @@ local function giveTool(player: Player)
 	if not tool then
 		return
 	end
-	tool.Parent = char
+	Utils.holdTool(char, tool)
 	equippedTools[player] = tool
+	log(player, "wyrzutnia w ręce") -- POMIAR 01.11, usunąć razem z resztą
 end
 
 local function removeTool(player: Player)
@@ -196,6 +197,9 @@ local function handleFire(player: Player, targetPos: any)
 	if RagdollService.isRagdolled(player) then return end
 
 	-- 3. Cooldown zużywany na PRÓBIE.
+	-- POMIAR 01.11 (jak przy napoju 31.10): odmowy po cooldownie idą do logu z powodem —
+	-- najwyżej jedna linia na cooldown, więc spam remote'a nie zaleje Output. Usunąć po
+	-- rozstrzygnięciu.
 	local now = os.clock()
 	if now - (lastFireAt[player] or 0) < Config.RateLimits.Rpg * Config.RateLimits.ServerTolerance then return end
 	lastFireAt[player] = now
@@ -203,8 +207,15 @@ local function handleFire(player: Player, targetPos: any)
 	-- 4. Strzela tym, co TRZYMA (equip pilnuje loadoutu) i ma czym.
 	local tool = equippedTools[player]
 	local char = player.Character
-	if not (tool and char and tool.Parent == char) then return end
-	if ItemService.getCount(player, ITEM_ID) <= 0 then return end
+	if not (tool and char and tool.Parent == char) then
+		log(player, "strzał odrzucony", ("— wyrzutni nie ma w ręce na serwerze (tool=%s, w postaci=%s)")
+			:format(tostring(tool ~= nil), tostring(tool ~= nil and tool.Parent == char)))
+		return
+	end
+	if ItemService.getCount(player, ITEM_ID) <= 0 then
+		log(player, "strzał odrzucony", "— brak rakiet")
+		return
+	end
 	local hrp = Utils.getRoot(player)
 	if not hrp then return end
 
@@ -219,11 +230,17 @@ local function handleFire(player: Player, targetPos: any)
 		then center + side.Unit * math.max(0, (sideHit.Position - center).Magnitude - 0.3)
 		else center + side
 	local delta = targetPos - origin
-	if delta.Magnitude < 0.5 then return end
+	if delta.Magnitude < 0.5 then
+		log(player, "strzał odrzucony", "— cel tuż przy lufie")
+		return
+	end
 	local dir = delta.Unit
 
 	-- 6. Zużycie PRZED lotem (atomic, race-safe — jak hak i most).
-	if not ItemService.consume(player, ITEM_ID, 1) then return end
+	if not ItemService.consume(player, ITEM_ID, 1) then
+		log(player, "strzał odrzucony", "— zużycie nie przeszło")
+		return
+	end
 
 	nextId += 1
 	local rocket: Rocket = {

@@ -130,7 +130,7 @@ function BombService.equip(player: Player, itemId: any): (boolean, string?)
 	-- ląduje w Backpack i gracz może go equipować ręcznie (mało prawdopodobne).
 	local char = player.Character
 	if char and char:FindFirstChild("Humanoid") then
-		tool.Parent = char
+		Utils.holdTool(char, tool)
 	else
 		tool.Parent = player:FindFirstChild("Backpack")
 	end

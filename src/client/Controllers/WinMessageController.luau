@@ -10,6 +10,8 @@
 --     … WinLabel (TextLabel) — „YOU SURVIVED!”, tekst i złoty gradient ustawione w Studio
 --     … RewardLabel (TextLabel, opcjonalny) — „+100$”
 --     … Pop (UIScale, opcjonalny) — wskok przy pokazaniu
+--     … Burst (ImageLabel, opcjonalny, 01.11) — złote promienie za napisem, kręci je kod
+--     … Sparkles (Frame + StarTemplate, opcjonalny, 01.11) — błysk gwiazdek (SparkleBurst)
 --   Cienie `<Nazwa>Shadow` kopiuje TextShadowController.
 --
 -- Oba komunikaty stoją w tym samym miejscu ekranu: zabójstwo tuż przed końcem rundy wisiałoby
@@ -17,10 +19,12 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local SparkleBurst = require(script.Parent.SparkleBurst)
 
 local CFG = Config.WinMessage
 
@@ -32,6 +36,9 @@ local root: GuiObject? = nil
 local killMessage: GuiObject? = nil
 local rewardLabel: TextLabel? = nil
 local pop: UIScale? = nil
+local burst: ImageLabel? = nil
+local sparkles: Instance? = nil
+local spinConn: RBXScriptConnection? = nil
 -- Przezroczystości ustawione w Studio = stan „w pełni widoczny”; wygaszanie wraca do 1.
 local fadeTargets: { { inst: Instance, prop: string, base: number } } = {}
 local fading: { Tween } = {}
@@ -75,6 +82,19 @@ local function show(reward: number)
 			Scale = 1,
 		}):Play()
 	end
+	local b = burst
+	if b and not spinConn then
+		-- Kręci tylko póki komunikat widać; schowanie odpina połączenie.
+		spinConn = RunService.RenderStepped:Connect(function(dt: number)
+			if not gui.Visible then
+				if spinConn then spinConn:Disconnect() end
+				spinConn = nil
+				return
+			end
+			b.Rotation = (b.Rotation + CFG.BurstSpin * dt) % 360
+		end)
+	end
+	SparkleBurst.play(sparkles)
 
 	shownAt += 1
 	local token = shownAt
@@ -113,8 +133,11 @@ function WinMessageController.init()
 		local r = gui:FindFirstChild("RewardLabel", true)
 		local p = gui:FindFirstChild("Pop", true)
 		local k = hud:FindFirstChild("KillMessage")
+		local bu = gui:FindFirstChild("Burst", true)
 		rewardLabel = if r and r:IsA("TextLabel") then r else nil
 		pop = if p and p:IsA("UIScale") then p else nil
+		burst = if bu and bu:IsA("ImageLabel") then bu else nil
+		sparkles = gui:FindFirstChild("Sparkles", true)
 		killMessage = if k and k:IsA("GuiObject") then k else nil
 		collectFadeTargets(gui)
 		gui.Visible = false

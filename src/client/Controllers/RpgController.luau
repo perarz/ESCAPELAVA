@@ -380,13 +380,28 @@ local function aimPoint(): Vector3?
 end
 
 -- ── Strzał ───────────────────────────────────────────────────────────────────────────
+-- POMIAR 01.11 (Kacper: „napiję się energy drinka i od razu RPG — nie strzela”): każde
+-- kliknięcie wyrzutnią w logu klienta — z powodem odmowy albo jako wysłany strzał. Brak linii
+-- „klik” przy wyrzutni w ręce = kliknięcie w ogóle nie doszło (Tool.Activated). Usunąć po
+-- rozstrzygnięciu.
+local function trace(what: string)
+	print(("[Rpg] klik: %s"):format(what))
+end
+
 local function onActivated()
-	if gameState ~= "" and gameState ~= "ROUND" then return end
+	if gameState ~= "" and gameState ~= "ROUND" then trace("poza rundą (" .. gameState .. ")") return end
 	local now = os.clock()
-	if now - lastFireAt < Config.RateLimits.Rpg then return end
+	if now - lastFireAt < Config.RateLimits.Rpg then
+		trace(("cooldown, minęło %.2f s"):format(now - lastFireAt))
+		return
+	end
 	local char = localPlayer.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if not hum or hum.Health <= 0 or RagdollState.isRagdolled(hum) then return end
+	if not hum or hum.Health <= 0 or RagdollState.isRagdolled(hum) then
+		trace(("martwy albo ragdoll (PlatformStand=%s, stan=%s)"):format(
+			tostring(hum and hum.PlatformStand), tostring(hum and hum:GetState())))
+		return
+	end
 
 	-- Z celowania w środek celownika, bez — w kursor (decyzja 24.10).
 	local target: Vector3?
@@ -396,11 +411,12 @@ local function onActivated()
 		local mouse = localPlayer:GetMouse()
 		target = mouse.Hit and mouse.Hit.Position
 	end
-	if not target then return end
+	if not target then trace("brak celu") return end
 
 	lastFireAt = now
 	ItemEquipController.cancel()
 	Remotes.FireRpg:FireServer(target)
+	trace("strzał wysłany do serwera")
 end
 
 

@@ -34,13 +34,14 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local LoadoutState = require(script.Parent.LoadoutState)
+local SparkleBurst = require(script.Parent.SparkleBurst)
+local LobbySign = require(script.Parent.LobbySign)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 
 local ShopController = {}
@@ -74,6 +75,7 @@ local btnPrev: TextButton? = nil
 local btnNext: TextButton? = nil
 local btnClose: TextButton? = nil
 local elCash: TextLabel? = nil       -- 21.10: kasa gracza w panelu (`ShopCash`, opcjonalny)
+local buySparkles: Instance? = nil   -- 01.11: `Panel.BuySparkles` — błysk gwiazdek po udanym zakupie
 local elStats: Instance? = nil       -- 21.10: `Stats.<Power|Range|Mobility>.Bar.Fill` jak w ekwipunku
 local STAT_ROWS = { power = "Power", range = "Range", mobility = "Mobility" }
 
@@ -488,6 +490,7 @@ function ShopController.init()
 			-- Loadout pełny → item leży w ekwipunku; mówimy o tym od razu (18.10). Serwer wysyła
 			-- LoadoutChanged PRZED ShopResult, więc stan jest już aktualny.
 			elStatus.Text = if LoadoutState.slotOf(itemId) then CFG.BoughtText else Config.UI.Inventory.ShopFullText
+			SparkleBurst.play(buySparkles)
 		else
 			elStatus.TextColor3 = Color3.fromRGB(235, 90, 80)
 			elStatus.Text = (reason and (CFG.FailTexts :: any)[reason]) or CFG.FailDefault
@@ -522,6 +525,7 @@ function ShopController.init()
 		local cashLabel = gui:FindFirstChild("ShopCash", true)
 		elCash = if cashLabel and cashLabel:IsA("TextLabel") then cashLabel else nil
 		elStats = gui:FindFirstChild("Stats", true)
+		buySparkles = gui:FindFirstChild("BuySparkles", true)
 		gui.Enabled = false
 
 		if btnBuy then btnBuy.Activated:Connect(tryBuy) end
@@ -543,35 +547,13 @@ function ShopController.init()
 			warnOnce("lobby", "brak Workspace.Lobby — sklep nie otworzy się promptem")
 			return
 		end
-		-- Napis SHOP nad sprzedawcą: kolory lawy płyną przez litery W KÓŁKO. Przesuwany tweenem
-		-- gradient Robloxa na końcu przeskakuje (poza zakresem powtarza skrajny kolor), więc
-		-- gradient liczymy co klatkę z zapętlonej palety. Daleko od lobby (poza MaxDistance) nic
-		-- się nie liczy.
+		-- Napis SHOP nad sprzedawcą: lawa płynie przez litery, za ścianami napis znika (LobbySign).
 		local sign = lobby:FindFirstChild(CFG.SignName, true)
 		local label = sign and sign:FindFirstChild("Label", true)
 		local grad = label and label:FindFirstChild("Lava")
 		if sign and sign:IsA("BillboardGui") and grad and grad:IsA("UIGradient") then
-			local palette = CFG.SignFlowColors
-			local n = #palette
-			local function sample(u: number): Color3
-				local x = (u % 1) * n
-				local i = math.floor(x)
-				local a, b = palette[i + 1], palette[(i + 1) % n + 1]
-				return a:Lerp(b, x - i)
-			end
-			local adornee = sign.Parent
-			RunService.Heartbeat:Connect(function()
-				local cam = Workspace.CurrentCamera
-				if not (cam and adornee and adornee:IsA("BasePart")) then return end
-				if (cam.CFrame.Position - adornee.Position).Magnitude > sign.MaxDistance + 10 then return end
-				local phase = os.clock() * CFG.SignFlowSpeed
-				local keys = table.create(7)
-				for k = 0, 6 do
-					local x = k / 6
-					keys[k + 1] = ColorSequenceKeypoint.new(x, sample(x * CFG.SignFlowSpan - phase))
-				end
-				grad.Color = ColorSequence.new(keys)
-			end)
+			local own = lobby:FindFirstChild(CFG.ShopModelName, true) or sign.Parent :: Instance
+			LobbySign.start(sign, grad, own, CFG.SignFlowColors, CFG.SignFlowSpeed, CFG.SignFlowSpan)
 		end
 		local hooked = false
 		local function hook(inst: Instance)

@@ -91,7 +91,7 @@ local function giveGrappleTool(player: Player)
 	local tool = Utils.makeHeldTool(template, "GrappleTool", ITEM_ID)
 	if not tool then return end
 
-	tool.Parent = char
+	Utils.holdTool(char, tool)
 	equippedTools[player] = tool
 end
 
@@ -168,8 +168,19 @@ local function handleFireGrapple(player: Player, targetPos: any)
 
 	local origin = hrp.Position
 	local delta = targetPos - origin
-	local dist = delta.Magnitude
-	if dist < 1 or dist > CFG.MaxRange then return end
+	-- 02.11 (Kacper: „grappler zawsze się odpala, nawet jak nie dosięga”): odległość punktu
+	-- klienta niczego już nie odrzuca, liczy się tylko kierunek. Klik w budynek dalej niż
+	-- zasięg zaczepi się o to, co stoi na tej linii w zasięgu; nic tam nie ma → pudło.
+	if delta.Magnitude < 1 then return end
+	local dir = delta.Unit
+
+	-- Pudło (02.11, decyzje Kacpra): lina wylatuje do `tip` i się zwija, postać stoi, sztuka
+	-- nie schodzi. Ten sam odzew dla każdego „tu się nie zaczepisz” — wcześniej klik nie robił
+	-- nic i gracz nie wiedział czemu. Cooldown zużyty wyżej, więc pudła mają limit strzałów.
+	local function miss(tip: Vector3, why: string)
+		Remotes.GrappleMiss:FireAllClients(player, tip)
+		log(player, "pudło", why)
+	end
 
 	-- 5. WŁASNY raycast. Z punktu podanego przez klienta bierzemy WYŁĄCZNIE KIERUNEK —
 	--    zaczep powstaje tam, gdzie trafi promień serwera. Klient nie może więc skłamać
@@ -178,9 +189,15 @@ local function handleFireGrapple(player: Player, targetPos: any)
 	--    stoi ściana, hak zaczepia się O TĘ ŚCIANĘ zamiast odmówić działania.
 	local ctx = Destructible.buildContext()
 	local params = buildRaycastParams(char)
-	local result = Workspace:Raycast(origin, delta.Unit * CFG.MaxRange, params)
-	if not result then return end
-	if not isAnchorable(result.Instance, ctx) then return end
+	local result = Workspace:Raycast(origin, dir * CFG.MaxRange, params)
+	if not result then
+		miss(origin + dir * CFG.MaxRange, "poza zasięgiem")
+		return
+	end
+	if not isAnchorable(result.Instance, ctx) then
+		miss(result.Position, "nie do złapania: " .. result.Instance.Name)
+		return
+	end
 
 	-- 7. DOKĄD lecimy. Cel odsunięty od powierzchni wzdłuż normalnej (środek HRP nie może
 	--    stanąć NA ścianie, więc bez tego lot zawsze kończyłby się pchaniem w mur) i lekko
@@ -192,7 +209,10 @@ local function handleFireGrapple(player: Player, targetPos: any)
 	-- i fall damage dokładnie to samo okno (plus zapas na ping).
 	local arc = GrappleArc.plan(origin, goal)
 	-- Ten sam próg co wykonawca klienta. Odrzucony, znikomy lot nie kosztuje itemu.
-	if arc.duration <= CFG.MinFlightTime then return end
+	if arc.duration <= CFG.MinFlightTime then
+		miss(result.Position, "za blisko")
+		return
+	end
 	local maxTime = math.min(CFG.MaxFlightTime, arc.duration + CFG.TimeMargin)
 
 	-- Zużycie nadal PRZED oknami i wysłaniem lotu, po wszystkich walidacjach.
@@ -213,7 +233,7 @@ local function handleFireGrapple(player: Player, targetPos: any)
 	end
 
 	log(player, "zaczep", ("dist=%.1f luk=%.2fs sufit=%.2fs zostalo=%d")
-		:format(dist, arc.duration, maxTime, ItemService.getCount(player, ITEM_ID)))
+		:format((result.Position - origin).Magnitude, arc.duration, maxTime, ItemService.getCount(player, ITEM_ID)))
 end
 
 -- ── Equip / unequip ──────────────────────────────────────────────────────────────────

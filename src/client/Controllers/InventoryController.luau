@@ -76,6 +76,7 @@ local backdropPieces: { [string]: GuiButton } = {}
 local panel: GuiObject? = nil
 local bodyFrame: GuiObject? = nil
 local pop: UIScale? = nil
+local itemGrid: ScrollingFrame? = nil -- lista kart; nie przewija się pod przeciąganą kartą
 local detailsPanel: GuiObject? = nil
 local detailsPop: UIScale? = nil
 local details: Instance? = nil      -- DetailsPanel.Body.Card
@@ -816,9 +817,11 @@ end
 type Drag = {
 	kind: "item" | "slot", itemId: string, slot: number?, from: GuiButton, start: Vector2,
 	ghost: GuiObject?, grab: Vector2, tilt: number, lastX: number,
+	touchEnd: RBXScriptConnection?,
 }
 local drag: Drag? = nil
 local suppressClick = false
+local endDrag: (input: InputObject?) -> () -- niżej; woła je już koniec dotyku z beginPress
 
 -- Wskaźnik w przestrzeni GUI — tej samej co AbsolutePosition (trafienia w sloty).
 local function pointer(input: InputObject): Vector2
@@ -840,9 +843,27 @@ local function beginPress(input: InputObject, kind: "item" | "slot", itemId: str
 		return
 	end
 	if itemId == "" then return end
+	-- Drugi palec w trakcie przeciągania nie może podmienić `drag` — klon pierwszej karty
+	-- zostałby wtedy bez właściciela i wisiał na ekranie.
+	if drag and drag.ghost then return end
+	if drag and drag.touchEnd then drag.touchEnd:Disconnect() end
 	local p = pointer(input)
-	drag = { kind = kind, itemId = itemId, slot = slot, from = from, start = p, ghost = nil,
-		grab = Vector2.zero, tilt = 0, lastX = p.X }
+	local d: Drag = { kind = kind, itemId = itemId, slot = slot, from = from, start = p, ghost = nil,
+		grab = Vector2.zero, tilt = 0, lastX = p.X, touchEnd = nil }
+	if input.UserInputType == Enum.UserInputType.Touch then
+		-- Telefon (02.11, Kacper: „przeciągam item na slota, klinuje się i zostaje tam”): klon
+		-- zostawał tam, gdzie puszczono palec, bez błędu w logu — koniec dotyku nie dotarł przez
+		-- `UserInputService.InputEnded` (podejrzenie: karta leży w przewijanej liście, która
+		-- przejmuje dotyk). Ten sam obiekt dotyku dostaje stan End/Cancel (wzorzec przeciągania
+		-- z dokumentacji Robloxa), więc koniec łapiemy też tu. Podwójny koniec = nic (`drag` nil).
+		d.touchEnd = input.Changed:Connect(function()
+			local st = input.UserInputState
+			if drag == d and (st == Enum.UserInputState.End or st == Enum.UserInputState.Cancel) then
+				endDrag(input)
+			end
+		end)
+	end
+	drag = d
 end
 
 -- UIScale, którym oryginał „ustępuje” na czas przeciągania (karta: Hover, slot: Pop).
@@ -876,6 +897,8 @@ local function startGhost(d: Drag, p: Vector2)
 	ghost.Parent = gui
 	d.ghost = ghost
 	draggingButton = from
+	-- Dotyk: lista pod przeciąganą kartą by się przewijała i mogła przejąć palec.
+	if itemGrid then itemGrid.ScrollingEnabled = false end
 	TweenService:Create(sc, TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		Scale = base * CFG.DragLift,
 	}):Play()
@@ -898,13 +921,15 @@ local function moveGhost(d: Drag, p: Vector2)
 	d.lastX = p.X
 end
 
-local function endDrag(input: InputObject?)
+function endDrag(input: InputObject?)
 	local d = drag
 	drag = nil
 	if not d then return end
+	if d.touchEnd then d.touchEnd:Disconnect() end
 	local ghost = d.ghost
 	if not ghost then return end
 	draggingButton = nil
+	if itemGrid then itemGrid.ScrollingEnabled = true end
 	suppressClick = true
 	task.defer(function() suppressClick = false end)
 	local sc = ghost:FindFirstChild("DragScale") :: UIScale?
@@ -1152,6 +1177,7 @@ local function hookUi(root: ScreenGui)
 	-- Karty: jedna na każdy item gry (też x0 — szara, z ceną; widać, co istnieje).
 	local shelf = card and card:FindFirstChild("Shelf")
 	local grid = shelf and shelf:FindFirstChild("Grid")
+	itemGrid = if grid and grid:IsA("ScrollingFrame") then grid else nil
 	local template = grid and grid:FindFirstChild("ItemTemplate")
 	if template and template:IsA("GuiButton") then
 		for order, itemId in ipairs(ItemDefinitions.shopOrder) do

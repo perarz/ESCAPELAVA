@@ -4,6 +4,7 @@
 --   1. Tool.Activated na `GrappleTool` → FireGrapple(punkt, w który celuje mysz)
 --   2. Remotes.Grappled → LOT PO ŁUKU do punktu podanego przez serwer (własna postać)
 --   3. Remotes.GrappleFX → lina innego gracza, rysowana lokalnie przez cały jego lot
+--   4. Remotes.GrappleMiss → pudło: lina wylatuje i się zwija (u wszystkich, też u strzelca)
 --
 -- ⚠️ LOT PROWADZI KLIENT, NIE SERWER — postać ma network ownership gracza, więc serwerowa
 -- siła czy prędkość na HRP zostałaby natychmiast nadpisana (hard rule 12). Serwer decyduje
@@ -111,10 +112,7 @@ local function placeRope(part: BasePart, from: Vector3, to: Vector3)
 	part.CFrame = CFrame.lookAt(from + delta * 0.5, to)
 end
 
-local function startRope(shooter: Player, anchor: Vector3, goal: Vector3, maxTime: number, flightRef: Flight?)
-	local from = ropeOrigin(shooter)
-	if not from then return end
-
+local function makeRopePart(from: Vector3, to: Vector3): BasePart
 	local part = Instance.new("Part")
 	part.Name = "GrappleRope"
 	part.Anchored = true
@@ -126,8 +124,15 @@ local function startRope(shooter: Player, anchor: Vector3, goal: Vector3, maxTim
 	part.Material = Enum.Material.SmoothPlastic
 	part.Color = CFG.RopeColor
 	-- Geometria PRZED wstawieniem do Workspace — inaczej jedna klatka liny w (0, 0, 0).
-	placeRope(part, from, anchor)
+	placeRope(part, from, to)
 	part.Parent = Workspace
+	return part
+end
+
+local function startRope(shooter: Player, anchor: Vector3, goal: Vector3, maxTime: number, flightRef: Flight?)
+	local from = ropeOrigin(shooter)
+	if not from then return end
+	local part = makeRopePart(from, anchor)
 
 	table.insert(activeRopes, {
 		shooter = shooter,
@@ -171,6 +176,55 @@ local function updateRopes()
 			table.remove(activeRopes, i)
 		else
 			placeRope(r.part, from :: Vector3, r.anchor)
+		end
+	end
+end
+
+-- ── Pudło (02.11) ────────────────────────────────────────────────────────────────────
+-- Lina wylatuje z ręki do `tip` i się zwija; postać stoi (decyzja Kacpra). Rysowane u
+-- wszystkich, też u strzelca (Remotes.GrappleMiss) — to jedyny znak, że klik zadziałał.
+type MissRope = {
+	shooter: Player,
+	tip: Vector3,
+	startedAt: number,
+	outTime: number,
+	backTime: number,
+	part: BasePart,
+}
+
+local missRopes: { MissRope } = {}
+
+local function startMissRope(shooter: Player, tip: Vector3)
+	local from = ropeOrigin(shooter)
+	if not from then return end
+	local delta = tip - from
+	local dist = delta.Magnitude
+	if dist < 0.5 then return end
+	-- Pół studa liny od razu: `placeRope` pomija krótsze, a part stałby klatkę w (0, 0, 0).
+	local part = makeRopePart(from, from + delta.Unit * 0.5)
+	table.insert(missRopes, {
+		shooter = shooter,
+		tip = tip,
+		startedAt = os.clock(),
+		outTime = dist / CFG.MissOutSpeed,
+		backTime = dist / CFG.MissBackSpeed,
+		part = part,
+	})
+end
+
+local function updateMissRopes()
+	if #missRopes == 0 then return end
+	local now = os.clock()
+	for i = #missRopes, 1, -1 do
+		local r = missRopes[i]
+		local from = ropeOrigin(r.shooter)
+		local t = now - r.startedAt
+		if from == nil or t >= r.outTime + r.backTime then
+			r.part:Destroy()
+			table.remove(missRopes, i)
+		else
+			local frac = if t < r.outTime then t / r.outTime else 1 - (t - r.outTime) / r.backTime
+			placeRope(r.part, from, from + (r.tip - from) * frac)
 		end
 	end
 end
@@ -353,6 +407,7 @@ function GrappleController.init()
 
 	RunService.Heartbeat:Connect(stepFlight)
 	RunService.RenderStepped:Connect(updateRopes)
+	RunService.RenderStepped:Connect(updateMissRopes)
 
 	Remotes.Grappled.OnClientEvent:Connect(function(anchor, goal, maxTime)
 		if typeof(anchor) ~= "Vector3" or typeof(goal) ~= "Vector3" or type(maxTime) ~= "number" then
@@ -372,6 +427,16 @@ function GrappleController.init()
 		-- Własną linę mamy już z Remotes.Grappled, związaną z lotem.
 		if shooter == localPlayer then return end
 		startRope(shooter, anchor, goal, maxTime, nil)
+	end)
+
+	Remotes.GrappleMiss.OnClientEvent:Connect(function(shooter, tip)
+		if typeof(shooter) ~= "Instance" or not shooter:IsA("Player") then return end
+		if typeof(tip) ~= "Vector3" then return end
+		startMissRope(shooter, tip)
+		-- Pudło też zużywa cooldown serwera — bez paska kolejny klik w tym oknie znów „nic nie robi”.
+		if shooter == localPlayer then
+			CooldownBarController.trigger("grapple", Config.RateLimits.Grapple)
+		end
 	end)
 end
 

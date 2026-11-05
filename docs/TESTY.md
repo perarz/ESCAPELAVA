@@ -1,5 +1,51 @@
 # CO PRZETESTOWAĆ
 
+## 🏷️ Napisy SHOP i COSMETICS (03.11, MCP — Cmd+S wymagany) — NIEPRZETESTOWANE
+- [ ] COSMETICS nie wygląda na większy od SHOP (litery 80 przy 100 w SHOP — długie słowo wyglądało na większe przy równej wysokości)
+- [ ] COSMETICS: fiolet → niebieski → jasny błękit płyną przez litery w kółko, bez przeskoku; kolory jak przycisk COSMETICS w HUD
+- [ ] SHOP: lawa płynie jak dotąd
+- [ ] Stań tak, żeby między tobą a straganem był budynek / ściana / wieża → napis znika; wyjdź zza ściany → wraca od razu
+- [ ] Stoisz przy straganie albo pod nim → napis NIE znika przez jego własny dach
+- [ ] Inny gracz stojący przed tobą NIE chowa napisu
+- [ ] Jeśli napis mruga na krawędzi ściany albo znika bez powodu → napisz, gdzie stałeś
+
+## 🌋 Tytuł ekranu ładowania + grubsza lina haka (03.11) — NIEPRZETESTOWANE
+- [ ] Wejście do gry: „ESCAPE LAVA” lekko się buja, ale NIE przeskakuje ani nie drga (nie rośnie już — rośnięcie było przyczyną skoków). Jeśli dalej coś skacze → napisz; można wyłączyć bujanie (`TITLE_SWAY_DEG = 0` w `LoadingScreen`)
+- [ ] Obrys „ESCAPE LAVA” wygląda jak lawa: ciemna skorupa i czerwono-pomarańczowe plamy płyną wzdłuż napisu, całość lekko przygasa i jaśnieje. „LAVA” (pomarańczowe) dalej czytelne, nie zlewa się z obrysem. Obrys cienia czarny
+- [ ] Obrys NIE jest biały (biały = gradient się nie nałożył — napisz)
+- [ ] Hak: lina wyraźnie grubsza niż dotąd (0,2 zamiast 0,12), także przy pudle i u drugiego gracza. Za gruba / za cienka → `Config.Grapple.RopeThickness`
+
+## 🧙 Wieża maga — poprawki 02.11 (MCP, Cmd+S wymagany)
+
+- [ ] Hala, schody: 4 świece stoją na stopniach przy wewnętrznej barierce, każda na ciemnym podstawku, nic nie wisi w powietrzu. Nie przeszkadzają w chodzeniu (bez kolizji).
+- [ ] Biurko w pokoju maga: waga szalkowa jak w sądzie — słupek, przechylona belka ze wskazówką, dwie szalki na trzech prętach, na niższej odważnik. Butelki przesunięte trochę w lewo.
+- [ ] Żyrandol nad schodami: łańcuch z sufitu do piasty, 8 ramion od piasty do pierścienia ze świecami, fioletowa kula wisi na pręcie pod piastą — nic nie lewituje.
+- [ ] Ścieżka do wieży: od placu kamienne schody z murkami, podest, krótkie schodki do drzwi — wejście bez skakania, nic nie blokuje; latarenki świecą na fioletowo, kamień zostaje szary.
+- [ ] Mgła: lekki welon przy podstawie wieży i nad schodami (nie gęsty), ruch płynny; z placu przy spawnie nie przeszkadza.
+- [ ] Klimat (NOWY Play po synchronizacji): idąc schodami w górę obraz płynnie ciemnieje, **niebo robi się ciemne i fioletowe**, w oddali mgiełka; na podeście pełny efekt, ale wieża i drzwi czytelne. Schodząc do placu wszystko płynnie wraca (bez skoku). Przy spawnie, sklepach i na mapie rundy zero zmian — także po śmierci przy wieży i teleporcie. GRAPHICS LOW = rzadsza mgła.
+- [ ] Słońce przy wieży: idąc w górę tarcza słońca płynnie maleje do zera i promienie gasną — na podeście nic nie razi; po zejściu na plac słońce wraca do zwykłego rozmiaru.
+- [ ] Schody 03.11: szersze (8), kamienie nierówne, ale chodzi się płynnie (bez zacinania na krawędziach), murki i głazy nie blokują wejścia.
+- [ ] Biurko i szyld w pokoju maga: otwarta księga (czerwona okładka, kartki), pióro w kałamarzu, fioletowy bieżnik ze złotą gwiazdą na froncie, gwiazda i kolba na szyldzie — zamiast patyków i kropek.
+
+## 📍 Spawny na chodnikach (02.11) — NIEPRZETESTOWANE
+
+6 nowych punktów `SidewalkSpawn1..6` schowanych w chodnikach wokół basenów lawy (4 stare ze środka mapy usunięte) i 4 `LobbySpawn1..4` w lobby. **Przed testem Cmd+S i `rojo serve` + Connect** (kod lobby jest w `PlayerService`).
+
+- [ ] Kilka startów rundy: lądujesz w różnych miejscach na chodnikach przy basenach lawy, stoisz równo na chodniku (nie w nim, nie spadasz z wysokości), nie przy krawężniku ani latarni.
+- [ ] Na chodnikach nigdzie nie widać szarych płytek (są w środku płyty).
+- [ ] Odliczanie 3-2-1 na chodniku: nikt nie stoi w barierce basenu ani na jezdni.
+- [ ] Lobby: wejście do gry, śmierć i koniec rundy kilka razy → lądujesz w różnych miejscach na placyku obok starego spawnu (spadasz ~2 study jak dotąd), nie jeden na drugim.
+- [ ] Lobby: nigdzie nie widać szarych płytek.
+
+## 👀 Ruch głowy tylko w pobliżu (02.11) — NIEPRZETESTOWANE
+
+Serwer wysyła obrót głowy tylko graczom w promieniu 150 studów (wcześniej wszystkim). Test: Play z 2 graczami (Test → Clients and Servers).
+
+- [ ] Stojąc blisko drugiego gracza: jego głowa nadal płynnie obraca się za jego kamerą.
+- [ ] Drugi gracz stoi nieruchomo z głową skręconą w bok, ty odchodzisz >170 studów i wracasz: po wejściu w zasięg (do ~1 s) jego głowa jest skręcona, nie na wprost.
+- [ ] Drugi gracz ginie i odradza się blisko ciebie, nie ruszając kamerą: po ~1 s jego głowa wraca do pozy, w jakiej była.
+- [ ] Output serwera bez `[HeadTracking] sweep:`.
+
 ## 31.10 — po pierwszej rundzie Kacpra (NIEPRZETESTOWANE)
 
 Pierwsza runda 31.10: log czysty. RPG, C4 (4 serie po 3 ładunki, G odpala wszystkie), napój, kolaps, koniec rundy, lobby i odbudowa działają. Zgłoszenia: góra budynku „raczej znika, niż spada”, przerwany łyk napoju, pchanie z RPG. Kod zsynchronizowany i parsuje się (odczyt Edit).
@@ -9,6 +55,16 @@ Pierwsza runda 31.10: log czysty. RPG, C4 (4 serie po 3 ładunki, G odpala wszys
 - [ ] **Beczka:** F przy beczce odpala ją tylko z pustymi rękami (decyzja 31.10, ta sama zasada).
 - [ ] **Gruz:** zawal budynek → więcej kawałków zostaje leżeć do końca rundy (około 2 z 3 małych, było 1 z 4).
 - [x] **Duże bryły z budynku** (runda 3, Kacper: „spoko”; kolaps #8 bez `bez kawałków`, grupy po 14–21 kawałków) — (zgłoszenie 31.10: „więcej dużych brył, nie małe”; przyczyna z logu poprawiona): zwal GreenBuilding od parteru (C4 ×3 przy ścianach parteru) → górne piętra lecą jako duże płyty / kawałki ścian i zostają leżeć, a nie rozsypują się w drobny gruz, który znika. W logu NIE ma linii `bez kawałków — pomijam`; są `grupa … leci` z dużą liczbą kawałków. Wklej log — policzę też linie `ponad budżet` (te grupy dalej spadają u graczy jako drobnica).
+- [ ] **Użyj itemu → zmień → klik** (zgłoszenia 01.11 napój → RPG i 02.11 hak → napój; poprawka 02.11 — klik na PC czytany wprost z myszy): w każdej parze UŻYJ pierwszego itemu, od razu wyciągnij drugi i kliknij → działa za pierwszym razem. Pary: hak → napój, napój → RPG, RPG → C4, bomba → hak, hak → RPG, C4 → bomba, most → napój. Po 2–3 powtórzenia. W logu przy napoju/RPG linia `… klik: …` przy każdym kliknięciu — jeśli jej brak, wklej log.
+- [ ] **Jeden klik = jedno użycie** (ta sama poprawka): bomba — jeden klik = jedna bomba (nie dwie naraz), C4 — jeden klik = jeden ładunek, napój — jeden łyk, RPG — jedna rakieta. Szybkie klikanie bombą dalej rzuca w tempie co do tej pory.
+- [ ] Kliknięcie w przycisk HUD (zębatka, DETONATE) z itemem w ręce NIE używa itemu.
+- [ ] **Telefon (emulator):** hak → napój, stuknij ekran → pije? Telefon nie ma jeszcze obejścia z PC — napisz, czy problem tam występuje.
+- [ ] **Szybkie przełączanie każdego itemu**: w ręce nigdy dwa modele naraz; ramka slotu zawsze na tym, co trzymasz. Bomba po rzucie wraca do ręki jak dotąd.
+- [ ] **Hak — pudło** (02.11, decyzje: za darmo, postać stoi): kliknij hakiem w niebo / budynek dużo dalej niż 70 studów → lina wylatuje z ręki daleko i szybko wraca, postać stoi, licznik haka NIE spada (sprawdź z wyłączonym nieskończonym inventory albo patrz `zostalo=` w logu), pasek odnowienia się pokazuje. W logu `[Grapple] … pudło poza zasięgiem`.
+- [ ] Hak w gruz / leżący kawałek / postać innego gracza → lina do tego miejsca i wraca (`pudło nie do złapania`), bez lotu.
+- [ ] Hak pod nogi → krótka lina i wraca, bez lotu i bez zużycia (`pudło za blisko`).
+- [ ] Hak w budynek dalej niż 70, ale po drodze w zasięgu stoi ściana → zaczepia się o ścianę i leci (jak dotąd przy celu w zasięgu).
+- [ ] Zwykły zaczep w zasięgu: lot po łuku bez zmian, sztuka schodzi. Drugi gracz widzi linę przy pudle kolegi.
 - [ ] **POMIAR: napój** — powtórz dokładnie to, co nie działało (klik pić → od razu inny item), 3–4 razy, i wklej linie `[EnergyDrink]`. Napisz też, czy ręka zdążyła podnieść puszkę do ust.
 - [x] **RPG w leżący gruz** (runda 4, Kacper: „lepiej to wygląda”) (zgłoszenie 31.10: „pchnęło, ale nic się nie rozwaliło”): strzel RPG w ułamaną część budynku leżącą na ziemi → za każdym razem coś odpada (dziura ~2× większa niż wcześniej), a płyta trafiona blisko środka pęka na dwie bryły. Strzał obok (do ~7 studów) też tnie. Wklej log: linie `[Rpg] … wybuch na …` i `rumowisko cięte=X/Y (najbliżej D)` powiedzą, w co trafiła rakieta, jeśli dalej tylko pcha.
 - [ ] C4 / bomba przy leżącym gruzie: robi duże dziury (~13 studów), ale nie zjada całego rumowiska jednym wybuchem — jeśli za dużo znika, zgłoś (gałka `RubbleHoleThreshold`).
@@ -32,6 +88,8 @@ Kod zsynchronizowany i parsuje się (odczyt Edit), przyciski postawione przez MC
 - [ ] RPG: celowanie włączone, schowaj wyrzutnię / zgiń / koniec rundy → celowanie się wyłącza, po ponownym wyciągnięciu nie włącza się samo.
 - [ ] C4: przyklejone ładunki → DETONATE jest teraz WYŻEJ na prawej krawędzi (przesunięty z 0,55 na 0,40) i nie nachodzi na przyciski. Na PC sprawdź, czy wyższa pozycja nie przeszkadza.
 - [ ] Bomba, hak, napój i rzut C4 dotknięciem ekranu nadal działają (bez nowych przycisków).
+- [ ] **Loadout palcem** (zgłoszenie 02.11: „przeciągam item na slota, klinuje się i zostaje tam”; poprawka 02.11): w lobby otwórz Inventory, przeciągnij kartę na slot i puść → karta wskakuje do slotu i znika, slot pokazuje item. Powtórz 5× na różne sloty, też szybkim ruchem. Przeciągnij i puść obok slotów → karta wraca na miejsce. Przeciągnij zajęty slot poza sloty → item wyjęty. Lista kart nie przewija się pod przeciąganą kartą; zwykłe przewijanie listy palcem dalej działa. Drugi palec w trakcie przeciągania nic nie psuje. Jeśli karta znowu zawiśnie — napisz, gdzie dokładnie (pod palcem, na slocie) i czy znika po zamknięciu panelu.
+- [ ] Ten sam loadout myszą na PC: przeciąganie, upuszczanie na slot i obok działa jak dotąd.
 - [ ] Znane wcześniej: `v0.8` w prawym dolnym rogu leży pod skokiem na telefonie (patrz „sklep v4”).
 
 ## COSMETICS — sklep v4 (27.10 wieczór), do sprawdzenia przez Kacpra

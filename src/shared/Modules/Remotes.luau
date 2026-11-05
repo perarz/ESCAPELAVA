@@ -108,6 +108,10 @@ local REMOTE_NAMES = {
 	                      --   cały lot. Czysta kosmetyka rysowana lokalnie; idzie do WSZYSTKICH,
 	                      --   żeby inni widzieli, skąd kolegę ciągnie, a nie samo odlecenie.
 	                      --   Strzelec IGNORUJE własny — swoją linę ma już z Remotes.Grappled
+	"GrappleMiss",        -- FireAllClients: (shooter: Player, tip: Vector3) — pudło haka (02.11):
+	                      --   lina wystrzeliwuje z ręki do `tip` (koniec zasięgu albo przeszkoda
+	                      --   nie do złapania) i się zwija; postać stoi, sztuka nie schodzi.
+	                      --   Tym razem także do strzelca — to jedyny odzew, że klik zadziałał
 	"DrinkEnergy",        -- klient→server: FireServer() bez payloadu — łyk energy drinka trzymanego
 	                      --   w ręce (20.10). Serwer odpowiada atrybutami gracza `EnergyStart` /
 	                      --   `EnergyEnd` (czas serwera, Config.EnergyDrink), nie remote'em —

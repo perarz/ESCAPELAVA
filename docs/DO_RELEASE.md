@@ -18,8 +18,8 @@ Aktualizacja: **23.10.2026**. Stan implementacji i dowody: [STATUS](STATUS.md). 
 |---|---|
 | Sterowanie na telefonie: sprint, push, potwierdzenie/obrót mostu | **28.10 wdrożone** (przyciski przez MCP, logika `TouchControlsController`) — zostaje test Kacpra: TESTY → „Telefon”, emulator + prawdziwy telefon. |
 | Anty-cheat — paczka 6 | Agent; plan w REVIEW. Decyzje cofnięcie → kill → kick i pion po ~1 s są zamknięte. Uwzględnić ragdoll, hak, lawę i ruchome platformy. |
-| Start przy 30–50 graczach | Agent: obecnie sekwencyjne ładowanie postaci; Kacper: multi-spawn. `SpawnPoints` pusty w Edit 23.10, działa fallback. Docelowy limit miejsca wymaga decyzji. |
-| Ruch głowy i odporność startu serwera | Agent: ograniczenie odbiorców HeadAim, obsługa błędu startu usługi zgodnie z zależnościami. |
+| Start przy 30–50 graczach | Agent: obecnie sekwencyjne ładowanie postaci; Spawny: 02.11 6 punktów rundy na chodnikach i 4 w lobby (MCP); przy więcej graczy niż punktów ten sam punkt dla kilku osób. Docelowy limit miejsca wymaga decyzji. |
+| Ruch głowy i odporność startu serwera | **HeadAim tylko do graczy w zasięgu — 02.11 w kodzie, do testu** (TESTY → „Ruch głowy”). Zostaje: obsługa błędu startu usługi zgodnie z zależnościami. |
 | Obciążenie destrukcji/odbudowy | Pomiar w grze; M-7 (koszt faktycznych kawałków) i M-13 z REVIEW pozostają otwarte. Odbudowa tylko naruszonych jednostek jest już zaimplementowana. |
 | C4 (= sticky bomb) | 25.10 w kodzie (`C4Service`, `C4Controller`, definicja `c4`). Przyklejanie i G sprawdzone w pierwszym teście Kacpra; **rzut** (zamiast klikania) i ikona `rbxassetid://103956142743404` 25.10 — NIEPRZETESTOWANE. Model i przycisk postawione przez MCP 25.10 (Cmd+S). |
 | Hak pod nogi | Agent: odrzucenie nieużytecznego lotu przed zużyciem sztuki; dotychczas odłożone. |

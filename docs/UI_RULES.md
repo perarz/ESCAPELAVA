@@ -35,7 +35,7 @@ id obrazków) są w `docs/STUDIO_CONTRACT.md` → „UI z Figmy” — tu tylko 
    cień ma `RichText = false`).
 4. **Obrys każdego tekstu**: `UIStroke` czarny, `LineJoinMode = Miter` (ostre narożniki), na
    tekście I na cieniu. Grubość: **5** przy dużych napisach (kasa, licznik, komunikaty),
-   **3** przy małych (sloty). Jeden obrys dla całego HUD — rozjazd od razu widać.
+   **3** przy małych (sloty). Jeden obrys dla całego HUD — rozjazd od razu widać. Wyjątek (Kacper 01.11, 03.11): tytuł ekranu ładowania ma obrys z płynącej lawy — od skorupy (20, 4, 4) do żaru (205, 45, 0), zawsze ciemniejszy od napisu (jaśniejszy pomarańcz zlewał się z „LAVA”).
 5. **Zawsze skalowalne**: px projektu przy wysokości ekranu 1200, kotwica do najbliższej
    krawędzi, `HudScaleController` dokłada każdemu dziecku `HUD` skalę z wysokości ekranu.
    `HUD.ScreenInsets = DeviceSafeInsets` — góra ekranu jest nasza (pasek Robloxa siedzi

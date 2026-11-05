@@ -225,7 +225,7 @@ local function giveBlueprintTool(player: Player, def: any)
 	local tool = Utils.makeHeldTool(template, "BlueprintTool", ITEM_ID)
 	if not tool then return end
 
-	tool.Parent = char
+	Utils.holdTool(char, tool)
 	equippedTools[player] = tool
 end
 
