@@ -45,8 +45,16 @@ local aliveProvider: () -> number = function() return 0 end
 local prepareRound: (() -> ())? = nil
 local stateEndsAt = 0
 
+-- Bramka startu rundy (06.11): pytana na końcu odliczania w lobby, jeszcze przed PREPARING.
+-- false = nikt nie chce grać, więc lobby odlicza od nowa zamiast rozgrywać pustą rundę.
+local roundGate: () -> boolean = function() return true end
+
 function GameLoopService.setRoundPreparer(fn: () -> ())
 	prepareRound = fn
+end
+
+function GameLoopService.setRoundGate(fn: () -> boolean)
+	roundGate = fn
 end
 
 -- TRYB DEV (Config.Dev): pomijanie czekania. `skipRequested` jest JEDNORAZOWY — każdy
@@ -137,10 +145,7 @@ local function waitForMinPlayers()
 	until #Players:GetPlayers() >= Config.Game.MinPlayers
 end
 
-local function runLobby()
-	waitForMinPlayers()
-	setState(STATE.LOBBY, Config.Game.LobbyDuration)
-
+local function lobbyCountdown()
 	-- Countdown LobbyDuration. Spadek poniżej min → wróć do trybu oczekiwania
 	-- (klient dostaje świeży state, timer restartuje od pełna — nie kłamie).
 	local elapsed = 0
@@ -154,6 +159,16 @@ local function runLobby()
 		else
 			elapsed += 1
 		end
+	end
+end
+
+local function runLobby()
+	waitForMinPlayers()
+	while true do
+		setState(STATE.LOBBY, Config.Game.LobbyDuration)
+		lobbyCountdown()
+		if roundGate() then return end
+		print("[GameLoop] nikt nie chce grać — lobby od nowa")
 	end
 end
 

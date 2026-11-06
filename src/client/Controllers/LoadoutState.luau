@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local RoundSkipState = require(script.Parent.RoundSkipState)
 
 local LoadoutState = {}
 
@@ -55,8 +56,9 @@ function LoadoutState.getCount(itemId: string): number
 	return inventory[itemId] or 0
 end
 
+-- Pomijający rundę stoi w lobby także w jej trakcie (06.11).
 function LoadoutState.isLobby(): boolean
-	return gameState == "LOBBY"
+	return gameState == "LOBBY" or RoundSkipState.isSittingOut()
 end
 
 function LoadoutState.slotOf(itemId: string): number?
@@ -97,6 +99,7 @@ function LoadoutState.init()
 			notify()
 		end
 	end)
+	RoundSkipState.onChanged(notify)
 end
 
 return LoadoutState

@@ -1,6 +1,6 @@
 # ESCAPE LAVA — mapa kontekstu
 
-Aktualizacja: **23.10.2026**. Repo zawiera kod i dokumentację; mapa, modele i większość UI żyją w placu Roblox Studio. Sam `rojo build` nie odtworzy pełnej gry z assetami.
+Aktualizacja: **06.11.2026**. Punkt wznowienia: [STATUS](STATUS.md) → „06.11”. Repo zawiera kod i dokumentację; mapa, modele i większość UI żyją w placu Roblox Studio. Sam `rojo build` nie odtworzy pełnej gry z assetami.
 
 | Potrzeba | Dokument |
 |---|---|

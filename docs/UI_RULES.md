@@ -1,6 +1,6 @@
 # UI_RULES.md — zasady robienia UI w ESCAPE LAVA
 
-Aktualizacja kontekstu: **23.10.2026**. Bieżący kontrakt w STUDIO_CONTRACT; zapisane wyniki w TESTY.
+Aktualizacja kontekstu: **06.11.2026**. Bieżący kontrakt w STUDIO_CONTRACT; zapisane wyniki w TESTY.
 
 Reguły dla KAŻDEGO nowego elementu UI (HUD, panele, komunikaty, efekty). Zebrane z decyzji
 Kacpra i pułapek z 10-11.10. Opisy konkretnych, już zbudowanych elementów (nazwy, rozmiary,
@@ -48,6 +48,11 @@ id obrazków) są w `docs/STUDIO_CONTRACT.md` → „UI z Figmy” — tu tylko 
    rozmycia, a obrazek-poświata wygląda jak smuga.
 8. **Efekty tam, gdzie gracz patrzy** — na środku ekranu, nie w rogu („nikt nie patrzy w róg
    podczas gry”). Bez czarnych obrysów na drobnych cząsteczkach (wyglądają jak czarne odłamki).
+9. **Rzeczy drugorzędne: małe, lekkie i przy tym, czego dotyczą** (06.11). Kacper dwa razy kazał
+   zmniejszać: kropki sklepu („bardziej lean, poza ramką, mniejsze”) i pomijanie rundy (z dużego
+   przycisku pod COSMETICS na mini ramkę pod licznikiem). Duży przycisk zostaje dla głównej akcji.
+10. **Panel „ożywiać”, nie przerabiać** (06.11): przy „lepsze UI” najpierw animacje i motyw gry z
+   istniejących paneli. Pas lawy w sklepie to klon z ekwipunku, nie nowy styl.
 
 ## Pułapki silnika (każda kosztowała podejście)
 - **`AutomaticSize` + dziecko z rozmiarem w skali rodzica = pętla** (napis rozpychał się do 2×
@@ -80,6 +85,14 @@ id obrazków) są w `docs/STUDIO_CONTRACT.md` → „UI z Figmy” — tu tylko 
 - Wszystko, co klonuje kod, idzie do JEDNEGO kontenera na efekt i jest sprzątane w całości.
 - Kolejny event w trakcie animacji: żeton / `Cancel` poprzednich tweenów — nic nie może
   „dokończyć się” na nowym stanie.
+- **Reakcja przycisku (06.11, wzór `ShopFx`):** jedna skala na przycisk, liczona ze stanu `hovered` +
+  `pressed`. `MouseEnter` ignorować na dotyku, bo `MouseLeave` tam nie przychodzi i przycisk zostaje
+  powiększony. `pressed` zdejmować globalnym `InputEnded`, bo puszczenie poza przyciskiem nie daje
+  `MouseButton1Up`. Mały element dostaje pole kliknięcia większe od ramki (na telefonie skala 0,5).
+- **Wibracje (06.11):** `HapticEffect` w `pcall`, typy po nazwie z `Config`. Dokumentacja Robloxa nie
+  podaje listy urządzeń, więc wynik sprawdzić na prawdziwym telefonie.
+- **Pozycje przy animowanej skali:** liczyć w kodzie, nie `UIListLayout` (rosnący element przesuwałby
+  sąsiadów). Przesuwana tekstura w zaokrąglonym pasie: `CanvasGroup` z `UICorner`, jak `LavaPool`.
 
 ## Proces
 1. Przy wdrażaniu projektu z Figmy przeczytać wskazany węzeł (wymiary, kolory, obrysy, efekty) z wymaganymi skillami; sam audyt dokumentacji nie wymaga dostępu do Figmy.

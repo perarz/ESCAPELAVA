@@ -24,6 +24,8 @@ local REMOTE_NAMES = {
 	"SetLoadout",         -- klient→server: FireServer(loadout: {string}) — 3 itemId, "" = pusty slot.
 	                      --   Tylko w LOBBY; serwer czyści (istniejące, bez powtórzeń) — LoadoutService
 	"LoadoutChanged",     -- FireClient: (loadout: {string}) — 3 itemId, "" = pusty (18.10)
+	"SetSkipRound",       -- klient→server: FireServer(skip: boolean) — pomijanie rund (06.11).
+	                      --   Odpowiedź przez atrybuty gracza (Config.RoundSkip) — RoundSkipService
 	"SetSettings",        -- klient→server: FireServer(settings: {[key: string]: any}) — cały stan
 	                      --   ustawień (26.10). Serwer zostawia tylko klucze i wartości z
 	                      --   Config.Settings.Options, resztę ustawia domyślnie — SettingsService

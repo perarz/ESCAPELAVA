@@ -1,10 +1,11 @@
 # Roadmapa i decyzje produktu
 
-Aktualizacja: **23.10.2026**. Bieżący stan jest w [STATUS](STATUS.md), kolejka wydania w [DO_RELEASE](DO_RELEASE.md), testy w [TESTY](TESTY.md). „W kodzie” nie oznacza „potwierdzone w Play”.
+Aktualizacja: **06.11.2026**. Bieżący stan jest w [STATUS](STATUS.md), kolejka wydania w [DO_RELEASE](DO_RELEASE.md), testy w [TESTY](TESTY.md). „W kodzie” nie oznacza „potwierdzone w Play”.
 
 ## Zakres i decyzje obowiązujące
 
 - Szybkie rundy: projektowo 80 s, lobby 25 s; lawa płynnie przyspiesza, bez dawnych faz. Produkcyjne liczby wdrożyć razem i ocenić z ludźmi.
+- **Pomijanie rundy (06.11):** domyślnie grają wszyscy; mała ramka SKIP pod licznikiem działa do odkliknięcia. Nie pole startu. Pomijający stoi w lobby, nie zarabia, a sklep, ekwipunek i kosmetyki ma przez całą rundę. Podgląd rundy dla pomijających nie jest zatwierdzonym zadaniem.
 - **Loadout: 3 itemy** z docelowych 6. Panel Inventory tylko w lobby, brak trzeciego stoiska. Sloty nie przesuwają się po zużyciu ostatniej sztuki.
 - Wybrana szóstka: bomba, most, hak, RPG, energy drink, sticky bomb. **25.10: sticky bomb = C4** (decyzje Kacpra: rzucasz — dalej i płaściej niż bomba — i przykleja się do mapy, nie do graczy; maks. 3 naraz; odpalasz wszystkie klawiszem G / przyciskiem na telefonie; śmierć = ładunki znikają bez wybuchu). Cała szóstka w kodzie, C4 czeka na test. Nie zastępować wybranego zestawu dawną rekomendacją lotni/ściany/rozbiórki.
 - **Fizyka destrukcji zostaje**. Całe miasto na v4, lokalny gruz bez kolizji, gruz nie rani, jazda na bryle podlega zwykłemu fall damage. Jeden profil grafiki; brak ustawień Potato/Full.

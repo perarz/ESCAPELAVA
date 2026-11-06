@@ -27,6 +27,7 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local ItemService = require(script.Parent.ItemService)
 local GameLoopService = require(script.Parent.GameLoopService)
+local RoundSkipService = require(script.Parent.RoundSkipService)
 
 local LoadoutService = {}
 
@@ -95,9 +96,14 @@ function LoadoutService.canEquip(player: Player, itemId: string): boolean
 	return loadout ~= nil and table.find(loadout, itemId) ~= nil
 end
 
+-- Loadout zmienia się w lobby, a pomijający rundę stoi w lobby także w jej trakcie (06.11).
+local function canEditLoadout(player: Player): boolean
+	return GameLoopService.getState() == GameLoopService.STATE.LOBBY or RoundSkipService.isSittingOut(player)
+end
+
 function LoadoutService.addIfFree(player: Player, itemId: string): boolean
 	local loadout = current(player)
-	if not loadout or GameLoopService.getState() ~= GameLoopService.STATE.LOBBY then return false end
+	if not loadout or not canEditLoadout(player) then return false end
 	if table.find(loadout, itemId) then return true end
 	local free = table.find(loadout, "")
 	if not free then return false end
@@ -124,7 +130,7 @@ local function onSetLoadout(player: Player, raw: any)
 	lastSetAt[player] = now
 
 	-- Ukrycie panelu nie blokuje bezpośredniego wywołania remote'a w rundzie.
-	if GameLoopService.getState() ~= GameLoopService.STATE.LOBBY then
+	if not canEditLoadout(player) then
 		LoadoutService.replicateTo(player)
 		return
 	end

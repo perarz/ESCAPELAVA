@@ -14,6 +14,7 @@ local State = require(script.Parent.CosmeticsState)
 local Preview = require(script.Parent.CosmeticsPreview)
 local Shop = require(script.Parent.ShopController)
 local LobbySign = require(script.Parent.LobbySign)
+local RoundSkip = require(script.Parent.RoundSkipState)
 
 local Controller = {}
 local player = Players.LocalPlayer
@@ -562,10 +563,21 @@ function Controller.init()
 		if preview and selected then Preview.outfit(preview, State.outfit(), if tryingOn then selected else nil) end
 		refresh()
 	end)
-	Remotes.GameStateChanged.OnClientEvent:Connect(function(state: any)
-		lobby = state == "LOBBY"
+	-- „Lobby” liczone per gracz: pomijający rundę stoi w lobby także w jej trakcie (06.11). Stąd
+	-- prompt straganu ustawiany tutaj, u siebie; serwer zostawia go włączonego i waliduje zakup.
+	local gameState = ""
+	local function refreshLobby()
+		lobby = gameState == "LOBBY" or RoundSkip.isSittingOut()
 		if not lobby then close() end
 		updateButton()
+		local lobbyFolder = workspace:FindFirstChild("Lobby")
+		local prompt = lobbyFolder and lobbyFolder:FindFirstChild(Config.Cosmetics.PromptName, true)
+		if prompt and prompt:IsA("ProximityPrompt") then prompt.Enabled = lobby end
+	end
+	RoundSkip.onChanged(refreshLobby)
+	Remotes.GameStateChanged.OnClientEvent:Connect(function(state: any)
+		gameState = state
+		refreshLobby()
 	end)
 	Remotes.CashChanged.OnClientEvent:Connect(function(value: any)
 		if type(value) ~= "number" then return end

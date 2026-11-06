@@ -12,6 +12,7 @@ local PlayerDataService = require(script.Parent.PlayerDataService)
 local CashService = require(script.Parent.CashService)
 local AppearanceService = require(script.Parent.AppearanceService)
 local GameLoopService = require(script.Parent.GameLoopService)
+local RoundSkipService = require(script.Parent.RoundSkipService)
 
 local CosmeticsService = {}
 type State = { owned: { [string]: boolean }, equipped: { [string]: string } }
@@ -85,7 +86,10 @@ end
 
 local function lobbyOnly(player: Player): (boolean, string?)
 	if player.Parent ~= Players then return false, "player_left" end
-	if GameLoopService.getState() ~= GameLoopService.STATE.LOBBY then return false, "lobby_only" end
+	-- Pomijający rundę stoi w lobby także w jej trakcie (06.11).
+	if GameLoopService.getState() ~= GameLoopService.STATE.LOBBY and not RoundSkipService.isSittingOut(player) then
+		return false, "lobby_only"
+	end
 	if not PlayerDataService.isWritable(player) then return false, "data_not_ready" end
 	if not livingCharacter(player) then return false, "character_unavailable" end
 	return true, nil
@@ -205,7 +209,9 @@ local function ensurePrompt()
 		created.Parent = anchor
 		prompt = created
 	end
-	if prompt then prompt.Enabled = GameLoopService.getState() == GameLoopService.STATE.LOBBY end
+	-- Widoczność promptu ustawia każdy klient u siebie (06.11): w rundzie widzi go tylko ten,
+	-- kto ją pomija. Właściwość z serwera dotyczyłaby wszystkich. Zakup i tak waliduje `lobbyOnly`.
+	if prompt then prompt.Enabled = true end
 end
 
 local initialized = false
@@ -237,9 +243,6 @@ function CosmeticsService.init()
 		windows[player] = nil
 	end)
 	ensurePrompt()
-	GameLoopService.StateChanged:Connect(function(state)
-		if prompt and prompt.Parent then prompt.Enabled = state == GameLoopService.STATE.LOBBY end
-	end)
 end
 
 return CosmeticsService

@@ -1,6 +1,6 @@
 # Co zostało do release’u
 
-Aktualizacja: **23.10.2026**. Stan implementacji i dowody: [STATUS](STATUS.md). Testy wykonuje Kacper według [TESTY](TESTY.md); samo napisanie/skompilowanie kodu nie zalicza testu.
+Aktualizacja: **06.11.2026**, dzień premiery wyznaczony przez Kacpra. Krótka kolejność na dziś: [STATUS](STATUS.md) → „06.11”. Stan implementacji i dowody: [STATUS](STATUS.md). Testy wykonuje Kacper według [TESTY](TESTY.md); samo napisanie/skompilowanie kodu nie zalicza testu.
 
 ## Najpierw akceptacja obecnej gry
 
@@ -23,8 +23,9 @@ Aktualizacja: **23.10.2026**. Stan implementacji i dowody: [STATUS](STATUS.md). 
 | Obciążenie destrukcji/odbudowy | Pomiar w grze; M-7 (koszt faktycznych kawałków) i M-13 z REVIEW pozostają otwarte. Odbudowa tylko naruszonych jednostek jest już zaimplementowana. |
 | C4 (= sticky bomb) | 25.10 w kodzie (`C4Service`, `C4Controller`, definicja `c4`). Przyklejanie i G sprawdzone w pierwszym teście Kacpra; **rzut** (zamiast klikania) i ikona `rbxassetid://103956142743404` 25.10 — NIEPRZETESTOWANE. Model i przycisk postawione przez MCP 25.10 (Cmd+S). |
 | Hak pod nogi | Agent: odrzucenie nieużytecznego lotu przed zużyciem sztuki; dotychczas odłożone. |
-| Gest pchnięcia na produkcji | Kacper: opublikować `Push_TwoHands_R15`; agent: wpiąć ID. Obecnie `AnimationId = 0`, tylko podgląd Studio. |
-| Dźwięki | Kacper: ID pięciu dźwięków destrukcji i strzału RPG; agent: wpięcie. Łyk napoju opcjonalny. |
+| Gest pchnięcia na produkcji | **05.11 opublikowany i wpięty** (asset `128117097694041`, moderacja Approved) — zostaje test Kacpra: TESTY → „Animacja F”. |
+| Pomijanie rundy | **06.11 w kodzie** (`RoundSkipService`, mini ramka pod licznikiem). Zostaje test Kacpra z dwoma graczami: TESTY → „Pomijanie rundy”. |
+| Dźwięki | Kacper: ID pięciu dźwięków destrukcji i strzału RPG oraz czterech dźwięków panelu sklepu (`Config.Shop.Fx.Feedback`); agent: wpięcie. Łyk napoju opcjonalny. |
 | Bake budynków w placu | Przed TRYB 3 sprawdzić zaokrąglenia 0,001 i brak walidacji `MapRevision`; obecnie brak zapisanych danych w Edit. Po bake zweryfikować zgodność z geometrią. |
 | Uprawnienia dev po UserId | Agent + UserId Kacpra. Przed wydaniem tryb dev wyłączony niezależnie od tego zadania. |
 
@@ -47,7 +48,9 @@ Loadout, energy drink, RPG (strzał + wybuch + efekty/odrzut), kill message i wi
 - [ ] `Config.Dev.Enabled = false` i `InfiniteItemsForAll = false`.
 - [ ] `Config.Game.MinPlayers = 2`.
 - [ ] `Config.Structure.Collapse.Debug = false` i `Config.Destruction.Debug = false`.
-- [ ] Ustawić limit graczy w ustawieniach miejsca Roblox.
+- [ ] Usunąć tymczasowe logi po teście kliknięć: `[EnergyDrink] klik`, `[Rpg] klik`, `puszka w ręce/schowana`, `wyrzutnia w ręce` i odmowy na serwerze (`EnergyDrink*`, `Rpg*`).
+- [ ] Podbić `Config.UI.Version` (dziś `0.8`).
+- [ ] Ustawić limit graczy w ustawieniach miejsca Roblox (05.11 odczyt: 60; agent proponował 20, decyzja Kacpra).
 - [ ] Zapisać plac **Cmd+S**, potwierdzić zgodność kodu Studio z wersją przeznaczoną do wydania; dopilnować modeli i GUI, których nie ma w repo.
 - [ ] Test z kilkoma osobami na prawdziwym serwerze, także telefonami: zapis, wszystkie itemy, własne wybuchy, animacja F, lawa/EditableMesh lub fallback, kilka rund, odbudowa i wydajność.
 - [ ] Publikacja po akceptacji Kacpra.

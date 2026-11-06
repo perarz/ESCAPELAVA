@@ -1218,8 +1218,8 @@ Config.Ladder = {
 Config.Push = {
 	Windup = 0.15, -- authoritative delay before target selection / impulse
 	AnimationEnabled = true,
-	AnimationId = 0, -- publish Push_TwoHands_R15 and insert the owner account's ID
-	AnimationStudioPreview = true,
+	AnimationId = 128117097694041, -- Push_TwoHands_R15 na koncie właściciela gry (05.11, Open Cloud)
+	AnimationStudioPreview = false, -- podgląd z KeyframeSequence tylko przy AnimationId = 0
 	AnimationFolder = "PushAnimations",
 	AnimationName = "Push_TwoHands_R15",
 	AnimationImpactTime = 0.15, -- authored contact time; playback scales to Windup
@@ -1607,6 +1607,7 @@ Config.RateLimits = {
 	-- Zmiana loadoutu w ekwipunku (18.10). Klient zbiera szybkie kliknięcia i wysyła ostatni
 	-- stan po `Config.UI.Inventory.SendDelay`, więc limit nie dotyka człowieka.
 	SetLoadout = 0.2,
+	SetSkipRound = 0.1, -- ponad ludzkie tempo klikania przełącznika
 	-- Panel ustawień (26.10): ten sam wzorzec co loadout — wysyłka ostatniego stanu po
 	-- `Config.Settings.SendDelay`.
 	SetSettings = 0.2,
@@ -1738,13 +1739,14 @@ Config.Shop = {
 	SceneName = "WeaponShopScene",
 	ItemsFolder = "Decorations",   -- modele na wystawie (nazwa z ItemDefinitions.sceneModel)
 	CamerasFolder = "ShopCameras", -- markery pozycji kamery
-	-- Światło sceny: od 23.10 stałe lampy w placu (`<SceneName>.ShopLights`, po jednej nad itemem),
-	-- kod ich nie zna. Lampa jadąca za kamerą (21.10, `LightName`) usunięta — oświetlenie
+	-- Światło sceny: stałe lampki w placu (`<SceneName>.Arsenal.Wall`, `LampLight` nad każdym itemem;
+	-- 06.11 zastąpiły `ShopLights`), kod ich nie zna. Lampa jadąca za kamerą (21.10, `LightName`) usunięta — oświetlenie
 	-- doganiało ją kilka sekund po każdym przewinięciu.
 	-- Ogólne światło sceny (`Lighting.Ambient`) na czas sklepu, tylko u oglądającego (23.10).
 	-- Lamp Roblox nie rysuje na niskiej jakości grafiki — to trzyma sklep jasny na każdej.
 	-- Jaśniej = płaściej na wysokiej jakości (mniej widać plamy lamp). Poza sklepem: 88,58,52.
-	SceneAmbient = Color3.fromRGB(135, 120, 110),
+	-- 06.11: neutralne (było 135, 120, 110) — ciepły brąz dawał żółty nalot na oliwkowej ścianie arsenału.
+	SceneAmbient = Color3.fromRGB(122, 122, 116),
 
 	-- PAROWANIE KAMERY Z ITEMEM IDZIE PO ODLEGŁOŚCI, NIE PO NAZWIE MARKERA.
 	-- Marker obsługuje ten item, naprzeciw którego stoi — ten sam wzorzec, co dawne
@@ -1790,6 +1792,69 @@ Config.Shop = {
 	InteractDistance = 18,
 	-- Płynny przejazd kamery między itemami przy przewijaniu (s).
 	CameraTweenTime = 0.35,
+	-- Kamera za myszą (06.11): lekkie krążenie wokół oglądanego itemu, tylko przy myszy.
+	-- Item zostaje na środku kadru, przesuwa się tło. Rate = jak szybko dogania kursor.
+	CameraParallax = { YawDegrees = 1.6, PitchDegrees = 1.0, Rate = 5 },
+	-- Mikroanimacje i wibracje panelu (06.11, ShopFx). Czasy w sekundach, przesunięcia w px projektu.
+	Fx = {
+		-- Wjazd i zjazd panelu. PanelHiddenY = Y w skali ekranu, przy której panel jest poza nim
+		-- (kotwica u dołu panelu). Zjazd jest krótki, bo kamera wraca od razu i na niego nie czeka.
+		PanelHiddenY = 1.4,
+		PanelOpenTime = 0.34,
+		PanelCloseTime = 0.14,
+		-- Wskok przycisków przy otwarciu, jeden po drugim.
+		ButtonPopFrom = 0.6,
+		ButtonPopTime = 0.28,
+		ButtonPopDelay = 0.08,
+		ButtonPopStagger = 0.05,
+		-- Reakcja przycisków na kursor i kliknięcie.
+		HoverScale = 1.06,
+		HoverTime = 0.14,
+		PressScale = 0.92,
+		PressTime = 0.07,
+		-- Zmiana itemu: strzałka, nazwa z kierunku przewijania, cena, paski cech jeden po drugim.
+		ArrowPopFrom = 0.82,
+		ArrowPopTime = 0.24,
+		NameSlide = 26,
+		TextTime = 0.22,
+		PricePopFrom = 0.8,
+		PricePopTime = 0.26,
+		StatStagger = 0.05,
+		-- Wynik zakupu.
+		BuyPopFrom = 1.16,
+		BuyPopTime = 0.34,
+		ShakeDegrees = 5,
+		ShakeTime = 0.06,
+		-- Napis pod BUY: wskakuje i po chwili sam znika.
+		StatusPopFrom = 0.7,
+		StatusPopTime = 0.22,
+		StatusHold = 2.5,
+		StatusHideTime = 0.12,
+		-- Połysk BUY (`BuyButton.Sweep`), tylko gdy stać gracza na item.
+		ShineInterval = 3.5,
+		ShineTime = 0.65,
+		ShineOffset = 1.2,
+		-- Kropki nad ramką panelu (`Panel.Dots`): który item oglądasz.
+		DotIdleSize = 9,
+		DotActiveSize = 13,
+		DotSpacing = 18,
+		DotTime = 0.18,
+		DotIdleColor = Color3.fromRGB(200, 200, 205),
+		DotActiveColor = Color3.fromRGB(255, 225, 50), -- żółty nagłówka
+		LavaSpeed = 16, -- px/s: przesuw pasa lawy (`Panel.LavaPool`), jak w ekwipunku
+
+		-- Wibracje działają tam, gdzie urządzenie je obsługuje; komputer bez pada ich nie ma.
+		-- Haptic = nazwa z Enum.HapticEffectType, "" = bez wibracji; HapticRepeat = ile razy z rzędu.
+		-- Sound = "rbxassetid://…", "" = cisza (ID poda Kacper).
+		FeedbackMinGap = 0.05, -- scroll myszy nie może odpalać wibracji i dźwięku co klatkę
+		HapticRepeatGap = 0.09,
+		Feedback = {
+			Press = { Haptic = "UIClick", HapticRepeat = 1, Sound = "" },
+			Switch = { Haptic = "UIHover", HapticRepeat = 1, Sound = "" },
+			Buy = { Haptic = "UINotification", HapticRepeat = 1, Sound = "" },
+			Fail = { Haptic = "UIClick", HapticRepeat = 2, Sound = "" },
+		},
+	},
 	-- Podniesienie punktu celowania nad środek modelu (stud). 0 = prosto w środek;
 	-- lekko dodatnie ładniej kadruje wysokie modele.
 	LookAtHeightOffset = 0,
@@ -1797,6 +1862,27 @@ Config.Shop = {
 	PrevKey = Enum.KeyCode.A,
 	NextKey = Enum.KeyCode.D,
 	CloseKey = Enum.KeyCode.Q, -- NIE Escape (otwiera menu Roblox) — Q zamyka sklep.
+}
+
+-- Pomijanie rund (06.11, RoundSkipService): gracz zostaje w lobby, nie zarabia, a sklep, ekwipunek
+-- i kosmetyki działają mu przez całą rundę. Przełącznik trwa do odkliknięcia.
+Config.RoundSkip = {
+	WantsAttribute = "SkipRound",     -- atrybut gracza: przełącznik włączony
+	SittingOutAttribute = "SittingOut", -- atrybut gracza: bieżąca runda idzie bez niego
+	ButtonParent = "RoundTimer",      -- napis pod licznikiem: HUD.<ButtonParent>.<ButtonName>
+	ButtonName = "SkipButton",
+	TextOff = "SKIP",                 -- napis mówi, co zrobi kliknięcie
+	TextOn = "DON'T SKIP",
+	ColorsOff = { Color3.fromRGB(120, 115, 125), Color3.fromRGB(70, 66, 76) }, -- gradient mini ramki `Fill`
+	ColorsOn = { Color3.fromRGB(255, 95, 80), Color3.fromRGB(200, 30, 25) },   -- jak X i plakietka „!”
+	WidthOff = 88,   -- px projektu: szerokość ramki dopasowana do krótszego napisu
+	WidthOn = 142,
+	ResizeTime = 0.16,
+	HoverScale = 1.1,
+	HoverTime = 0.14,
+	PressFrom = 0.9,
+	PressTime = 0.25,
+	StartingText = "STARTING", -- licznik u pomijającego zamiast „GET READY”
 }
 
 Config.Destruction = {

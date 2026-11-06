@@ -26,10 +26,14 @@ local KillService = require(script.Parent.KillService)
 -- wyglądać jak postacie z tej gry, a nie przynosić własne avatary (decyzja 2026-09-21).
 local AppearanceService = require(script.Parent.AppearanceService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local RoundSkipService = require(script.Parent.RoundSkipService)
 
 local PlayerService = {}
 
 local aliveSet: { [Player]: boolean } = {}
+-- Kto dostał spawn na mapę w tej rundzie. Tylko ich koniec rundy ściąga do lobby: ktoś, kto stał
+-- w lobby (pomijający, dołączający), mógłby właśnie kupować, a teleport wyrwałby go ze sklepu.
+local roundPlayers: { [Player]: boolean } = {}
 local diedConns: { [Player]: RBXScriptConnection } = {}
 -- Martwi, na których czeka timer powrotu do lobby (DeathRagdollTime). Wartość to ŻETON
 -- tego jednego timera: każdy spawn gracza (lobby albo start rundy) go kasuje, a timer,
@@ -374,13 +378,27 @@ local function sendSurvivorsToLobby()
 		if not hrp then
 			-- Brak postaci (np. fresh join w trakcie RESETTING) — zwykły load+teleport.
 			sendToLobby(p)
-		elseif not nearLobby(hrp.Position) then
+		elseif roundPlayers[p] and not nearLobby(hrp.Position) then
 			-- Daleko od lobby → survivor jeszcze na mapie. Teleport bez LoadCharacter
 			-- (zachowujemy skin/health/inventory).
 			char:PivotTo(CFrame.new(pool[math.random(#pool)]))
 		end
 	end
 	aliveSet = {}
+	roundPlayers = {}
+	RoundSkipService.releaseAll()
+end
+
+-- Koniec odliczania w lobby (bramka GameLoopService). Bez yieldu: zaraz po niej PREPARING
+-- i `sendEveryoneToRound`, więc nikt nie zmieni listy graczy pomiędzy.
+local function lockInRound(): boolean
+	for _, player in ipairs(Players:GetPlayers()) do
+		if not joining[player] and not RoundSkipService.wantsSkip(player) then
+			RoundSkipService.lockIn()
+			return true
+		end
+	end
+	return false
 end
 
 local function sendEveryoneToRound()
@@ -388,18 +406,22 @@ local function sendEveryoneToRound()
 	-- Pre-populate aliveSet SYNCHRONICZNIE przed jakimkolwiek yield, żeby
 	-- GameLoop.shouldEndRound widział alive>0 zanim my zdążymy zrobić LoadCharacter.
 	aliveSet = {}
-	-- Start rundy ładuje postać KAŻDEMU, więc czekające timery śmierci są nieaktualne —
-	-- bez tego ktoś, kto zginął w lobby chwilę przed startem, wróciłby z mapy do lobby.
-	respawnPending = {}
-	-- Bez dołączających (patrz `joining`) — ci dostaną spawn w lobby jako widzowie.
+	roundPlayers = {}
+	-- Bez dołączających (patrz `joining`) — ci dostaną spawn w lobby jako widzowie. Bez
+	-- pomijających — ci stoją w lobby jak stali, bez przeładowania postaci.
 	local players: { Player } = {}
 	for _, player in ipairs(Players:GetPlayers()) do
-		if not joining[player] then
+		if not joining[player] and not RoundSkipService.isSittingOut(player) then
 			table.insert(players, player)
 		end
 	end
 	for _, player in ipairs(players) do
 		aliveSet[player] = true
+		roundPlayers[player] = true
+		-- Start rundy ładuje postać każdemu z listy, więc jego timer śmierci jest nieaktualny —
+		-- bez tego ktoś, kto zginął w lobby chwilę przed startem, wróciłby z mapy do lobby.
+		-- Pomijającemu timer zostaje: inaczej po śmierci w lobby nie odrodziłby się przez całą rundę.
+		respawnPending[player] = nil
 	end
 
 	local pool = shuffled(getRoundSpawnPool())
@@ -477,6 +499,7 @@ end
 
 local function onPlayerRemoving(player: Player)
 	aliveSet[player] = nil
+	roundPlayers[player] = nil
 	respawnPending[player] = nil
 	spawnBusy[player] = nil
 	joining[player] = nil
@@ -494,6 +517,7 @@ function PlayerService.init()
 
 	GameLoopService.setAliveCountProvider(getAliveCount)
 	GameLoopService.setRoundPreparer(sendEveryoneToRound)
+	GameLoopService.setRoundGate(lockInRound)
 
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(onPlayerRemoving)

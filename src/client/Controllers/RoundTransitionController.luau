@@ -13,6 +13,7 @@ local ContentProvider = game:GetService("ContentProvider")
 
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
+local RoundSkipState = require(script.Parent.RoundSkipState)
 
 local CFG = Config.RoundTransition
 
@@ -29,6 +30,9 @@ local fadeToken = 0 -- nowy fade unieważnia poprzedni
 local flowToken = 0 -- nowy stan gry unieważnia poprzednią sekwencję
 local aliveAt = -math.huge
 local lastState: string? = nil
+-- Pomijający rundę nigdzie się nie przenosi, więc nie ma czego zasłaniać ani odliczać (06.11).
+-- Zapamiętane, bo atrybut schodzi razem z nowym lobby, a ono jeszcze pyta o tę rundę.
+local stayedInLobby = false
 local countdownGui: ScreenGui? = nil
 local countdownTween: Tween? = nil
 local countdownConnection: RBXScriptConnection? = nil
@@ -208,9 +212,12 @@ local function onState(newState: string, duration: number?, endsAt: number?)
 	local token = flowToken
 	local fromRound = newState == "LOBBY" and lastState == "RESETTING"
 	lastState = newState
+	if newState ~= "LOBBY" then
+		stayedInLobby = RoundSkipState.isSittingOut()
+	end
 
 	if newState == "LOBBY" then
-		if fromRound then
+		if fromRound and not stayedInLobby then
 			-- Prosto z rundy (od 26.10 bez POST_ROUND): zasłona trzyma się ExitHold, aż serwer
 			-- przeniesie ocalałych do lobby i ruszy odbudowa mapy — dopiero wtedy odsłaniamy.
 			fadeTo(1, 0)
@@ -221,15 +228,19 @@ local function onState(newState: string, duration: number?, endsAt: number?)
 			-- Zasłona z przerwanego odliczania (ktoś wyszedł) nie zostaje na ekranie.
 			fadeTo(0, CFG.FadeOutTime)
 		end
+		stayedInLobby = false
 		if (duration or 0) > 0 then
 			-- Lobby z odliczaniem: ściemnianie tak, żeby skończyło się razem z nim.
 			local lead = math.max((duration or 0) - CFG.FadeInTime, 0)
 			task.delay(lead, function()
-				if token == flowToken then
+				if token == flowToken and not RoundSkipState.wantsSkip() then
 					fadeTo(1, CFG.FadeInTime)
 				end
 			end)
 		end
+	elseif stayedInLobby then
+		-- Włączone w ostatniej chwili: ściemnianie z końca lobby już ruszyło.
+		if alpha > 0 then fadeTo(0, CFG.FadeOutTime) end
 	elseif newState == "PREPARING" then
 		task.spawn(runRoundEntry, token)
 	elseif newState == "COUNTDOWN" then

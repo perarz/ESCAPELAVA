@@ -25,6 +25,8 @@
 -- rotation-smoothing i shake (sprawdza CameraType), więc nie ma konfliktu kamer. Na wyjściu
 -- wracamy do poprzedniego typu i przepinamy CameraSubject na AKTUALNĄ postać (start rundy
 -- podmienia postać w trakcie zakupów), default camera dogoni gracza (MovementController snapuje).
+-- Od 06.11 tween jedzie po lokalnym `camBase`, a Camera.CFrame pisze jedna pętla co klatkę
+-- (`camBase` + lekkie krążenie za myszą) — dwaj piszący do kamery by się szarpali.
 -- FREEZE: PlayerModule:GetControls():Disable() — postać stoi, mimo że kamera odjechała.
 --
 -- SERVER AUTHORITY: klik KUP = tylko intent (Remotes.BuyItem). Serwer waliduje odległość
@@ -32,6 +34,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
@@ -42,6 +45,8 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local LoadoutState = require(script.Parent.LoadoutState)
 local SparkleBurst = require(script.Parent.SparkleBurst)
 local LobbySign = require(script.Parent.LobbySign)
+local ShopFx = require(script.Parent.ShopFx)
+local RoundSkipState = require(script.Parent.RoundSkipState)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 
 local ShopController = {}
@@ -69,7 +74,6 @@ local ui: ScreenGui? = nil
 local elItemName: TextLabel? = nil
 local elPrice: TextLabel? = nil
 local elDesc: TextLabel? = nil
-local elStatus: TextLabel? = nil
 local btnBuy: TextButton? = nil
 local btnPrev: TextButton? = nil
 local btnNext: TextButton? = nil
@@ -77,7 +81,12 @@ local btnClose: TextButton? = nil
 local elCash: TextLabel? = nil       -- 21.10: kasa gracza w panelu (`ShopCash`, opcjonalny)
 local buySparkles: Instance? = nil   -- 01.11: `Panel.BuySparkles` — błysk gwiazdek po udanym zakupie
 local elStats: Instance? = nil       -- 21.10: `Stats.<Power|Range|Mobility>.Bar.Fill` jak w ekwipunku
-local STAT_ROWS = { power = "Power", range = "Range", mobility = "Mobility" }
+-- Tablica, nie słownik: paski ruszają jeden po drugim, więc kolejność ma znaczenie (06.11).
+local STAT_ROWS = {
+	{ key = "power", row = "Power" },
+	{ key = "range", row = "Range" },
+	{ key = "mobility", row = "Mobility" },
+}
 
 local warned: { [string]: boolean } = {}
 local function warnOnce(key: string, msg: string)
@@ -127,35 +136,74 @@ end
 -- Kamera
 -- ============================================================================
 
--- Trwający przejazd kamery między itemami. Trzymany, żeby zamknięcie sklepu mogło go
--- przerwać — inaczej przez resztę tweena pisał Camera.CFrame i szarpał kadr już po
--- oddaniu kamery graczowi (przegląd 29.09, B-20).
-local activeTween: Tween? = nil
+-- Kadr bez krążenia za myszą i odległość do oglądanego itemu (środek krążenia). Lokalne wartości
+-- poza placem: tween przesuwa je, a na kamerę przenosi je `cameraLoop`.
+local camBase = Instance.new("CFrameValue")
+local camOrbit = Instance.new("NumberValue")
+local activeTweens: { Tween } = {}
 
 local function stopCameraTween()
-	if activeTween then
-		activeTween:Cancel()
-		activeTween = nil
-	end
+	for _, tween in ipairs(activeTweens) do tween:Cancel() end
+	table.clear(activeTweens)
 end
 
 local function focusCamera(instant: boolean)
-	local cam = Workspace.CurrentCamera
 	local e = entries[index]
-	if not cam or not e then return end
+	if not e then return end
 	local goal = e.cf
+	local orbit = (goal.Position - e.center).Magnitude
 	stopCameraTween()
 	if instant then
-		cam.CFrame = goal
+		camBase.Value = goal
+		camOrbit.Value = orbit
 	else
-		local tween = TweenService:Create(
-			cam,
-			TweenInfo.new(CFG.CameraTweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ CFrame = goal }
-		)
-		activeTween = tween
-		tween:Play()
+		local info = TweenInfo.new(CFG.CameraTweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		activeTweens = {
+			TweenService:Create(camBase, info, { Value = goal }),
+			TweenService:Create(camOrbit, info, { Value = orbit }),
+		}
+		for _, tween in ipairs(activeTweens) do tween:Play() end
 	end
+end
+
+local cameraConn: RBXScriptConnection? = nil
+local mouseOffset = Vector2.zero
+
+-- Gdzie jest kursor względem środka ekranu (-1…1). Na dotyku i padzie kursora nie ma, więc kamera
+-- wraca na środek zamiast krążyć wokół ostatniego palca.
+local function mouseTarget(cam: Camera): Vector2
+	local last = UserInputService:GetLastInputType()
+	if not UserInputService.MouseEnabled or last == Enum.UserInputType.Touch or last.Name:sub(1, 7) == "Gamepad" then
+		return Vector2.zero
+	end
+	local at = UserInputService:GetMouseLocation()
+	local size = cam.ViewportSize
+	return Vector2.new(math.clamp(at.X / size.X * 2 - 1, -1, 1), math.clamp(at.Y / size.Y * 2 - 1, -1, 1))
+end
+
+local function stopCameraLoop()
+	if cameraConn then
+		cameraConn:Disconnect()
+		cameraConn = nil
+	end
+end
+
+local function startCameraLoop()
+	stopCameraLoop()
+	mouseOffset = Vector2.zero
+	local parallax = CFG.CameraParallax
+	cameraConn = RunService.RenderStepped:Connect(function(dt: number)
+		local cam = Workspace.CurrentCamera
+		if not cam then return end
+		mouseOffset = mouseOffset:Lerp(mouseTarget(cam), 1 - math.exp(-parallax.Rate * dt))
+		-- Krążenie wokół itemu: item zostaje na środku kadru, przesuwa się tło.
+		local pitch = math.rad(parallax.PitchDegrees) * mouseOffset.Y
+		local yaw = math.rad(parallax.YawDegrees) * mouseOffset.X
+		cam.CFrame = camBase.Value
+			* CFrame.new(0, 0, -camOrbit.Value)
+			* CFrame.Angles(pitch, yaw, 0)
+			* CFrame.new(0, 0, camOrbit.Value)
+	end)
 end
 
 -- ============================================================================
@@ -169,26 +217,27 @@ local function refreshUI()
 	if elItemName then elItemName.Text = tostring(def.name or e.id) end
 	if elPrice then elPrice.Text = tostring(def.price or 0) .. "$" end
 	if elDesc then elDesc.Text = tostring(def.desc or "") end
-	if elStatus then elStatus.Text = "" end
 	if elCash then elCash.Text = tostring(currentCash) .. "$" end
 
 	-- Paski cech (21.10) — jak w ekwipunku: pasek = StatMax studsów, wartość = świecące studsy.
 	local invCfg = Config.UI.Inventory
 	local statValues = (def :: any).stats or {}
-	for key, rowName in pairs(STAT_ROWS) do
-		local row = elStats and elStats:FindFirstChild(rowName)
+	for i, stat in ipairs(STAT_ROWS) do
+		local row = elStats and elStats:FindFirstChild(stat.row)
 		local bar = row and row:FindFirstChild("Bar")
 		local fill = bar and bar:FindFirstChild("Fill")
 		if fill and fill:IsA("GuiObject") then
-			local v = math.clamp((tonumber(statValues[key]) or 0) / invCfg.StatMax, 0, 1)
+			local v = math.clamp((tonumber(statValues[stat.key]) or 0) / invCfg.StatMax, 0, 1)
 			fill.Visible = v > 0
-			TweenService:Create(fill, TweenInfo.new(invCfg.StatTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-				Size = UDim2.fromScale(v, 1),
-			}):Play()
+			local info = TweenInfo.new(
+				invCfg.StatTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out, 0, false, (i - 1) * CFG.Fx.StatStagger
+			)
+			TweenService:Create(fill, info, { Size = UDim2.fromScale(v, 1) }):Play()
 		end
 	end
 
 	local canAfford = currentCash >= (def.price or 0)
+	ShopFx.setCanAfford(canAfford)
 	if btnBuy then
 		btnBuy.AutoButtonColor = canAfford
 		local text = if canAfford then CFG.BuyText else CFG.NoCashText
@@ -212,10 +261,27 @@ end
 
 local function setIndex(newIndex: number, instant: boolean)
 	if #entries == 0 then return end
+	-- Kierunek przed zawinięciem: ◀ na pierwszym itemie to nadal „w lewo”.
+	local direction = if instant then 0 elseif newIndex > index then 1 else -1
 	-- Zawijanie: przewijanie za ostatni item wraca na pierwszy i odwrotnie.
 	index = ((newIndex - 1) % #entries) + 1
 	focusCamera(instant)
+	-- Czyszczone tutaj, nie w refreshUI: CashChanged odświeża panel zaraz po zakupie (06.11).
+	ShopFx.clearStatus()
 	refreshUI()
+	ShopFx.itemChanged(index, direction)
+end
+
+-- Paski cech rosną od zera przy otwarciu sklepu (06.11).
+local function resetStatBars()
+	for _, stat in ipairs(STAT_ROWS) do
+		local row = elStats and elStats:FindFirstChild(stat.row)
+		local bar = row and row:FindFirstChild("Bar")
+		local fill = bar and bar:FindFirstChild("Fill")
+		if fill and fill:IsA("GuiObject") then
+			fill.Size = UDim2.fromScale(0, 1)
+		end
+	end
 end
 
 -- ============================================================================
@@ -356,7 +422,7 @@ local function buildEntries()
 	end)
 end
 
--- Światło sceny: stałe lampy w placu (`<SceneName>.ShopLights`), kod ich nie dotyka. Do 23.10
+-- Światło sceny: stałe lampki w placu (`<SceneName>.Arsenal.Wall`), kod ich nie dotyka. Do 23.10
 -- jedna lampa jechała za kamerą — po każdym przewinięciu oświetlenie doganiało ją kilka sekund
 -- (Kacper: „mija kilka sekund, zanim załadują się w nowym miejscu”).
 --
@@ -390,8 +456,11 @@ local function closeShop(character: Model?)
 	if not isOpen then return end
 	isOpen = false
 	notifyOpen()
-	if ui then ui.Enabled = false end
+	ShopFx.close(function()
+		if ui then ui.Enabled = false end
+	end)
 	setFrozen(false)
+	stopCameraLoop()
 	stopCameraTween()
 	setShopAmbient(false)
 	local cam = Workspace.CurrentCamera
@@ -440,17 +509,23 @@ local function openShop()
 	setFrozen(true)
 	setShopAmbient(true)
 	ui.Enabled = true
+	resetStatBars()
+	ShopFx.open(#entries)
 	setIndex(1, true)
+	startCameraLoop()
 end
 
 local function tryBuy()
 	local e = entries[index]
 	if not e then return end
-	if elStatus then
-		elStatus.TextColor3 = Color3.fromRGB(210, 210, 215)
-		elStatus.Text = "..."
-	end
+	ShopFx.setStatus("...", Color3.fromRGB(210, 210, 215), false)
 	Remotes.BuyItem:FireServer(e.id)
+end
+
+-- Przewijanie i zakup tylko przy otwartym sklepie: panel zjeżdża jeszcze chwilę po zamknięciu,
+-- a kliknięcie strzałki w tym czasie ruszyłoby wartości kamery i treść panelu.
+local function stepItem(delta: number)
+	if isOpen then setIndex(index + delta, false) end
 end
 
 function ShopController.isOpen(): boolean
@@ -484,22 +559,24 @@ function ShopController.init()
 
 	-- Feedback zakupu.
 	Remotes.ShopResult.OnClientEvent:Connect(function(success: boolean, itemId: string, reason: string?)
-		if not elStatus then return end
 		if success then
-			elStatus.TextColor3 = Color3.fromRGB(120, 220, 120)
 			-- Loadout pełny → item leży w ekwipunku; mówimy o tym od razu (18.10). Serwer wysyła
 			-- LoadoutChanged PRZED ShopResult, więc stan jest już aktualny.
-			elStatus.Text = if LoadoutState.slotOf(itemId) then CFG.BoughtText else Config.UI.Inventory.ShopFullText
+			local text = if LoadoutState.slotOf(itemId) then CFG.BoughtText else Config.UI.Inventory.ShopFullText
+			ShopFx.setStatus(text, Color3.fromRGB(120, 220, 120), true)
+			ShopFx.bought()
 			SparkleBurst.play(buySparkles)
 		else
-			elStatus.TextColor3 = Color3.fromRGB(235, 90, 80)
-			elStatus.Text = (reason and (CFG.FailTexts :: any)[reason]) or CFG.FailDefault
+			local text = (reason and (CFG.FailTexts :: any)[reason]) or CFG.FailDefault
+			ShopFx.setStatus(text, Color3.fromRGB(235, 90, 80), true)
+			ShopFx.failed()
 		end
 	end)
 
 	-- Force-close: start rundy (teleport) lub respawn nie mogą zostawić zablokowanej kamery.
+	-- Pomijający rundę stoi w lobby i kupuje dalej (06.11).
 	Remotes.GameStateChanged.OnClientEvent:Connect(function(newState: any)
-		if newState ~= "LOBBY" and isOpen then
+		if newState ~= "LOBBY" and isOpen and not RoundSkipState.isSittingOut() then
 			closeShop()
 		end
 	end)
@@ -517,7 +594,6 @@ function ShopController.init()
 		elItemName = gui:FindFirstChild("ItemName", true) :: TextLabel?
 		elPrice = gui:FindFirstChild("Price", true) :: TextLabel?
 		elDesc = gui:FindFirstChild("Description", true) :: TextLabel?
-		elStatus = gui:FindFirstChild("StatusLabel", true) :: TextLabel?
 		btnBuy = gui:FindFirstChild("BuyButton", true) :: TextButton?
 		btnPrev = gui:FindFirstChild("PrevButton", true) :: TextButton?
 		btnNext = gui:FindFirstChild("NextButton", true) :: TextButton?
@@ -527,10 +603,11 @@ function ShopController.init()
 		elStats = gui:FindFirstChild("Stats", true)
 		buySparkles = gui:FindFirstChild("BuySparkles", true)
 		gui.Enabled = false
+		ShopFx.bind(gui)
 
-		if btnBuy then btnBuy.Activated:Connect(tryBuy) end
-		if btnPrev then btnPrev.Activated:Connect(function() setIndex(index - 1, false) end) end
-		if btnNext then btnNext.Activated:Connect(function() setIndex(index + 1, false) end) end
+		if btnBuy then btnBuy.Activated:Connect(function() if isOpen then tryBuy() end end) end
+		if btnPrev then btnPrev.Activated:Connect(function() stepItem(-1) end) end
+		if btnNext then btnNext.Activated:Connect(function() stepItem(1) end) end
 		-- Owinięte: Activated podaje (InputObject, clickCount), a closeShop bierze postać.
 		if btnClose then btnClose.Activated:Connect(function() closeShop() end) end
 	else

@@ -80,6 +80,7 @@ local LadderController = require(script.Controllers.LadderController)
 local TextShadowController = require(script.Controllers.TextShadowController)
 local GradientShimmerController = require(script.Controllers.GradientShimmerController)
 local InventoryController = require(script.Controllers.InventoryController)
+local RoundSkipController = require(script.Controllers.RoundSkipController)
 local SettingsController = require(script.Controllers.SettingsController)
 
 -- KAŻDY KONTROLER W OSOBNYM WĄTKU (paczka 3, przegląd 29.09 B-1). Dawniej startowały po
@@ -136,6 +137,7 @@ start("LadderController", LadderController)
 start("TextShadowController", TextShadowController)
 start("GradientShimmerController", GradientShimmerController)
 start("InventoryController", InventoryController)
+start("RoundSkipController", RoundSkipController)
 start("SettingsController", SettingsController)
 
 -- Wszystkie listenery stoją — dopiero teraz serwer wysyła stan startowy (init.server).

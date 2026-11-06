@@ -1,6 +1,27 @@
 # STATUS — ESCAPE LAVA
 
-Stan sprawdzony **23.10.2026**: kod repo, lokalna historia Git, checklisty i odczyt Studio w Edit. Audyt nie obejmował Play, pomiaru FPS ani publikacji. Szczegóły rozbieżności: [audyt kontekstu](CONTEXT_AUDIT_2026-10-23.md).
+Aktualizacja **06.11.2026**. Ostatni pełny audyt 23.10: kod repo, lokalna historia Git, checklisty i odczyt Studio w Edit, bez Play, pomiaru FPS i publikacji ([audyt kontekstu](CONTEXT_AUDIT_2026-10-23.md)). Sekcje niżej idą od najnowszej; starszy wpis nie unieważnia nowszego.
+
+## 06.11 — punkt wznowienia (dzień premiery)
+
+**Gdzie jesteśmy:** praca 05–06.11 poszła w sklep i pomijanie rundy. Ocena Kacpra po obejrzeniu: światło „git jest”, panel „takto spoko całkiem” i „no może być”. To ocena wyglądu, nie zaliczenie listy z TESTY. Logika pomijania rundy i pełna runda po dzisiejszych zmianach nie mają wyniku testu.
+
+**Git:** kod i dokumentacja z 05–06.11 są w commicie po `f166687` na `main`, wypchniętym na `origin/main` na prośbę Kacpra, przed jego testem w Play, więc commit nie oznacza działania. Plac zapisuje się osobno przez Cmd+S. Kolejne commity tylko na prośbę, pliki dodawać jawnie.
+
+**Plac:** odczyt 06.11 po restarcie Studio potwierdził zapis: arsenał, brak `ShopLights` i pyłu, `Panel.LavaPool`, `Panel.Dots`, `BuyButton.Sweep`, `RoundTimer.SkipButton`. Mini ramka `SkipButton.Fill` powstała po tym odczycie, więc jej Cmd+S jest niepotwierdzony. Kod w Studio zgodny z dyskiem (suma i parsowanie, ostatnio dla `Config` i `RoundSkipController`).
+
+**Kolejność do premiery:**
+1. Kacper: Cmd+S i test w Play: zwykła runda, SKIP z dwoma graczami, sklep, animacja F, kliknięcia po zmianie itemu (hak → napój, napój → RPG). Listy w [TESTY](TESTY.md).
+2. Poprawki ze zgłoszeń, commit i push na prośbę.
+3. Ustawienia produkcyjne i usunięcie tymczasowych logów: [DO_RELEASE](DO_RELEASE.md) → „Tuż przed publikacją”.
+4. Test z kilkoma osobami na prawdziwym serwerze, także telefony.
+5. Publikacja po akceptacji Kacpra.
+
+Otwarte poza tą listą: dźwięki (ID poda Kacper), anty-cheat paczka 6 (niezrobiona; agent radził po premierze, decyzja Kacpra otwarta), limit graczy w ustawieniach miejsca.
+
+**06.11 — pomijanie rundy, NIEPRZETESTOWANE, Cmd+S wymagany:** mini ramka SKIP pod licznikiem, po kliknięciu czerwone DON'T SKIP (decyzja Kacpra: przycisk zamiast pola startu, przełącznik do odkliknięcia). Pomijający stoi w lobby, nie zarabia, sklep, ekwipunek i kosmetyki działają mu przez całą rundę; gdy pomijają wszyscy, lobby odlicza od nowa. Opis: ARCHITECTURE → `RoundSkipService`; testy: TESTY → „Pomijanie rundy” (runda z pomijającym wymaga dwóch graczy).
+
+**05.11 — tło sklepu: arsenał, NIEPRZETESTOWANE, Cmd+S wymagany:** brązowe listwy i ladę (`Decorations.Workshop`) zastąpił wojskowy magazyn `WeaponShopScene.Arsenal` (oliwkowe panele ze studsami, stalowe słupy, tablice za itemami, stalowa lada ze skrzyniami), decyzje Kacpra w jednej turze. Itemy nieruszone (pozycje sprawdzone odczytem), każdy dostał uchwyt, żeby nie lewitował. Zrzuty z Edit obejrzane, w grze jeszcze nie. **06.11 światło:** stare `ShopLights` usunięte, kontrast robią lampki nad itemami: tablica i item jasne, reszta ściany ciemna; słabe oświetlenie z góry trzyma widoczną podłogę, `Config.Shop.SceneAmbient` neutralne zamiast brązowego. Blat lady ciemna stal. **06.11 panel, NIEPRZETESTOWANE:** nowy `ShopFx`: wjazd panelu, reakcje przycisków, przejście przy zmianie itemu, efekt zakupu i błędu, wibracje, połysk BUY, 6 małych kropek nad ramką, płynący pas lawy na dole panelu; kamera lekko krąży za myszą. Dźwięki przygotowane, ale puste: ID poda Kacper (`Config.Shop.Fx.Feedback`). Opis: STUDIO_CONTRACT → „WeaponShopScene”; testy: TESTY → „arsenał”.
 
 ## TEST 31.10 — punkt wznowienia
 
@@ -66,9 +87,9 @@ Następny krok: test Kacpra — głowa po przymierzeniu kamizelki, jej wysokoś�
 
 `LOBBY → PREPARING → COUNTDOWN → ROUND → FINISHING → RESETTING → LOBBY` (26.10: bez POST_ROUND — po zasłonie od razu lobby; NIEPRZETESTOWANE).
 
-Lobby **25 s**; przygotowanie i teleport pod zasłoną; **3-2-1** na mapie z blokadą ruchu/itemów; runda z płynnie przyspieszającą lawą, **bez faz**; **3 s FINISHING**, wypłata ocalałym, zasłona i cleanup/odbudowa, potem **od razu lobby** (10 s „ROUND OVER” w lobby usunięte 26.10). Produkcyjny cel rundy: **80 s**, obecnie **240 s testowo**.
+Lobby **25 s**, w nim ramka SKIP pod licznikiem (06.11): kto ją kliknie, zostaje w lobby na kolejne rundy; przygotowanie i teleport pod zasłoną; **3-2-1** na mapie z blokadą ruchu/itemów; runda z płynnie przyspieszającą lawą, **bez faz**; **3 s FINISHING**, wypłata ocalałym, zasłona i cleanup/odbudowa, potem **od razu lobby** (10 s „ROUND OVER” w lobby usunięte 26.10). Produkcyjny cel rundy: **80 s**, obecnie **240 s testowo**.
 
-Kod zawiera **6 itemów**: Bomb 50$, Bridge 100$, Grapple 40$, Energy Drink 25$, RPG 75$, **C4 60$** (25.10 — C4 = zaplanowana sticky bomb, decyzja Kacpra; przyklejanie, G i rzut z ikoną zadziałały w testach; 25.10 wieczorem wysoki łuk jak granat + zamach ręki — NIEPRZETESTOWANE; `ReplicatedStorage.C4` i `HUD.Detonator.DetonateButton` postawione przez MCP). Loadout to **3 stałe sloty**, ekwipunek jest dostępny wyłącznie w lobby. Nowy item nie wymaga czwartego slotu.
+Kod zawiera **6 itemów**: Bomb 50$, Bridge 100$, Grapple 40$, Energy Drink 25$, RPG 75$, **C4 60$** (25.10 — C4 = zaplanowana sticky bomb, decyzja Kacpra; przyklejanie, G i rzut z ikoną zadziałały w testach; 25.10 wieczorem wysoki łuk jak granat + zamach ręki — NIEPRZETESTOWANE; `ReplicatedStorage.C4` i `HUD.Detonator.DetonateButton` postawione przez MCP). Loadout to **3 stałe sloty**, ekwipunek jest dostępny wyłącznie w lobby, a pomijającemu rundę także w jej trakcie. Nowy item nie wymaga czwartego slotu.
 
 Destrukcja v4 obejmuje **wszystkie 10 budynków**; starszy pass podparcia działa poza nimi. Fizyka dużych brył zostaje. **Gruz nie zadaje obrażeń**; lokalne odłamki nie mają kolizji ani wpływu na promienie. Obrażenia od upadku pozostają. Jeden profil `Config.Graphics.Profile`, bez trybów Potato/Full i ich panelu.
 
@@ -94,7 +115,7 @@ Listy przypadków są w [TESTY](TESTY.md); nie oznaczać ich jako zaliczonych na
 - RPG i odrzut, energy drink i gest picia, wyciąganie itemów, chwyt RPG oburącz i poprawki jego ułożenia (20–21.10).
 - **RPG celowanie na PPM (24.10)**: zoom, ciało i tułów w stronę celu, celownik `HUD.Crosshair` (postawiony przez MCP, wygląd zaakceptowany na zrzucie; zapis Cmd+S niepotwierdzony — sprawdzić, czy jest w placu), chód wolniej bez sprintu. Kod zsynchronizowany z Studio i parsuje się (odczyt Edit); w Play nietestowane. **25.10**: RPG na prawym barku (nowa poza rąk z IK + tułów bokiem −50°), lufa w kierunku lotu rakiety, rakieta startuje z lufy (`Rpg.MuzzleSide` 1,0), pochylenie całe na talii, mocniejszy zoom (FOV −18, PushIn 3) — NIEPRZETESTOWANE.
 - Beczki wybuchowe, zapłon od F, łańcuchy i wybuch przy upadku (21.10).
-- Nowy panel sklepu i automatyczne kadry; **23.10** wydłużona ściana/pokój, przesunięta wystawa, kąt kamery yaw 20° / pitch 12°, następnie ruchomą lampę zastąpiły stałe `ShopLights` (po jednej nad sześcioma modelami plus doświetlenie skrajów). Najnowszy kod przy zamknięciu sklepu po respawnie przypina kamerę do aktualnego Humanoida; test pozostaje otwarty. **25.10** panel `ShopUI` przebudowany przez MCP (węższy, ciemne strzałki przy panelu, cena nad BUY, bez kasy w nagłówku) — zrzut z Edit pokazany, ocena Kacpra i zapis Cmd+S niepotwierdzone; kopia starej wersji w `ServerStorage.ShopUI_Backup_2510`.
+- Nowy panel sklepu i automatyczne kadry; **23.10** wydłużona ściana/pokój, przesunięta wystawa, kąt kamery yaw 20° / pitch 12°, następnie ruchomą lampę zastąpiły stałe `ShopLights` (po jednej nad sześcioma modelami plus doświetlenie skrajów; 06.11 usunięte na rzecz lampek arsenału). Najnowszy kod przy zamknięciu sklepu po respawnie przypina kamerę do aktualnego Humanoida; test pozostaje otwarty. **25.10** panel `ShopUI` przebudowany przez MCP (węższy, ciemne strzałki przy panelu, cena nad BUY, bez kasy w nagłówku) — zrzut z Edit pokazany, ocena Kacpra i zapis Cmd+S niepotwierdzone; kopia starej wersji w `ServerStorage.ShopUI_Backup_2510`.
 - **Panel ustawień (26.10)**: zębatka pod INVENTORY (zawsze widoczna) otwiera panel SETTINGS z dwiema opcjami — kamera nad prawym/lewym ramieniem i włącz/wyłącz przechył kamery + zmiany FOV; zapis na koncie gracza (`SettingsService`). Zębatka i panel postawione przez MCP (zapis Cmd+S niepotwierdzony), kod zsynchronizowany i parsuje się (odczyt Edit); w Play nietestowane. Oprawa lawy wstrzymana na rzecz panelu — decyzje w ROADMAP.
 - **GRAPHICS LOW / HIGH + oprawa lawy (27.10)**: trzeci wiersz panelu ustawień (postawiony przez MCP, Cmd+S niepotwierdzony); start: telefon LOW, komputer HIGH. Na HIGH: łuna na ścianach tuż nad lawą, iskry i popiół rosnące z lawą, rozbryzg przy wpadnięciu (`LavaSplashController`). Tylko u klienta, bez kolizji. Kod zsynchronizowany i parsuje się (odczyt Edit); w Play nietestowane. Plan: ROADMAP.
 - Oprawa lawy: fala lokalnej siatki i FX v5; zachowanie na urządzeniach i FPS nadal do sprawdzenia. Odczyt działania siatki w sesji 12.10 nie jest akceptacją wyglądu/FPS.
@@ -106,8 +127,8 @@ Listy przypadków są w [TESTY](TESTY.md); nie oznaczać ich jako zaliczonych na
 - **Skala:** spawn postaci nadal sekwencyjny; HeadAim od 02.11 tylko do graczy w promieniu 150 studów (kod, nietestowane — TESTY → „Ruch głowy”); bootstrap serwera bez izolacji błędów `init`. Odbudowa tylko naruszonych jednostek już istnieje, jej koszt wymaga testu.
 - **Spawny rundy (02.11):** `Map.Locked.SpawnPoints` ma 6 punktów na chodnikach wokół basenów lawy (4 stare ze środka usunięte), lobby — 4 punkty w `Lobby.SpawnPoints` losowane przy każdym powrocie (nowy kod `PlayerService`; MCP, Cmd+S wymagany; szczegóły w STUDIO_CONTRACT). ⚠️ 02.11 wieczorem `rojo serve` nie działał — kod lobby i HeadAim był tylko na dysku. Przy więcej graczy niż punktów kilku dostaje ten sam punkt. Docelową liczbę graczy trzeba ustalić przed testem większej grupy. `Config.Game.MaxPlayers = 20` nie ustawia limitu miejsca Roblox; limit publikowanego serwera pozostaje do sprawdzenia.
 - **Studio 23.10:** brak zapisanych modułów w `ServerStorage.StructureData` (0 dzieci/brak folderu); analiza budynków nadal wykonywana w grze. Przed bake sprawdzić zaokrąglenia i walidację rewizji.
-- **Animacja F:** `Config.Push.AnimationId = 0`, podgląd Studio włączony. Publikacja assetu potrzebna dla tego gestu poza Studio; sama mechanika pchnięcia jest osobna.
-- **Audio:** 5 pustych ID destrukcji, brak dźwięku strzału RPG; łyk opcjonalny.
+- **Animacja F:** 05.11 opublikowana na koncie właściciela gry (`Config.Push.AnimationId = 128117097694041`, moderacja Approved), podgląd Studio wyłączony. Odtwarzanie w Play NIEPRZETESTOWANE; sama mechanika pchnięcia jest osobna.
+- **Audio:** 5 pustych ID destrukcji, brak dźwięku strzału RPG, 4 puste ID panelu sklepu (`Config.Shop.Fx.Feedback`, ID poda Kacper); łyk opcjonalny.
 - **Hak pod nogi:** 26.10 serwer ocenia gotowy łuk przed zużyciem, z tym samym minimalnym czasem co klient. Zmiana i pozostałe poprawki po pełnym przeglądzie czekają na Play — patrz [raport](CODE_REVIEW_2026-10-26.md).
 - **Dev:** uprawnienia nadal po nicku. Przejście na UserId pozostaje otwarte; przed wydaniem dev musi być wyłączony.
 
@@ -137,9 +158,11 @@ Studio: `ESCAPE LAVA`, placeId **107369017875577**, Edit. Przy pierwszym odczyci
 
 ## Kolejność dalszych prac
 
+Do premiery obowiązuje krótka kolejność z sekcji 06.11 na górze. Poniżej pełna lista.
+
 1. Test Kacpra z TESTY, w tym T1–T7 dwukrotnie; naprawy tylko na podstawie konkretnych zgłoszeń i aktualnego logu.
 2. Telefon, anty-cheat i przygotowanie większego serwera; test zapisu/obciążenia na rzeczywistym serwerze.
-3. Test łuku i zamachu C4 oraz postawy i zoomu RPG, poprawka haka, audio, publikacja animacji F i bake.
+3. Test łuku i zamachu C4, postawy i zoomu RPG oraz animacji F, poprawka haka, audio i bake.
 4. Ustawienia produkcyjne oraz pełny test z ekipą na PC i telefonach. Szczegółowa lista: [DO_RELEASE](DO_RELEASE.md).
 
 To porządek pracy wynikający z istniejącej listy; nie oznacza zatwierdzenia nowego zakresu ani zmiany designu.

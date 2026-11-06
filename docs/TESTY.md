@@ -1,5 +1,49 @@
 # CO PRZETESTOWAĆ
 
+## ⏭️ Pomijanie rundy (06.11, ramka przez MCP — Cmd+S wymagany) — NIEPRZETESTOWANE
+Sama logika nie była uruchomiona. **Do rundy z pomijającym potrzeba dwóch graczy**: Studio → Test → Clients and Servers → 2 Players albo kolega. Sam na serwerze sprawdzisz tylko dwa pierwsze punkty.
+- [ ] Sam: mała szara ramka SKIP pod licznikiem, klik → płynnie szersza, czerwona ramka DON'T SKIP, klik ponownie → szara SKIP, reaguje od razu, także przy szybkim klikaniu. Napis mieści się w ramce, ramka nie nachodzi na licznik
+- [ ] Sam, po kliknięciu SKIP: koniec lobby (albo K) → runda NIE startuje, ekran się nie ściemnia, lobby odlicza od nowa. Log: `[GameLoop] nikt nie chce grać`. Klik DON'T SKIP → następna runda rusza normalnie
+- [ ] Dwóch, A pomija, B gra: B leci na mapę, A zostaje dokładnie tam, gdzie stał, postać się nie przeładowuje, nie ma zasłony ani 3-2-1, licznik pokazuje STARTING, a potem czas rundy
+- [ ] A w trakcie rundy: otwiera sklep i kupuje, sklep się nie zamyka przy zmianie stanu; bez kasy nic się nie psuje. Ekwipunek otwiera się i zmiana loadoutu zostaje po odświeżeniu. COSMETICS z HUD i ze straganu działają, zakup przechodzi
+- [ ] A zostawia sklep otwarty do końca rundy: bez zasłony i bez teleportu, zakup dalej działa w nowym lobby
+- [ ] B ginie albo przeżywa: tylko B dostaje nagrodę i wraca do lobby jak dotąd; A nie dostaje kasy. B w trakcie rundy nie widzi prompta straganu kosmetyków ani przycisku ekwipunku; jako żywy na mapie nie widzi napisu SKIP
+- [ ] A ginie w lobby w trakcie rundy (reset): odradza się w lobby po chwili. A ginie tuż przed końcem odliczania: też się odradza i nie leci na mapę
+- [ ] A klika DON'T SKIP w trakcie rundy: tę rundę dalej stoi, a następną gra. B po śmierci klika SKIP: następną rundę pomija
+- [ ] Obaj pomijają: lobby odlicza od nowa i nikomu nie zamyka sklepu ani nie teleportuje. Jeden wyłącza → runda startuje dla niego
+- [ ] Wyjście z gry z napisem DON'T SKIP i powrót: napis znów mówi SKIP, gracz gra
+- [ ] Zwykła runda bez nikogo pomijającego wygląda dokładnie jak wcześniej, także prompt straganu kosmetyków znika na czas rundy
+- [ ] Telefon: ramkę da się trafić palcem, napis jest czytelny, po dotknięciu nie zostaje powiększona
+
+## 🪖 Tło sklepu: arsenał (05.11, MCP — Cmd+S wymagany) — NIEPRZETESTOWANE
+Wszystkie 6 kadrów obejrzane na zrzutach z Edit, ale nie w grze. Kadry RPG i C4 oglądane z jaśniejszą tablicą (przed przyciemnieniem), a Blueprint bez oświetlenia sklepu.
+- [ ] Otwórz sklep i przewiń wszystkie 6 itemów: żadnego nie zasłania skrzynia, każdy na środku kadru jak dotąd
+- [ ] Nic nie lewituje: RPG na hakach, hak i C4 i Blueprint na uchwytach, napój i bomba na półeczkach
+- [ ] C4 i RPG nie zlewają się z tłem; ciemny hak czytelny na tablicy
+- [ ] Na brzegach kadru nigdzie nie widać pustki, nieba ani starej brązowej ściany (szczególnie szeroki kadr RPG)
+- [ ] Światło (06.11, kontrast): reszta ściany ciemna, tablica i item jasne pod lampką, każdy item wyraźnie odcina się od tła, także ciemny hak i bomba; podłoga nadal widoczna, ciemny blat lady nie odciąga wzroku od itemów. Za ciemno albo za jasno → napisz
+- [ ] Przy przewijaniu ◀▶ napisy na ścianie i skrzyniach nie pojawiają się z opóźnieniem (na zrzutach z Edit po skoku kamery rysowały się chwilę później)
+- [ ] **Panel (06.11, kod i `Dots`/`Sweep` w placu):** otwarcie: panel wjeżdża z dołu, przyciski wskakują po kolei, paski cech rosną od zera. Zamknięcie X i Q: panel zjeżdża, kamera od razu wraca do postaci, sterowanie działa
+- [ ] Najedź na BUY, X, ◀ i ▶ → przycisk rośnie; kliknij i przytrzymaj → maleje; zjedź kursorem z wciśniętym przyciskiem i puść → wraca do normy, nic się nie klika
+- [ ] Przewijaj ◀▶, A/D i scrollem w obie strony, także szybko: nazwa wjeżdża z kierunku przewijania, opis się pojawia, cena podskakuje, strzałka reaguje też na klawisze, żółta kropka nad ramką jedzie na właściwy item i zawija się na końcach. Małe kropki są widoczne na tle sceny także przy jasnej ścianie
+- [ ] Pas lawy na dole panelu płynie bez przeskoku i nie wychodzi poza zaokrąglone rogi. Opis i paski nie stykają się z linią lawy, BUY dobrze leży na linii, napis pod BUY jest czytelny na lawie, także dłuższy ADD IT IN INVENTORY
+- [ ] Kup item: BUY i cena podskakują, gwiazdki, zielony napis po chwili sam znika. Bez kasy: BUY i cena się trzęsą, czerwony napis po chwili znika. Spamuj BUY: nic nie zostaje przekrzywione ani powiększone
+- [ ] Połysk co kilka sekund przechodzi przez BUY, nie wychodzi poza zaokrąglone rogi i nie pojawia się przy NOT ENOUGH $
+- [ ] Kamera za myszą: przesuwaj kursor po ekranie → kadr lekko krąży, item zostaje na środku, nie widać pustki na brzegach kadru RPG, przejazd między itemami się nie szarpie. Nie powinno być od tego niedobrze; za mocno → `Config.Shop.CameraParallax`
+- [ ] Start rundy i śmierć przy otwartym sklepie: panel znika, kamera przy aktualnej postaci, a szybkie zamknięcie i ponowne otwarcie nie zostawia panelu poza ekranem
+- [ ] Telefon: przyciski nie zostają powiększone po dotknięciu, kamera stoi na środku, czuć wibrację przy kliknięciu, zmianie itemu, zakupie (dłuższa) i błędzie (podwójna). Pad: to samo, jeśli wibruje. **Wibracji nie dało się sprawdzić bez urządzenia, a dokumentacja Robloxa nie podaje listy obsługiwanych urządzeń**
+- [ ] Dźwięki: sklep jest cichy, dopóki Kacper nie wpisze ID w `Config.Shop.Fx.Feedback`; po wpisaniu każdy gra raz i nie nakłada się przy scrollu
+- [ ] Niska jakość grafiki (GRAPHICS LOW): scena nadal jasna, napisy czytelne (lamp wtedy nie widać, zostaje samo `SceneAmbient`)
+- [ ] Po wyjściu ze sklepu lobby wygląda jak wcześniej
+- [ ] Płynne przewijanie między itemami i wyjście ze sklepu bez zmian
+
+## 👐 Animacja F z opublikowanego assetu (05.11) — NIEPRZETESTOWANE
+Plik wgrany przez API, nie z Animation Editora (Roblox ostrzega, że taki może nie działać), więc to trzeba zobaczyć.
+- [ ] Puste ręce, F z miejsca: pchnięcie oburącz jak dotąd w podglądzie, trafienie w chwili wypchnięcia rąk
+- [ ] F w biegu i w skoku: nogi pracują dalej, po geście powrót do zwykłej animacji
+- [ ] Output BEZ `[Push] Animation unavailable` (jest → napisz; pchnięcie działa, ale bez gestu, i wtedy publikacja ręczna z Animation Editora)
+- [ ] Drugi gracz widzi gest (Test → Clients and Servers)
+
 ## 🏷️ Napisy SHOP i COSMETICS (03.11, MCP — Cmd+S wymagany) — NIEPRZETESTOWANE
 - [ ] COSMETICS nie wygląda na większy od SHOP (litery 80 przy 100 w SHOP — długie słowo wyglądało na większe przy równej wysokości)
 - [ ] COSMETICS: fiolet → niebieski → jasny błękit płyną przez litery w kółko, bez przeskoku; kolory jak przycisk COSMETICS w HUD
@@ -312,7 +356,7 @@ Podgląd z Edit: `output/inventory-cards/podglad.jpg`. Studsy usunięte; wygląd
 - [ ] Każdy item widać lekko z boku (~20°) i trochę z góry, nie płasko na wprost. Inny kąt → `Config.Shop.AutoCameraYaw` (0 = na wprost, minus = z drugiej strony), z góry → `AutoCameraPitch`
 - [ ] Przewiń wszystkie 6 aktywnych itemów (także RPG i bombę na końcach; StickyBomb = C4 od 25.10) → w kadrze tylko półki, blat i podłoga, nigdzie szarej ściany ani sufitu
 - [ ] Światło jasne, białe (nie łososiowe) — kolory itemów prawdziwe; RPG (kamera najdalej) nie jest ciemny, bomba nie jest prześwietlona
-- [ ] **Stałe lampy** (8 w `WeaponShopScene.ShopLights`): przewijaj ◀▶ szybko → światło jest od razu na każdym itemie, nic się nie „doładowuje” po kilku sekundach; cała ściana równo oświetlona, także brzegi w kadrze RPG. Za ciemno / za jasno → SpotLighty w `ShopLights` (Brightness, Range, Angle)
+- [ ] **Stałe lampki** (6 `LampLight` w `Arsenal.Wall`, od 06.11 zamiast `ShopLights`): przewijaj ◀▶ szybko → światło jest od razu na każdym itemie, nic się nie „doładowuje” po kilku sekundach. Za ciemno / za jasno → `LampLight` (Brightness, Range)
 - [ ] **Start rundy w sklepie**: otwórz sklep i czekaj, aż lobby się skończy (albo K) → sklep się zamyka, kamera jest przy TWOJEJ postaci na arenie, nie w lobby; to samo po śmierci z otwartym sklepem
 - [ ] Zamknij sklep przyciskiem X i klawiszem Q → kamera normalnie za postacią
 - [ ] **Ekwipunek w sklepie (23.10)**: w sklepie nie ma przycisku INVENTORY, klawisz ekwipunku nic nie robi; ekwipunek otwarty przed podejściem do sprzedawcy zamyka się przy wejściu do sklepu; po wyjściu przycisk wraca

@@ -1,6 +1,6 @@
 # ESCAPE LAVA — kontekst do planowania
 
-Aktualizacja: **23.10.2026**. Ten dokument opisuje grę i sposób pracy. Jedno źródło bieżącego statusu: [STATUS](STATUS.md). Zadania do wydania: [DO_RELEASE](DO_RELEASE.md), potwierdzenia rozgrywki: [TESTY](TESTY.md).
+Aktualizacja: **06.11.2026**. Ten dokument opisuje grę i sposób pracy. Jedno źródło bieżącego statusu: [STATUS](STATUS.md). Zadania do wydania: [DO_RELEASE](DO_RELEASE.md), potwierdzenia rozgrywki: [TESTY](TESTY.md).
 
 ## Gra i cel
 
@@ -10,9 +10,13 @@ Cel biznesowy: szybkie wydanie i zarabianie Robuxów jako przygotowanie do więk
 
 ## Pętla i możliwości gracza
 
-Lobby **25 s** na zakupy/ekwipunek → przygotowanie i teleport pod zasłoną → **3-2-1** na mapie → runda projektowo **80 s** z płynnie przyspieszającą lawą → **3 s końca**, nagroda ocalałym → zasłona, naprawa naruszonych części mapy → **10 s po rundzie** → lobby. Aktualnie runda jest wydłużona do **240 s** na testy. Nie ma faz Easy/Mid/Hard/Endgame.
+Lobby **25 s** na zakupy/ekwipunek → przygotowanie i teleport pod zasłoną → **3-2-1** na mapie → runda projektowo **80 s** z płynnie przyspieszającą lawą → **3 s końca**, nagroda ocalałym → zasłona, naprawa naruszonych części mapy → od razu lobby. Aktualnie runda jest wydłużona do **240 s** na testy. Nie ma faz Easy/Mid/Hard/Endgame.
 
-Gracz posiada zapas itemów i wybiera **3 stałe sloty loadoutu** w panelu Inventory **wyłącznie w lobby**. Dostępne w kodzie: bomba 50$, most 100$, hak 40$, energy drink 25$, RPG 75$, C4 60$ (25.10 = sticky bomb: rzucasz do 3 ładunków, przyklejają się do ścian i podłóg, odpalasz wszystkie naraz klawiszem G albo przyciskiem; rzut do testu). Napój przez 10 s daje nieskończoną staminę, szybszy chód (16 zamiast 12) i sprint (25 zamiast 20) oraz oprawę złota. RPG leci prosto, wybucha słabiej od bomby i rani też strzelca. Rocket jump wycofany.
+Domyślnie grają wszyscy. Kto nie chce, klika małą ramkę **SKIP** pod licznikiem (po kliknięciu DON'T SKIP cofa decyzję): zostaje w lobby na kolejne rundy, nie zarabia, a sklep, ekwipunek i kosmetyki działają mu cały czas. Gdy pomijają wszyscy, lobby odlicza od nowa.
+
+Sklep: gracz zostaje przy sprzedawcy, a kamera jedzie na wystawę w wojskowym arsenale i lekko krąży za myszą. Panel ma pas płynącej lawy, 6 kropek nad ramką i animacje reakcji; na telefonie i padzie dochodzą wibracje.
+
+Gracz posiada zapas itemów i wybiera **3 stałe sloty loadoutu** w panelu Inventory **wyłącznie w lobby** (pomijający rundę także w jej trakcie). Dostępne w kodzie: bomba 50$, most 100$, hak 40$, energy drink 25$, RPG 75$, C4 60$ (25.10 = sticky bomb: rzucasz do 3 ładunków, przyklejają się do ścian i podłóg, odpalasz wszystkie naraz klawiszem G albo przyciskiem; rzut do testu). Napój przez 10 s daje nieskończoną staminę, szybszy chód (16 zamiast 12) i sprint (25 zamiast 20) oraz oprawę złota. RPG leci prosto, wybucha słabiej od bomby i rani też strzelca. Rocket jump wycofany.
 
 Destrukcja v4 jest na wszystkich 10 budynkach. Zawalone piętra spadają dużymi bryłami fizyką i mogą tworzyć platformy; leżący gruz da się dalej rozbijać (RPG tnie go, bryła pęka na osobne kawałki). Lokalne drobne odłamki są tylko obrazem, bez kolizji. Pchnięcie F (i odpalenie beczki) działa tylko z pustymi rękami. **Gruz nie rani**. Upadek i wybuchy ranią normalnie; lawa zabija po około 7 s łącznego kontaktu z pełnego HP, da się z niej wypłynąć. Po śmierci około 2 s ragdollu i powrót do lobby. Nie ma domyślnej regeneracji HP.
 
@@ -28,7 +32,7 @@ Nagrody: 100$ za przetrwanie, 25$ za kill, 10$ za pickup, 100$ na start. Komunik
 
 ## Co dalej
 
-Obecny problem release’u to brak pełnej akceptacji testowej i kilka braków implementacji. Kolejność: testy (w tym dwa T1–T7) → poprawki → telefon / anty-cheat / skala → dokończenie wybranej zawartości → produkcyjna konfiguracja → test z ekipą i publikacja. Pełna lista w DO_RELEASE; nie przepisywać jej tutaj.
+Premiera wyznaczona przez Kacpra: **06.11.2026**. Obecny problem release’u to brak pełnej akceptacji testowej i kilka braków implementacji. Kolejność na dziś jest w STATUS → „06.11”, pełna lista w DO_RELEASE; nie przepisywać ich tutaj.
 
 Sklep kosmetyczny i garderoba są już w trakcie dopracowywania po wdrożeniu; uzgodniony zakres i punkt wznowienia w [STATUS](STATUS.md), plan w [COSMETICS_PLAN](COSMETICS_PLAN.md). Nie traktować ich jako niezaczętej propozycji. Daily rewards i monetyzacja pozostają dalszymi kierunkami wymagającymi wyboru zakresu. Kosmetyka bez bonusów; dawny plan pancerzy nie stanowi zatwierdzonego zadania do v1.0.
 

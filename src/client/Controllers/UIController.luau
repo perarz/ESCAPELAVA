@@ -26,6 +26,7 @@ local TweenService = game:GetService("TweenService")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
+local RoundSkipState = require(script.Parent.RoundSkipState)
 
 local UIController = {}
 
@@ -73,9 +74,10 @@ local function computeText(): (string, string, number?)
 	if stateName == "ROUND" then
 		return "ROUND", Utils.formatTime(remaining), remaining
 	elseif stateName == "COUNTDOWN" then
-		return "GET READY", tostring(math.ceil(remaining)), remaining
+		return if RoundSkipState.isSittingOut() then Config.RoundSkip.StartingText else "GET READY",
+			tostring(math.ceil(remaining)), remaining
 	elseif stateName == "PREPARING" then
-		return "GET READY", "", nil
+		return if RoundSkipState.isSittingOut() then Config.RoundSkip.StartingText else "GET READY", "", nil
 	elseif stateName == "RESETTING" then
 		return "ROUND OVER", "", nil
 	elseif stateName == "FINISHING" then
