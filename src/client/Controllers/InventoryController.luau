@@ -43,6 +43,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local LoadoutState = require(script.Parent.LoadoutState)
+local ItemIcon = require(script.Parent.ItemIcon)
 local ShopController = require(script.Parent.ShopController)
 
 local InventoryController = {}
@@ -203,12 +204,6 @@ end
 
 local function itemColor(itemId: string): Color3
 	return (CFG.ItemColors :: any)[itemId] or CFG.DefaultItemColor
-end
-
-local function iconOf(itemId: string?): string
-	local def = itemId and ItemDefinitions.get(itemId)
-	local image = def and def.icon
-	return if typeof(image) == "string" then image else ""
 end
 
 -- ============================================================================
@@ -616,8 +611,7 @@ local function paintCard(tile: GuiButton, itemId: string)
 	end
 	local icon = tile:FindFirstChild("Icon")
 	if icon and icon:IsA("ImageLabel") then
-		icon.Image = iconOf(itemId)
-		icon.ImageTransparency = if count > 0 then 0 else 0.45
+		icon.Visible = ItemIcon.set(icon, itemId, if count > 0 then 0 else 0.45)
 	end
 	setText(tile, "ItemName", if def then def.name else itemId)
 	setText(tile, "Count", "x" .. tostring(count))
@@ -631,9 +625,7 @@ local function paintSlot(btn: GuiButton, slot: number, itemId: string?)
 	local count = if itemId then LoadoutState.getCount(itemId) else 0
 	local icon = btn:FindFirstChild("Icon")
 	if icon and icon:IsA("ImageLabel") then
-		icon.Image = iconOf(itemId)
-		icon.Visible = icon.Image ~= "" and landing[slot] == nil
-		icon.ImageTransparency = if count > 0 then 0 else 0.6
+		icon.Visible = ItemIcon.set(icon, itemId, if count > 0 then 0 else 0.6) and landing[slot] == nil
 	end
 	setText(btn, "ItemName", if def then def.name else "")
 	setText(btn, "Count", if not def or count == 1 then "" else "x" .. tostring(count))
@@ -695,7 +687,7 @@ end
 local function flyIcon(fromBtn: GuiObject, toSlot: number)
 	local to = slotButtons[toSlot]
 	local icon = fromBtn:FindFirstChild("Icon")
-	if not (gui and to and icon and icon:IsA("ImageLabel") and icon.Image ~= "") then
+	if not (gui and to and icon and icon:IsA("ImageLabel") and (icon.Image ~= "" or icon:FindFirstChild("ModelIcon"))) then
 		snapSlot(toSlot)
 		return
 	end
@@ -703,13 +695,17 @@ local function flyIcon(fromBtn: GuiObject, toSlot: number)
 	local token = landingSeq
 	landing[toSlot] = token
 	refresh()
-	local ghost = Instance.new("ImageLabel")
+	local ghost = icon:Clone()
+	ghost.Visible = true
 	ghost:SetAttribute("NoHudScale", true) -- PRZED parentem: HudScale łapie ChildAdded
 	ghost.BackgroundTransparency = 1
 	ghost.Image = icon.Image
 	ghost.ScaleType = Enum.ScaleType.Fit
 	ghost.AnchorPoint = Vector2.new(0.5, 0.5)
 	ghost.ZIndex = 50
+	for _, descendant in ipairs(ghost:GetDescendants()) do
+		if descendant:IsA("GuiObject") then descendant.ZIndex = 50 end
+	end
 	local a = toLocal(icon.AbsolutePosition + icon.AbsoluteSize / 2)
 	local b = toLocal(to.AbsolutePosition + to.AbsoluteSize / 2)
 	ghost.Position = UDim2.fromOffset(a.X, a.Y)

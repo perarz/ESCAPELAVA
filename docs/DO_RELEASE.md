@@ -50,6 +50,7 @@ Loadout, energy drink, RPG (strzał + wybuch + efekty/odrzut), kill message i wi
 - [ ] `Config.Structure.Collapse.Debug = false` i `Config.Destruction.Debug = false`.
 - [ ] Usunąć tymczasowe logi po teście kliknięć: `[EnergyDrink] klik`, `[Rpg] klik`, `puszka w ręce/schowana`, `wyrzutnia w ręce` i odmowy na serwerze (`EnergyDrink*`, `Rpg*`).
 - [ ] Podbić `Config.UI.Version` (dziś `0.8`).
+- [ ] Jeśli wydanie zawiera drzewko umiejętności: w opisie gry podpis „Icons: Lorc, Delapouite — game-icons.net, CC BY 3.0” (wymóg licencji ikon, SKILLS_PLAN).
 - [ ] Ustawić limit graczy w ustawieniach miejsca Roblox (05.11 odczyt: 60; agent proponował 20, decyzja Kacpra).
 - [ ] Zapisać plac **Cmd+S**, potwierdzić zgodność kodu Studio z wersją przeznaczoną do wydania; dopilnować modeli i GUI, których nie ma w repo.
 - [ ] Test z kilkoma osobami na prawdziwym serwerze, także telefonami: zapis, wszystkie itemy, własne wybuchy, animacja F, lawa/EditableMesh lub fallback, kilka rund, odbudowa i wydajność.

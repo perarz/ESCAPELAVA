@@ -112,6 +112,10 @@ end
 -- znika i się rusza; lawa odpada sama, bo ma wymuszone `CanQuery = false`; lobby i scena
 -- sklepu odpadają, bo nie leżą pod `Workspace.Map`.
 local function isAnchorable(part: BasePart, ctx: Destructible.Context): boolean
+	-- Bariery na skraju mapy leżą pod `Map`, ale hak się ich nie czepia (Kacper 09.11) —
+	-- trafienie w nie to zwykłe pudło: lina wylatuje i wraca.
+	local barriers = Utils.barrierFolder()
+	if barriers and part:IsDescendantOf(barriers) then return false end
 	return Destructible.isDestructible(part, ctx)
 end
 

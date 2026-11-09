@@ -99,9 +99,25 @@ local function getLobbyPool(): { Vector3 }
 	return pool
 end
 
-local function getLobbyTargetPosition(): Vector3
-	local pool = getLobbyPool()
-	return pool[math.random(#pool)]
+-- Aim at the nearest vendor so even a narrow viewport opens on an actual stall.
+local function placeInLobby(character: Model, position: Vector3)
+	local lobby = Workspace:FindFirstChild("Lobby")
+	local direction: Vector3? = nil
+	local nearest = math.huge
+	for _, shopName in { Config.Shop.ShopModelName, Config.Cosmetics.ShopModelName } do
+		local shop = lobby and lobby:FindFirstChild(shopName, true)
+		local npc = shop and shop:FindFirstChild("NPC")
+		local head = npc and npc:FindFirstChild("Head")
+		if head and head:IsA("BasePart") then
+			local delta = (head.Position - position) * Vector3.new(1, 0, 1)
+			if delta.Magnitude > 0 and delta.Magnitude < nearest then
+				direction, nearest = delta.Unit, delta.Magnitude
+			end
+		end
+	end
+	local cf = if direction then CFrame.lookAt(position, position + direction) else CFrame.new(position)
+	character:PivotTo(cf)
+	character:SetAttribute(Config.Spawn.LobbyViewAttribute, cf)
 end
 
 local function getRoundSpawnPool(): { Vector3 }
@@ -235,13 +251,6 @@ local function disconnectDied(player: Player)
 	end
 end
 
-local function teleportCharacter(character: Model, position: Vector3)
-	task.wait() -- frame na fizykę po LoadCharacter
-	if character.Parent then
-		character:PivotTo(CFrame.new(position))
-	end
-end
-
 -- Czeka, aż skończy się rozpoczęty wcześniej spawn tego gracza (patrz `spawnBusy`). Z limitem:
 -- zawieszony spawn jednego gracza nie może wstrzymać startu rundy wszystkim.
 local function waitSpawnIdle(player: Player)
@@ -263,7 +272,11 @@ local function sendToLobby(player: Player)
 		AppearanceService.loadCharacter(player)
 		local char = player.Character
 		if char then
-			teleportCharacter(char, getLobbyTargetPosition())
+			task.wait() -- pozwól silnikowi dokończyć LoadCharacter przed teleportem
+			if char.Parent and player.Character == char then
+				local pool = getLobbyPool()
+				placeInLobby(char, pool[math.random(#pool)])
+			end
 		end
 	end)
 	spawnBusy[player] = nil
@@ -287,6 +300,7 @@ end
 
 local function onDeath(player: Player, hum: Humanoid?)
 	disconnectDied(player)
+	player:SetAttribute(Config.Spectate.ParticipantAttribute, nil)
 	-- Postać, która NAPRAWDĘ zginęła (Humanoid siedzi w niej do końca) — `player.Character`
 	-- w chwili, gdy dotarł Died, mógł już wskazywać nową.
 	local deadCharacter: Instance? = if hum then hum.Parent else player.Character
@@ -350,6 +364,10 @@ local LOBBY_NEAR_THRESHOLD = 25 -- stud; ponad = teleport, poniżej = zostaw w l
 
 local function sendSurvivorsToLobby()
 	releaseStartLocks()
+	-- Replicated read-only projection of aliveSet for lobby spectators.
+	for _, player in ipairs(Players:GetPlayers()) do
+		player:SetAttribute(Config.Spectate.ParticipantAttribute, nil)
+	end
 	-- LOBBY: teleportuj TYLKO graczy fizycznie daleko od lobby spota.
 	-- Martwi spectator'zy są już w lobby po onDeath — nie chcemy ich znowu LoadCharacter.
 	-- Martwy, który jeszcze leży jako ragdoll (DeathRagdollTime), wróci sam — bez tego
@@ -381,7 +399,7 @@ local function sendSurvivorsToLobby()
 		elseif roundPlayers[p] and not nearLobby(hrp.Position) then
 			-- Daleko od lobby → survivor jeszcze na mapie. Teleport bez LoadCharacter
 			-- (zachowujemy skin/health/inventory).
-			char:PivotTo(CFrame.new(pool[math.random(#pool)]))
+			placeInLobby(char, pool[math.random(#pool)])
 		end
 	end
 	aliveSet = {}
@@ -471,6 +489,7 @@ local function sendEveryoneToRound()
 			-- wtedy zdejmuje ciemne przejście (RoundTransitionController). Wysłane przed
 			-- PivotTo przychodziło, gdy postać stała jeszcze w lobby.
 			Remotes.AliveChanged:FireClient(entry.player, true)
+			entry.player:SetAttribute(Config.Spectate.ParticipantAttribute, true)
 		end
 	end
 	for _, player in ipairs(players) do

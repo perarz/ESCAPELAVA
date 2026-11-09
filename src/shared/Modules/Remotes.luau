@@ -70,6 +70,11 @@ local REMOTE_NAMES = {
 	                      --   których serwer nie postawił, i animuje je u siebie. Dane parta są
 	                      --   w payloadzie, nie jako referencja: przy StreamingEnabled klient
 	                      --   może go nie mieć, a serwer i tak zaraz go przytnie.
+	"GlassFX",            -- FireAllClients: (fx: { from: Vector3, seed: number,
+	                      --     glass: {{cf: CFrame, size: Vector3, color: Color3}} })
+	                      --   09.11: szyba stłuczona BEZ wybuchu (push: F w szybę albo pchnięty gracz
+	                      --   lecący w okno — DestructionService.shatterGlass). Klienci: odłamki od
+	                      --   `from` (DebrisFXController) i brzęk (ExplosionFXController) — bez ognia i fali.
 	"DebrisFall",         -- FireAllClients: (fall: { center: Vector3, radius: number,
 	                      --     impulse: number, nLaunch: number, launch: {Instance},
 	                      --     nDrop: number, drop: {Instance},
@@ -114,6 +119,9 @@ local REMOTE_NAMES = {
 	                      --   lina wystrzeliwuje z ręki do `tip` (koniec zasięgu albo przeszkoda
 	                      --   nie do złapania) i się zwija; postać stoi, sztuka nie schodzi.
 	                      --   Tym razem także do strzelca — to jedyny odzew, że klik zadziałał
+	"UseBandage",         -- client→server: FireServer() no payload. Held bandage, alive in ROUND.
+	                      -- Server owns duration/heal; Player BandageStart/BandageEnd (server time)
+	                      -- animate all clients. Clear on completion/cancel; consume only on success.
 	"DrinkEnergy",        -- klient→server: FireServer() bez payloadu — łyk energy drinka trzymanego
 	                      --   w ręce (20.10). Serwer odpowiada atrybutami gracza `EnergyStart` /
 	                      --   `EnergyEnd` (czas serwera, Config.EnergyDrink), nie remote'em —

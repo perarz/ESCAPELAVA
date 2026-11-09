@@ -146,7 +146,9 @@ end
 local function viewStep(dt: number)
 	local cam = Workspace.CurrentCamera
 	local top = Utils.lavaSurfaceY()
-	local target = if cam and top and cam.CFrame.Position.Y < top then 1 else 0
+	local camY = cam and cam.CFrame.Position.Y
+	-- Pod taflą, ale nie pod mapą — tam lawy nie ma, są sceny sklepów (`VIEW.FloorY`).
+	local target = if camY and top and camY < top and camY > VIEW.FloorY then 1 else 0
 	viewIntensity += (target - viewIntensity) * (1 - math.exp(-VIEW.LerpSpeed * dt))
 
 	-- Poza lawą nie dotykamy Lighting (zero kosztu przez prawie całą rundę).

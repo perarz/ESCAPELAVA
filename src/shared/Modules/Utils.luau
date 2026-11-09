@@ -3,6 +3,8 @@
 -- Drobne helpery używane w serwisach i kontrolerach.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- Config nie ładuje niczego, więc nie ma cyklu (Utils.barrierFolder, 09.11).
+local Config = require(script.Parent.Config)
 
 local Utils = {}
 
@@ -257,6 +259,16 @@ end
 -- Wierzch stosu lawy (najwyższa warstwa w `Workspace.Lava`) albo nil, gdy lawy nie ma. Dla
 -- klienta — serwer ma `LavaService.getSurfaceY`. Czytane za każdym razem, bo tafla rośnie
 -- i faluje co klatkę; warstw jest dwie-trzy, więc to kilka porównań.
+-- Folder barier na skraju mapy (`Config.Barrier.FolderPath`, 09.11) albo nil. Wspólne dla
+-- serwera (hak się ich nie czepia) i klienta (czerwone pole siłowe z bliska).
+function Utils.barrierFolder(): Instance?
+	local node: Instance? = workspace
+	for _, name in ipairs(Config.Barrier.FolderPath) do
+		node = node and node:FindFirstChild(name)
+	end
+	return node
+end
+
 function Utils.lavaSurfaceY(): number?
 	local folder = workspace:FindFirstChild("Lava")
 	if not folder then return nil end

@@ -249,6 +249,10 @@ Config.Lava = {
 		Saturation = 0.4,
 		Blur = 24,           -- rozmycie (BlurEffect.Size) — to ono zabiera szczegóły
 		LerpSpeed = 12,      -- szybkość wejścia/wyjścia efektu (1-exp(-k·dt))
+		-- Kamera poniżej tego Y nie jest „w lawie”, choć jest pod taflą (09.11): lawa leży na ulicy
+		-- (dno mapy Y -5,5), a niżej stoją tylko sceny sklepu i przymierzalni (Y -183…-158).
+		-- Bez tego progu ich kamery dostawały pomarańczowy filtr i rozmycie.
+		FloorY = -50,
 	},
 	-- Klient-side "żar" gdy gracz jest nisko nad lawą (LavaHeatController):
 	-- ColorCorrection tint narasta im bliżej powierzchni lawy. Czysty feedback zagrożenia.
@@ -483,6 +487,13 @@ Config.Lava = {
 -- Dzięki temu wygląd jest IDENTYCZNY na każdym monitorze (skaluje się całość razem z tekstem),
 -- a pozycje kotwiczone do krawędzi/rogów (px marginesy) nie dryfują między aspect ratio.
 Config.UI = {
+	ModelIcon = {
+		Ambient = Color3.fromRGB(210, 210, 210),
+		LightDirection = Vector3.new(-1, -2, -3),
+		Direction = Vector3.new(1.7, 1.5, -3),
+		FOV = 35,
+		DistanceFactor = 1.8,
+	},
 	-- GŁÓWNA GAŁKA WIELKOŚCI HUD: mniejsza wartość = większy HUD na każdym ekranie
 	-- (skala = wysokośćEkranu / ReferenceHeight). Wartości projektowe px są "przy 1440",
 	-- ale 1200 daje ~20% większy render — kalibracja pod feel Kacpra (1440 było za małe).
@@ -514,13 +525,6 @@ Config.UI = {
 		                      --    bomby po rzucie nie szarpie slotem); przy zmianie slotu — od razu
 	},
 
-	-- Napisy SHOP / COSMETICS nad sprzedawcami (LobbySign, 03.11): chowają się za ścianami.
-	-- Promień kamera → środek napisu co CheckInterval; własny stragan i postacie nie zasłaniają.
-	LobbySign = {
-		CheckInterval = 0.1,         -- s: jak często sprawdzać zasłonięcie
-		SeeThroughTransparency = 0.5, -- part co najmniej tak przezroczysty (szyba, niewidzialna ściana) nie zasłania
-		MaxSeeThroughHits = 4,       -- tyle przezroczystych partów z rzędu promień przebija
-	},
 
 	-- Przyciski dotykowe (TouchControlsController, 28.10). Kontrakt: STUDIO_CONTRACT → „Telefon”.
 	TouchControls = {
@@ -680,6 +684,7 @@ Config.Loadout = {
 Config.Spawn = {
 	-- Wysokość offsetu nad lobby spot Part (gracz ląduje LobbyYOffset stud nad jego topem).
 	LobbyYOffset = 5,
+	LobbyViewAttribute = "LobbySpawnView",
 	-- Fallback gdyby Workspace.Lobby.Spawn nie istniał (na czas zanim Kacper postawi).
 	FallbackLobbyPosition = Vector3.new(0, 10, 0),
 	FallbackRoundPosition = Vector3.new(0, 10, 0),
@@ -945,7 +950,21 @@ Config.Bridge = {
 	-- by w niej utonął (lawa nie ma kolizji), więc ghost jest czerwony, a serwer odrzuca budowę
 	-- PRZED zabraniem itemu (decyzja Kacpra 01.10). Zapas pokrywa falowanie tafli i to, ile
 	-- lawa urośnie, zanim prośba dojdzie do serwera — klient i serwer liczą tym samym progiem.
+	-- Od 09.11 (drabina) próg dotyczy stopy drabiny, nie spodu mostu.
 	LavaMargin = 1,
+
+	-- DRABINA (09.11, Kacper: „zamiast mostu drabina”, pochylona, z fizyką jak most, 16 studów).
+	-- Liczy LadderPlacement — wspólnie dla ducha i serwera.
+	LeanDegrees = 75,  -- pochylenie od poziomu; im mniej, tym dalej sięga, ale trudniej się wspiąć
+	WallGap = 0.2,     -- luz między wierzchem a ścianą, o którą się opiera (stud)
+	FootLift = 0.5,    -- promień „czy przed drabiną jest ściana” startuje tyle nad stopą (stud)
+	RailInset = 0.4,   -- boczne promienie idą tyle do środka od krawędzi drabiny (pod szynami)
+	Passes = 3,        -- ile razy cofamy stopę, jeśli po cofnięciu drabina dalej w coś trafia
+	FootSnap = 1.5,    -- cofnięta stopa szuka powierzchni tyle w górę i w dół (krawężnik, stopień)
+	-- Mała drabina w dłoni (`ReplicatedStorage.LadderTool`): dłoń trzyma jej środek, obrót
+	-- uchwytu w stopniach. (90, 0, 0) = pionowo przed postacią (liczone z uchwytu dłoni
+	-- −90° w StarterCharacter, w Play niesprawdzone). Krzywo w ręce → zmienić TĘ liczbę.
+	HeldGripRotation = Vector3.new(90, 0, 0),
 }
 
 Config.Movement = {
@@ -1213,6 +1232,48 @@ Config.Ladder = {
 	-- w dół przelatuje obok szczebli).
 	OnLadderDistance = 2.5,
 	MaxClimbSpeed = 16,
+	-- Postawiona drabina (09.11) nie jest zakotwiczona. Jej szczeble liczą się jak drabina z mapy
+	-- tylko, gdy stoi (prędkość ≤ tyle stud/s) — lecący gruz i przewracająca się drabina nie.
+	RestSpeed = 2,
+}
+
+-- BARIERY (09.11, Kacper: „nie da się do barier przyczepić grapplerem i lekko migająca czerwona
+-- tekstura, żeby było wiadome, że nie można przejść”). To 4 niewidzialne ściany na skraju mapy
+-- (Studio: `Workspace.Map.Locked.InvisableWalls` — nazwa z placu, z literówką; ok. 450×100×12,
+-- od Y ~51 w górę). Hak traktuje trafienie w nie jako pudło (GrappleService). Gracz, który podejdzie
+-- blisko, widzi je jako czerwone pole siłowe (BarrierController) — TYLKO lokalnie: materiał,
+-- kolor i przezroczystość zmienia jego klient, kolizja i serwer bez zmian (lekcja 10).
+-- Decyzje Kacpra: widoczna tylko z bliska, wzór = materiał ForceField.
+Config.Barrier = {
+	FolderPath = { "Map", "Locked", "InvisableWalls" },
+	Color = Color3.fromRGB(255, 45, 45),
+	ShowDistance = 40, -- stud od powierzchni bariery: zaczyna się pojawiać
+	FullDistance = 15, -- stud: w pełni widoczna
+	-- Przy pełnej widoczności przezroczystość pulsuje między tymi wartościami („lekko migająca”);
+	-- ForceField sam z siebie jeszcze migocze wzorem.
+	PulseMin = 0.2,
+	PulseMax = 0.6,
+	PulsePeriod = 1.6, -- s na jeden cykl
+}
+
+-- Chowanie lobby z mapy (LobbyVisibilityController, 09.11, decyzja Kacpra „chowaj lokalnie”;
+-- plac nie ma mgły ani chmur, więc sama odległość wyspy nie chowa — z mapy widać ją z każdego miejsca).
+-- Kamera nad obszarem gry (pudło barier w XZ + margines) → lobby i postacie w nim znikają z obrazu
+-- TEGO gracza. Wyspa przeniesiona 09.11 (Kacper: „oddal lobby od mapy”) o (+204, 0, +330): brzeg
+-- ~505 studów od pudła barier (wcześniej ~110), a chowanie zostaje (decyzja Kacpra).
+Config.LobbyHide = {
+	-- Co należy do lobby w Workspace. `WizardTower` stoi na wyspie, ale poza folderem Lobby.
+	Roots = { "Lobby", "WizardTower" },
+	-- Kamera do tylu studów poza barierą liczy się jeszcze jako „nad mapą” (kamera bywa do 15
+	-- za postacią). Do wyspy zostaje wtedy ~475 studów zapasu.
+	PlayAreaMargin = 30,
+	-- Postać innego gracza dalej niż tyle poza barierą = stoi w lobby → chowana razem z nim.
+	-- Wyrzucony wybuchem tuż za barierę zostaje widoczny.
+	CharacterMargin = 40,
+	-- Kamera niżej = sceny sklepów pod mapą (zamknięte, lobby i tak nie widać) — nie przełączamy
+	-- tam ~4 tys. partów przy każdym wejściu do sklepu.
+	SceneFloorY = -50,
+	CheckInterval = 0.25, -- s: postacie innych i obiekty lobby, które dopiero dojechały
 }
 
 Config.Push = {
@@ -1244,6 +1305,18 @@ Config.Push = {
 	-- tylko RPG; po teście: „podczas wszystkich itemów nie można pushować”. Sprawdza serwer
 	-- (PushService) i klient (bez gestu i paska odnowienia, PUSH na telefonie znika).
 	BlockWithToolInHand = true,
+	-- SZYBY (09.11, decyzje Kacpra: F w szybę ją tłucze, pchnięty gracz wylatuje przez okno,
+	-- bliższe wygrywa — szyba, gracz albo beczka; jedna tafla). Liczy PushService promieniami
+	-- od HRP na tych wysokościach; szyba liczy się tylko, gdy to PIERWSZA rzecz na linii.
+	Glass = {
+		RayHeights = { 0, 1.5 }, -- stud nad środkiem HRP: tułów i głowa
+		-- Lot pchniętego: szyba na jego drodze w tym zasięgu pęka tuż przed nim (pchnięcie
+		-- 80 stud/s z podrzutem niesie ~kilkanaście studów).
+		FlightReach = 12,
+		-- O tyle sekund PRZED dolotem — zmiana mapy dochodzi do pchniętego z opóźnieniem sieci,
+		-- a jego postać musi zastać okno już puste, inaczej odbije się od szyby.
+		FlightLead = 0.08,
+	},
 }
 
 -- Rate limits per akcja (sekundy). Server enforces, klient mirrors dla wizualizacji
@@ -1346,6 +1419,30 @@ Config.Grapple = {
 -- AntiCheatService podnosi limit w oknie napoju. Serwer (EnergyDrinkService) zapisuje okno
 -- działania w dwóch atrybutach gracza (czas serwera); efekt liczy MovementController
 -- właściciela, gest łyku widzą wszyscy (EnergyDrinkController).
+Config.Bandage = {
+	HealAmount = 35,
+	UseTime = 3,
+	StartAttribute = "BandageStart",
+	EndAttribute = "BandageEnd",
+	ToolName = "BandageTool",
+	GripRotation = Vector3.new(0, 0, 90),
+	CheckInterval = 0.1,
+	ProgressName = "BandageProgress",
+	ProgressTemplate = "BandageProgressTemplate",
+	ProgressText = "BANDAGING",
+	Animation = {
+		FadeIn = 0.25,
+		FadeOut = 0.25,
+		WrapCycles = 3,
+		LeftShoulder = Vector3.new(55, -35.5, 50.5),
+		LeftElbow = Vector3.new(43, 0, 0),
+		RightShoulder = Vector3.new(57.5, -1, -59),
+		RightElbow = Vector3.new(8, 0, 0),
+		ShoulderOrbit = Vector3.new(8, 7, 9),
+		ElbowOrbit = 8,
+	},
+}
+
 Config.EnergyDrink = {
 	Duration = 10,        -- s nieskończonej staminy (Kacper 20.10)
 	-- Łyk: efekt rusza SipTime po kliknięciu (puszka przy ustach), gest z opuszczeniem ręki
@@ -1522,8 +1619,21 @@ Config.C4 = {
 	-- z trzema wybuchami (destrukcja ma budżet CPU na klatkę).
 	ChainDelay = 0.12,
 	BlastBackoff = 0.3,     -- środek wybuchu odsunięty od ściany (jak Rpg.HitBackoff — nie w ścianie)
-	DetonateKey = Enum.KeyCode.G, -- Kacper 25.10; telefon: przycisk `HUD.<DetonateButtonName>`
+	DetonateKey = Enum.KeyCode.G, -- Kacper 25.10
+	-- PC: podpowiedź `HUD.<DetonateButtonName>` = biały klawisz „G” + DETONATE + „x3” (Kacper 09.11,
+	-- zamiast czerwonego przycisku); tylko z klawiaturą. Telefon: okrągły przycisk
+	-- `HUD.TouchControls.<DetonateTouchName>` w stylu SPRINT.
 	DetonateButtonName = "DetonateButton",
+	DetonateTouchName = "Detonate",
+	-- Wciśnięcie G wciska klawisz w podpowiedzi: górna ścianka i bok zjeżdżają o Depth px projektu.
+	KeyPress = {
+		Depth = 8,          -- px; bok klawisza w Studio ma 12, zostają 4
+		DownTime = 0.04,    -- s
+		UpTime = 0.14,      -- s, Back — klawisz lekko odbija
+		TapHold = 0.08,     -- s: klik myszką trzyma klawisz wciśnięty tyle, żeby było widać
+	},
+	HintPop = 1.1,          -- UIScale `Pop` podpowiedzi przy odpaleniu („napis lekko podskakuje”)
+	LimitPop = 1.25,        -- …i przy próbie rzutu ponad MaxActive („najpierw odpal”)
 	-- Atrybut gracza z liczbą przyklejonych ładunków — czyta go przycisk detonatora.
 	CountAttribute = "C4Charges",
 	-- Ładunek NIE jest przyspawany do mapy (system zawaleń liczy połączenia części), tylko
@@ -1608,6 +1718,7 @@ Config.RateLimits = {
 	-- stan po `Config.UI.Inventory.SendDelay`, więc limit nie dotyka człowieka.
 	SetLoadout = 0.2,
 	SetSkipRound = 0.1, -- ponad ludzkie tempo klikania przełącznika
+	Bandage = 0.25,
 	-- Panel ustawień (26.10): ten sam wzorzec co loadout — wysyłka ostatniego stanu po
 	-- `Config.Settings.SendDelay`.
 	SetSettings = 0.2,
@@ -1716,7 +1827,11 @@ Config.Shop = {
 	-- tworzy (albo zastaje Twój), klient szuka pod tą nazwą i nie musi znać ścieżki NPC.
 	PromptName = "ShopPrompt",
 	-- Napis „SHOP” nad sprzedawcą (19.10, wybór Kacpra: „płynąca lawa”): BillboardGui `ShopSign`
-	-- w głowie NPC (MaxDistance 90 = widać tylko w lobby — mapa jest 300+ studów dalej). Kolory
+	-- w głowie NPC. MaxDistance w Studio = JEDYNE, co go chowa (09.11, Kacper: stały zasięg zamiast
+	-- chowania za ścianami, które migało): SHOP 275, COSMETICS 250. Pomiar 09.11 po oddaleniu wyspy:
+	-- z wnętrza barier mapy kamera jest najbliżej ~650 od SHOP i ~700 od COSMETICS (przed: ~285 / ~326),
+	-- a chodliwe lobby sięga 269 / 223 — zasięg można by więc podnieść bez widoczności z mapy
+	-- (historia: 90 → 300 „zwiększ zasięg widzenia” → 250 „żeby nie było widać z mapy” → 275). Kolory
 	-- lawy płyną przez litery w kółko (`Body.Label.Lava`, LobbySign przelicza gradient co klatkę).
 	SignName = "ShopSign",
 	SignFlowSpeed = 0.35, -- cykle palety na sekundę (szybkość płynięcia)
@@ -1866,22 +1981,26 @@ Config.Shop = {
 
 -- Pomijanie rund (06.11, RoundSkipService): gracz zostaje w lobby, nie zarabia, a sklep, ekwipunek
 -- i kosmetyki działają mu przez całą rundę. Przełącznik trwa do odkliknięcia.
+Config.Spectate = {
+	ParticipantAttribute = "RoundParticipant",
+	ActiveAttribute = "Spectating",
+	TargetAttribute = "SpectateTargetUserId",
+	PollInterval = 0.2,
+	GuiName = "Spectate",
+	GuiWaitTimeout = 30,
+	EmptyText = "NO PLAYERS",
+	TargetFormat = "%s  (%d/%d)",
+}
+
 Config.RoundSkip = {
 	WantsAttribute = "SkipRound",     -- atrybut gracza: przełącznik włączony
 	SittingOutAttribute = "SittingOut", -- atrybut gracza: bieżąca runda idzie bez niego
-	ButtonParent = "RoundTimer",      -- napis pod licznikiem: HUD.<ButtonParent>.<ButtonName>
+	ButtonParent = "RoundSkip",       -- przycisk po lewej od hotbara: HUD.<ButtonParent>.<ButtonName>
 	ButtonName = "SkipButton",
-	TextOff = "SKIP",                 -- napis mówi, co zrobi kliknięcie
-	TextOn = "DON'T SKIP",
-	ColorsOff = { Color3.fromRGB(120, 115, 125), Color3.fromRGB(70, 66, 76) }, -- gradient mini ramki `Fill`
-	ColorsOn = { Color3.fromRGB(255, 95, 80), Color3.fromRGB(200, 30, 25) },   -- jak X i plakietka „!”
-	WidthOff = 88,   -- px projektu: szerokość ramki dopasowana do krótszego napisu
-	WidthOn = 142,
-	ResizeTime = 0.16,
-	HoverScale = 1.1,
-	HoverTime = 0.14,
-	PressFrom = 0.9,
-	PressTime = 0.25,
+	TextOff = "SKIP ROUND",                 -- napis mówi, co zrobi kliknięcie
+	TextOn = "JOIN ROUND",
+	ColorsOff = { Color3.fromRGB(174, 104, 41), Color3.fromRGB(111, 56, 23) },
+	ColorsOn = { Color3.fromRGB(185, 71, 53), Color3.fromRGB(118, 42, 38) },
 	StartingText = "STARTING", -- licznik u pomijającego zamiast „GET READY”
 }
 
@@ -2812,6 +2931,8 @@ table.freeze(Config.EnergyDrink.Sip)
 table.freeze(Config.EnergyDrink.Palette)
 table.freeze(Config.EnergyDrink.VignetteColors)
 table.freeze(Config.EnergyDrink)
+table.freeze(Config.Bandage.Animation)
+table.freeze(Config.Bandage)
 table.freeze(Config.Rpg.Recoil)
 table.freeze(Config.Rpg)
 table.freeze(Config.RateLimits)
@@ -2847,6 +2968,7 @@ Config.Cosmetics = {
 	-- Napis „COSMETICS” nad sprzedawcą (03.11, Kacper: kolory jak przycisk COSMETICS w HUD,
 	-- intensywniejsze, i ruszający się gradient — jak lawa w SHOP). BillboardGui `CosmeticsSign`,
 	-- kolory płyną przez `Label.Gradient` (LobbySign). Paleta zapętlona jak `Config.Shop.SignFlowColors`.
+	-- MaxDistance w Studio 250 (09.11; z mapy nie widać — pomiar przy `Config.Shop.SignName`).
 	SignName = "CosmeticsSign",
 	SignFlowSpeed = 0.35,
 	SignFlowSpan = 1.0,

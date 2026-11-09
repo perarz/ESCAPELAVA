@@ -802,7 +802,7 @@ local function updateLoop(dt: number)
 	-- Dynamic FOV (Etap 3): sprint → SprintFOV, else → BaseFOV. Lerp ten sam pattern.
 	-- Workspace.CurrentCamera może być nil bardzo krótko przy charakter swap — guard.
 	local camera = Workspace.CurrentCamera
-	if camera then
+	if camera and localPlayer:GetAttribute(Config.Spectate.ActiveAttribute) ~= true then
 		local fx = cameraFxOn()
 		local targetFOV = (if activeSprint and fx then CFG.SprintFOV else CFG.BaseFOV)
 			+ (if energyNow and fx then CFG_ENERGY.FOVBonus else 0)
@@ -990,6 +990,10 @@ end
 local function computeLocalAimFromCamera()
 	-- Liczymy desired yaw (świat-space kąt między forward postaci a kamery) +
 	-- desired pitch (vertical kąt kamery).
+	if localPlayer:GetAttribute(Config.Spectate.ActiveAttribute) == true then
+		localAim.targetYaw, localAim.targetPitch = 0, 0
+		return
+	end
 	if not currentCharacter then return end
 	local camera = Workspace.CurrentCamera
 	if not camera then return end
@@ -1320,6 +1324,27 @@ local function updateAimFacing(camera: Camera, dt: number)
 	root.CFrame = root.CFrame.Rotation:Lerp(want, alpha) + pos
 end
 
+local lobbyViewCharacter: Model? = nil
+local function orientLobbyCamera(camera: Camera)
+	local char = localPlayer.Character
+	if not char or char == lobbyViewCharacter then return end
+	local spawnView = char:GetAttribute(Config.Spawn.LobbyViewAttribute)
+	local root = char:FindFirstChild("HumanoidRootPart")
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if typeof(spawnView) ~= "CFrame" or not root or not root:IsA("BasePart")
+		or not hum or camera.CameraSubject ~= hum then return end
+	-- The attribute and teleport can replicate in either order.
+	local offset = root.Position - spawnView.Position
+	if Vector2.new(offset.X, offset.Z).Magnitude > 5 then return end
+	local focus = root.Position + Vector3.new(0, hum.HipHeight, 0)
+	local zoom = math.clamp((camera.Focus.Position - camera.CFrame.Position).Magnitude,
+		localPlayer.CameraMinZoomDistance, localPlayer.CameraMaxZoomDistance)
+	camera.Focus = CFrame.new(focus)
+	camera.CFrame = CFrame.lookAt(focus - spawnView.LookVector * zoom + Vector3.new(0, 1, 0), focus)
+	smoothedCam = nil
+	lobbyViewCharacter = char
+end
+
 local function onRenderStepCamera(dt: number)
 	-- Trzy efekty na finalnym CFrame kamery, liczone PO default camera (priorytet Camera+1):
 	--   1. Elastic rotation smoothing — renderujemy lagged wersję (kamera dogania mysz).
@@ -1334,7 +1359,8 @@ local function onRenderStepCamera(dt: number)
 		return
 	end
 	-- Scriptable = inny system kamery (cutscene itp.) — nie ruszamy w ogóle.
-	if camera.CameraType == Enum.CameraType.Scriptable then
+	if camera.CameraType == Enum.CameraType.Scriptable
+		or localPlayer:GetAttribute(Config.Spectate.ActiveAttribute) == true then
 		smoothedCam = nil
 		-- Po wyjściu ze sklepu przesunięcie wjeżdża płynnie od zera, zamiast skoczyć.
 		shoulderCurrent = 0
@@ -1342,6 +1368,7 @@ local function onRenderStepCamera(dt: number)
 		return
 	end
 
+	orientLobbyCamera(camera)
 	refreshCameraFilter()
 
 	local raw = camera.CFrame

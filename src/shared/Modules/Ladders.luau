@@ -7,7 +7,9 @@
 -- SZCZEBEL = otagowany part, którego najdłuższa oś jest pozioma, a dwie pozostałe cienkie;
 -- szyny (pionowe) też mają tag, ale tu się nie liczą — z nich nie da się odczytać, z której
 -- strony drabiny się stoi. Kawałki pocięte bombą tracą tag (copyAppearance go nie przenosi),
--- a spadające (niezakotwiczone) są pomijane — nie przyciągamy do lecącego gruzu.
+-- a ruszające się niezakotwiczone są pomijane — nie przyciągamy do lecącego gruzu. Stojąca
+-- drabina postawiona przez gracza (09.11, model `ReplicatedStorage.Ladder` z tagiem na
+-- szczeblach) jest niezakotwiczona, więc liczy się tylko w spoczynku (`Config.Ladder.RestSpeed`).
 
 local CollectionService = game:GetService("CollectionService")
 local Workspace = game:GetService("Workspace")
@@ -82,7 +84,8 @@ function Ladders.nearestRung(position: Vector3, bandMin: number, bandMax: number
 	if #tagged == 0 then return nil end
 	local best: Rung? = nil
 	for _, part in ipairs(Workspace:GetPartBoundsInRadius(position, radius, params)) do
-		if not part.Anchored then continue end
+		-- Niezakotwiczone tylko w spoczynku: postawiona drabina gracza (09.11) tak, lecący gruz nie.
+		if not part.Anchored and part.AssemblyLinearVelocity.Magnitude > CFG.RestSpeed then continue end
 		local y = part.Position.Y
 		if y < bandMin or y > bandMax then continue end
 		local along, halfLen = rungAxis(part)

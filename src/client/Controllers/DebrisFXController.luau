@@ -1229,6 +1229,19 @@ local function onBlastFX(blast: any)
 	end
 end
 
+-- Szyba stłuczona bez wybuchu (09.11, push): same odłamki, lecące od `from`. Ten sam seed
+-- u wszystkich — identyczny wzór, jak przy BlastFX.
+local function onGlassFX(fx: any)
+	if typeof(fx) ~= "table" or typeof(fx.from) ~= "Vector3" or typeof(fx.seed) ~= "number"
+		or typeof(fx.glass) ~= "table" then
+		return
+	end
+	local profile = Config.Graphics.Profile
+	local camPos = cameraPosition()
+	if camPos and (camPos - fx.from).Magnitude > profile.FXDistance then return end
+	spawnGlassShards(Random.new(fx.seed), fx.from, fx.glass :: { any }, profile)
+end
+
 local initialized = false
 function DebrisFXController.init()
 	if initialized then return end
@@ -1236,6 +1249,7 @@ function DebrisFXController.init()
 
 	-- Listenery PRZED czymkolwiek, co mogłoby yieldować (hard rule 9).
 	Remotes.BlastFX.OnClientEvent:Connect(onBlastFX)
+	Remotes.GlassFX.OnClientEvent:Connect(onGlassFX)
 	Remotes.DebrisFall.OnClientEvent:Connect(onDebrisFall)
 	RunService.Heartbeat:Connect(stepPool)
 

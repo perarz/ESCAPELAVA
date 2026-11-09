@@ -31,6 +31,7 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local LoadoutState = require(script.Parent.LoadoutState)
+local ItemIcon = require(script.Parent.ItemIcon)
 local InventoryController = require(script.Parent.InventoryController)
 local RunService = game:GetService("RunService")
 
@@ -151,16 +152,13 @@ local function refreshSlot(slot: number)
 			countLabel.Text = if count == 1 then "" else ("x" .. tostring(count))
 		end
 		if icon and icon:IsA("ImageLabel") then
-			local image = def and def.icon
-			icon.Image = if typeof(image) == "string" then image else ""
-			icon.Visible = icon.Image ~= ""
-			icon.ImageTransparency = if count > 0 then 0 else 0.6
+			icon.Visible = ItemIcon.set(icon, itemId, if count > 0 then 0 else 0.6)
 		end
 	else
 		if nameLabel and nameLabel:IsA("TextLabel") then nameLabel.Text = "" end
 		if countLabel and countLabel:IsA("TextLabel") then countLabel.Text = "" end
 		if icon and icon:IsA("ImageLabel") then
-			icon.Image = ""
+			ItemIcon.set(icon, nil, 0)
 			icon.Visible = false
 		end
 	end

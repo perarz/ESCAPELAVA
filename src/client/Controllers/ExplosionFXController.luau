@@ -438,6 +438,14 @@ function ExplosionFXController.init()
 	if initialized then return end
 	initialized = true
 	Remotes.BlastFX.OnClientEvent:Connect(onBlastFX)
+	-- Szyba stłuczona pushem (09.11): sam brzęk, bez ognia i fali (odłamki: DebrisFXController).
+	Remotes.GlassFX.OnClientEvent:Connect(function(fx: any)
+		if typeof(fx) ~= "table" or typeof(fx.glass) ~= "table" then return end
+		local first = (fx.glass :: { any })[1]
+		if typeof(first) == "table" and typeof(first.cf) == "CFrame" then
+			playSoundAt(FX.GlassSoundId, first.cf.Position, 0.8, 250)
+		end
+	end)
 	Remotes.StructureFX.OnClientEvent:Connect(onStructureFX)
 	Remotes.CarFire.OnClientEvent:Connect(onCarFire)
 end

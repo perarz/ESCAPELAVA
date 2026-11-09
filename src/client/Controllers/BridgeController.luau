@@ -1,5 +1,8 @@
 --!strict
 -- BridgeController.luau
+-- ⚠️ OD 09.11 STAWIA DRABINĘ (opis i powód w BridgeService). Duch to pochylona drabina
+-- liczona `LadderPlacement.cframe` — tym samym wzorem co serwer; kursor = stopa drabiny.
+--
 -- Client-side build mode dla bridge_builder. Pokazuje ghost preview podążający za myszą,
 -- R obraca o snap (45° z ItemDefinitions), LMB wysyła BuildBridge do servera.
 --
@@ -10,10 +13,9 @@
 -- gdy klikasz na sufit; raycast filtruje character + ghost + ActiveCash). ActiveBridges
 -- nie są wykluczone — kursor LĄDUJE na postawionych mostach (stacking + extending).
 --
--- Kontrakt pozycji: kursor = ANCHOR = bliższa krawędź mostu (krótka). Centrum mostu liczone
--- jako anchor + length/2 wzdłuż +Z lokalnej osi (po rotacji Y). Dzięki temu most rozciąga
--- się OD kursora w kierunku gdzie obrócony, a kursor nigdy nie musi być nad przepaścią.
--- Klient wysyła do serwera anchorPos + rotationY; server liczy centrum tym samym wzorem.
+-- Kontrakt pozycji: kursor = ANCHOR = stopa drabiny na powierzchni pod kursorem. Drabina
+-- wznosi się OD kursora w stronę, w którą jest obrócona (ściana bliżej niż jej zasięg cofa
+-- stopę — LadderPlacement). Klient wysyła anchorPos + rotationY; serwer liczy tym samym wzorem.
 --
 -- Telefon (28.10, decyzja Kacpra „dotknij miejsce, potem POSTAW”): kursora nie ma, więc duch
 -- stoi na środku ekranu (celowanie kamerą), dopóki dotknięcie świata go nie przypnie; przyciski
@@ -31,6 +33,7 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
+local LadderPlacement = require(ReplicatedStorage.Shared.Modules.LadderPlacement)
 local CooldownBarController = require(script.Parent.CooldownBarController)
 local TouchControlsController = require(script.Parent.TouchControlsController)
 
@@ -178,10 +181,10 @@ end
 -- Wierzch stosu lawy, albo nil gdy lawy nie ma (wspólne z LavaSwimController — Utils).
 local lavaTopY = Utils.lavaSurfaceY
 
-local function computeAnchorPosition(dims: Vector3, unitRay: Ray): (Vector3, boolean)
+local function computeAnchorPosition(unitRay: Ray): (Vector3, boolean)
 	-- Raycast z kamery (kursor / środek ekranu / dotknięcie). Filter: character, ghost, ActiveCash.
 	-- ActiveBridges NIE wykluczane — chcemy żeby kursor lądował NA istniejących mostach
-	-- (stacking + extending). Hit Y + thickness/2 = anchor (bliższa krawędź mostu).
+	-- (stacking + extending). Punkt trafienia = anchor = stopa drabiny.
 	table.clear(excludeList)
 	if localPlayer.Character then table.insert(excludeList, localPlayer.Character) end
 	if ghost then table.insert(excludeList, ghost) end
@@ -218,8 +221,7 @@ local function computeAnchorPosition(dims: Vector3, unitRay: Ray): (Vector3, boo
 	end
 
 	if hitPos then
-		-- Anchor Y = powierzchnia trafienia + grubość/2 (most siada spodem na powierzchni).
-		return hitPos + Vector3.new(0, dims.Y * 0.5, 0), true
+		return hitPos, true
 	end
 	-- Brak hit → fallback 80 stud przed kamerą
 	return unitRay.Origin + unitRay.Direction * 80, false
@@ -227,7 +229,7 @@ end
 
 -- Gdzie stoi duch: PC — pod kursorem; dotyk — przypięte miejsce albo środek ekranu.
 -- `ScreenPointToRay` dla punktów GUI (kursor, dotyk), `ViewportPointToRay` dla środka widoku.
-local function currentAnchor(dims: Vector3): Vector3
+local function currentAnchor(): Vector3
 	local touch = TouchControlsController.isTouch()
 	if touch and pinnedAnchor then return pinnedAnchor end
 	local cam = Workspace.CurrentCamera
@@ -235,20 +237,7 @@ local function currentAnchor(dims: Vector3): Vector3
 	local ray = if touch
 		then cam:ViewportPointToRay(cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5)
 		else cam:ScreenPointToRay(mouse.X, mouse.Y)
-	return (computeAnchorPosition(dims, ray))
-end
-
-local function forwardFromRotY(rotY: number): Vector3
-	-- Świat-space kierunek lokalnej osi +Z części po rotacji Y wokół (0,1,0).
-	-- Zgodne z CFrame.Angles(0, rad(rotY), 0):VectorToWorldSpace(Vector3.new(0,0,1)).
-	local rad = math.rad(rotY)
-	return Vector3.new(math.sin(rad), 0, math.cos(rad))
-end
-
-local function anchorToCenter(anchorPos: Vector3, rotY: number, dims: Vector3): Vector3
-	-- Anchor = bliższa krawędź mostu (gdzie kursor). Centrum = anchor + długość/2 wzdłuż +Z.
-	-- Ten sam wzór liczy serwer w handleBuildBridge — muszą zostać zgodne.
-	return anchorPos + forwardFromRotY(rotY) * (dims.Z * 0.5)
+	return (computeAnchorPosition(ray))
 end
 
 local function isInRange(pos: Vector3, def: any): boolean
@@ -257,15 +246,16 @@ local function isInRange(pos: Vector3, def: any): boolean
 	return (pos - hrp.Position).Magnitude <= def.maxBuildDistance
 end
 
--- Spód mostu na poziomie lawy (01.10): most ma fizykę od postawienia, a lawa nie ma kolizji,
--- więc utonąłby od razu. Ten sam próg sprawdza serwer przed zabraniem itemu.
-local function isOnLava(anchorPos: Vector3, dims: Vector3): boolean
+-- Stopa drabiny na poziomie lawy (01.10, od 09.11 stopa zamiast spodu mostu): drabina ma
+-- fizykę od postawienia, a lawa nie ma kolizji, więc utonęłaby od razu. Ten sam próg sprawdza
+-- serwer przed zabraniem itemu.
+local function isOnLava(anchorPos: Vector3): boolean
 	local top = lavaTopY()
-	return top ~= nil and anchorPos.Y - dims.Y * 0.5 <= top + Config.Bridge.LavaMargin
+	return top ~= nil and anchorPos.Y <= top + Config.Bridge.LavaMargin
 end
 
-local function canBuildAt(anchorPos: Vector3, dims: Vector3, def: any): boolean
-	return isInRange(anchorPos, def) and not isOnLava(anchorPos, dims)
+local function canBuildAt(anchorPos: Vector3, def: any): boolean
+	return isInRange(anchorPos, def) and not isOnLava(anchorPos)
 end
 
 local function initialRotationFromCamera(snap: number): number
@@ -294,8 +284,8 @@ local function tryBuild()
 	clickDebounce = true
 	task.delay(0.15, function() clickDebounce = false end)
 
-	local anchorPos = currentAnchor(dims)
-	if not canBuildAt(anchorPos, dims, def) then
+	local anchorPos = currentAnchor()
+	if not canBuildAt(anchorPos, def) then
 		-- Za daleko albo na lawie — nie spammujemy serwera. Ghost już czerwony.
 		return
 	end
@@ -303,11 +293,11 @@ local function tryBuild()
 	local cd = Config.RateLimits.BridgeBuild
 	if now - lastBuildAt < cd then return end
 	lastBuildAt = now
-	-- Server dostaje ANCHOR (bliższa krawędź) + rotationY, sam wylicza centrum.
+	-- Serwer dostaje ANCHOR (stopę drabiny) + rotationY i sam liczy ustawienie.
 	ItemEquipController.cancel()
 	Remotes.BuildBridge:FireServer(anchorPos, rotationY)
 	CooldownBarController.trigger("bridge", cd)
-	-- W przypiętym miejscu stoi już most — kolejny duch znowu idzie za kamerą.
+	-- W przypiętym miejscu stoi już drabina — kolejny duch znowu idzie za kamerą.
 	pinnedAnchor = nil
 end
 
@@ -339,12 +329,13 @@ local function enterBuildMode()
 	-- RenderStepped: follow mouse + rotation + range color
 	renderConn = RunService.RenderStepped:Connect(function()
 		if not ghost or not active then return end
-		local anchorPos = currentAnchor(dims)
-		local centerPos = anchorToCenter(anchorPos, rotationY, dims)
-		setGhostCFrame(CFrame.new(centerPos) * CFrame.Angles(0, math.rad(rotationY), 0))
-		-- Visual feedback: distance check liczony od anchor (= miejsca gdzie gracz "kładzie"),
-		-- nie od centrum mostu. Inaczej długi most byłby zawsze "za daleko". Do tego lawa.
-		setGhostValid(canBuildAt(anchorPos, dims, def))
+		local anchorPos = currentAnchor()
+		-- `excludeList` z celowania: własna postać, duch, gotówka — serwer ich nie ma albo
+		-- i tak je pomija, więc wynik jest ten sam.
+		setGhostCFrame((LadderPlacement.cframe(anchorPos, rotationY, dims, excludeList)))
+		-- Visual feedback: zasięg liczony od stopy (= miejsca, gdzie gracz stawia), nie od
+		-- środka drabiny. Do tego lawa.
+		setGhostValid(canBuildAt(anchorPos, def))
 	end)
 
 	-- InputBegan: R rotate, LMB confirm. Filter gameProcessed (HUD klikalny przez Roblox).
@@ -365,7 +356,7 @@ local function enterBuildMode()
 		local cam = Workspace.CurrentCamera
 		local p = positions[1]
 		if not cam or not p then return end
-		pinnedAnchor = (computeAnchorPosition(dims, cam:ScreenPointToRay(p.X, p.Y)))
+		pinnedAnchor = (computeAnchorPosition(cam:ScreenPointToRay(p.X, p.Y)))
 	end)
 	TouchControlsController.setShown("Build", true)
 	TouchControlsController.setShown("Rotate", true)

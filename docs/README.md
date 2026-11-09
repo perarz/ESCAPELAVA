@@ -17,6 +17,7 @@ Aktualizacja: **06.11.2026**. Punkt wznowienia: [STATUS](STATUS.md) → „06.11
 | Wygląd UI / gesty itemów | [UI_RULES.md](UI_RULES.md) / [ITEM_EQUIP_PLAN.md](ITEM_EQUIP_PLAN.md) |
 | Pomysły na akcesoria | [AKCESORIA_PROMPTY.md](AKCESORIA_PROMPTY.md) — briefy, nie gotowy system kosmetyków |
 | Plan sklepu i garderoby COSMETICS | [COSMETICS_PLAN.md](COSMETICS_PLAN.md) — uzgodnienia 26.10, dostępne modele i otwarte decyzje; etap planowania |
+| Drzewko umiejętności i rebirth u maga | [SKILLS_PLAN.md](SKILLS_PLAN.md) — decyzje 08–09.11, liczby i nagrody do akceptacji, wygląd z mikroanimacjami, architektura i brief dla agenta wykonawczego (miejsca w kodzie, mag w placu, ID zasobów, testy); kodu jeszcze nie ma |
 | Historia / wynik porządków | [HISTORY.md](HISTORY.md) / [CONTEXT_AUDIT_2026-10-23.md](CONTEXT_AUDIT_2026-10-23.md) |
 | Pełny przegląd kodu 25–26.10 | [CODE_REVIEW_2026-10-26.md](CODE_REVIEW_2026-10-26.md) — poprawki, pokrycie, ograniczenia i dalsze usprawnienia |
 

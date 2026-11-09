@@ -75,18 +75,24 @@ ItemDefinitions.bomb = {
 	},
 }
 
+-- ⚠️ 09.11: DRABINA zamiast mostu (Kacper). Id zostaje `bridge_builder` — siedzi w zapisanych
+-- ekwipunkach graczy (DataStore) i w loadoutach; zmiana id zabrałaby kupione sztuki. Stary most
+-- (`Bridge`, ikona 89739458074532, wystawa `Blueprint`) zostaje w placu nieużywany.
 ItemDefinitions.bridge_builder = {
 	id = "bridge_builder",
-	name = "Bridge",
-	icon = "rbxassetid://89739458074532", -- 27.10: bez studsów (output/inventory-icons-v3)
+	name = "Ladder",
+	-- Ikona z modelu (ItemIcon, jak bandaż) — bez wgrywania obrazka i moderacji.
+	icon = "",
+	iconModel = "LadderTool",
 	price = 100,
-	desc = "Build a plank over lava or a gap. Anyone can cross it.",
-	sceneModel = "Blueprint",
+	desc = "Lean it on a wall and climb. Tip it over a gap and walk across.",
+	sceneModel = "Ladder",
 	stats = { power = 0, range = 2, mobility = 4 },
-	-- Blueprint trzymany w ręce w trybie budowania (Tool) …
-	toolModel = "Blueprint",
-	-- … a to jest most, który realnie staje na mapie.
-	worldModel = "Bridge",
+	-- Mała drabina trzymana w ręce w trybie budowania (Tool) …
+	toolModel = "LadderTool",
+	-- … a to jest drabina, która realnie staje na mapie (leży w assecie płasko, wzdłuż Z,
+	-- szczeble na wierzchu, tag `Ladder` na szczeblach — patrz LadderPlacement).
+	worldModel = "Ladder",
 	maxStack = 9999,
 	-- Bridge mechanics (server-side validate)
 	-- ⚠️ WYMIARY TO TYLKO FALLBACK. Gdy `worldModel` istnieje, prawdziwe wymiary czyta się
@@ -203,7 +209,20 @@ ItemDefinitions.c4 = {
 }
 
 -- Kolejność wyświetlania w sklepie (porządek deterministyczny)
-ItemDefinitions.shopOrder = { "bomb", "bridge_builder", "grapple", "energy_drink", "rpg", "c4" }
+ItemDefinitions.bandage = {
+	id = "bandage",
+	name = "Bandage",
+	icon = "",
+	iconModel = "Bandage", -- model-rendered icon works without asset moderation/upload
+	price = 40,
+	desc = "Wrap your arm for 3 seconds to restore 35 HP. You can walk. Switching items cancels without using it.",
+	sceneModel = "Bandage",
+	toolModel = "Bandage",
+	stats = { power = 0, range = 0, mobility = 1 },
+	maxStack = 9999,
+}
+
+ItemDefinitions.shopOrder = { "bomb", "bridge_builder", "grapple", "energy_drink", "rpg", "c4", "bandage" }
 
 -- Realny rozmiar rzeczy, którą item stawia w świecie (`worldModel`), z fallbackiem na
 -- wymiary wpisane w definicji. TUTAJ, a nie w każdym serwisie osobno, bo odpowiedź MUSI

@@ -3,15 +3,16 @@
 --   1. Tool.Activated na `C4Tool` → ThrowC4(punkt, w który celuje mysz) — lot i przyklejenie
 --      liczy serwer. Zamach ręki (Config.C4.Swing) rysuje każdy klient: rzucający od razu po
 --      kliknięciu, pozostali, gdy ładunek z atrybutem właściciela pojawi się w jego dłoni.
---   2. Detonator: klawisz Config.C4.DetonateKey (G) i przycisk `HUD.<DetonateButtonName>`
---      (telefon) → DetonateC4. Przycisk widać tylko, gdy masz przyklejone ładunki.
+--   2. Detonator: klawisz Config.C4.DetonateKey (G) → DetonateC4. Na PC podpowiedź
+--      `HUD.<DetonateButtonName>` (klawisz „G” + DETONATE + „x3”, klikalna), na telefonie okrągły
+--      przycisk `HUD.TouchControls.<DetonateTouchName>`. Widać je tylko z przyklejonymi ładunkami.
 -- Liczbę ładunków podaje serwer atrybutem gracza (Config.C4.CountAttribute) — jedno źródło
 -- prawdy, także po śmierci i końcu rundy (serwer czyści atrybut, przycisk sam znika).
 --
 -- KONTRAKT NAZW (Studio): `HUD.Detonator.DetonateButton` (GuiButton, kod szuka go w całym HUD,
--- Visible=false), opcjonalnie w nim `Count` („x2”) i `Keybind` („G” — widoczny tylko
--- z klawiaturą) — TextLabel albo ramka z `Label` — oraz UIScale `Pop`. Brak przycisku = działa
--- sam klawisz.
+-- Visible=false), w nim UIScale `Pop`, `Count` (TextLabel „x2”) i `Keybind` (ramka klawisza:
+-- `Body` = bok, `Face` = górna ścianka z `Label` „G”; wciśnięcie przesuwa Face i Body).
+-- Brak podpowiedzi = działa sam klawisz.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -28,10 +29,12 @@ local ItemEquipController = require(script.Parent.ItemEquipController)
 local CooldownBarController = require(script.Parent.CooldownBarController)
 
 local ToolActivation = require(script.Parent.ToolActivation)
+local TouchControlsController = require(script.Parent.TouchControlsController)
 
 local C4Controller = {}
 
 local CFG = Config.C4
+local KEY = CFG.KeyPress
 local TOOL_NAME = "C4Tool"
 local localPlayer = Players.LocalPlayer
 local lastThrowAt = 0
@@ -63,25 +66,75 @@ local function pop(scale: number)
 	TweenService:Create(ui, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 end
 
--- Znaczek na rogu przycisku: sam TextLabel albo ramka z `Label` w środku (wzór Badge ekwipunku).
--- Cień `LabelShadow` dopisuje TextShadowController.
+-- Element podpowiedzi: sam TextLabel albo ramka z `Label` gdzieś w środku (litera klawisza
+-- siedzi w `Face`). Cienie `<Nazwa>Shadow` dopisuje TextShadowController.
 local function setBadge(b: GuiButton, name: string, text: string, visible: boolean)
 	local badge = b:FindFirstChild(name)
 	if not (badge and badge:IsA("GuiObject")) then return end
 	badge.Visible = visible
-	local label = if badge:IsA("TextLabel") then badge else badge:FindFirstChild("Label")
+	local label = if badge:IsA("TextLabel") then badge else badge:FindFirstChild("Label", true)
 	if label and label:IsA("TextLabel") then
 		label.Text = text
 	end
 end
 
+-- Klawisz w podpowiedzi: Face i Body zjeżdżają o Depth, a Body traci tyle samo wysokości —
+-- bok klawisza się chowa jak przy prawdziwym wciśnięciu. Położenie spoczynkowe bierzemy ze
+-- Studio przy podpięciu, więc kształt klawisza zmienia się tylko w placu.
+type KeyParts = { face: GuiObject, body: GuiObject, facePos: UDim2, bodyPos: UDim2, bodySize: UDim2 }
+local keyParts: KeyParts? = nil
+local keyHeld = false
+
+local function setKeyDown(down: boolean)
+	local k = keyParts
+	if not k then return end
+	local d = if down then KEY.Depth else 0
+	local info = if down
+		then TweenInfo.new(KEY.DownTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		else TweenInfo.new(KEY.UpTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	-- Nowy tween tej samej właściwości przerywa poprzedni — szybkie G-G nie zostawia klawisza w połowie.
+	TweenService:Create(k.face, info, { Position = k.facePos + UDim2.fromOffset(0, d) }):Play()
+	TweenService:Create(k.body, info, {
+		Position = k.bodyPos + UDim2.fromOffset(0, d),
+		Size = k.bodySize - UDim2.fromOffset(0, d),
+	}):Play()
+end
+
+local function releaseKey()
+	if not keyHeld then return end
+	keyHeld = false
+	setKeyDown(false)
+end
+
+-- Klik myszką: krótkie wciśnięcie, chyba że G jest akurat trzymane (wtedy puści je InputEnded).
+local function tapKey()
+	if keyHeld then return end
+	setKeyDown(true)
+	task.delay(KEY.TapHold, function()
+		if not keyHeld then setKeyDown(false) end
+	end)
+end
+
+local function hookKey(b: GuiButton)
+	local key = b:FindFirstChild("Keybind")
+	local face = key and key:FindFirstChild("Face")
+	local body = key and key:FindFirstChild("Body")
+	if not (face and face:IsA("GuiObject") and body and body:IsA("GuiObject")) then return end
+	local f, bd = face :: GuiObject, body :: GuiObject
+	keyParts = { face = f, body = bd, facePos = f.Position, bodyPos = bd.Position, bodySize = bd.Size }
+end
+
 local function refreshButton()
+	local n = chargeCount()
+	local shown = n > 0 and (gameState == "" or gameState == "ROUND") and aliveHumanoid() ~= nil
+	-- Telefon/tablet: okrągły przycisk przy skoku (pokazuje się tylko w trybie dotyku).
+	TouchControlsController.setShown(CFG.DetonateTouchName, shown)
 	local b = button
 	if not b then return end
-	local n = chargeCount()
-	b.Visible = n > 0 and (gameState == "" or gameState == "ROUND") and aliveHumanoid() ~= nil
+	-- Podpowiedź „wciśnij G” ma sens tylko z klawiaturą i bez sterowania dotykowego.
+	b.Visible = shown and UserInputService.KeyboardEnabled and not TouchControlsController.isTouch()
 	setBadge(b, "Count", "x" .. tostring(n), n > 0)
-	setBadge(b, "Keybind", CFG.DetonateKey.Name, UserInputService.KeyboardEnabled)
+	setBadge(b, "Keybind", CFG.DetonateKey.Name, true)
 end
 
 local function detonate()
@@ -91,7 +144,7 @@ local function detonate()
 	local now = os.clock()
 	if now - lastDetonateAt < Config.RateLimits.C4Detonate then return end
 	lastDetonateAt = now
-	pop(1.25)
+	pop(CFG.HintPop)
 	Remotes.DetonateC4:FireServer()
 end
 
@@ -295,8 +348,9 @@ local function tryThrow()
 	if not hum or not char or RagdollState.isRagdolled(hum) then return end
 	if not char:FindFirstChild(TOOL_NAME) then return end
 	if chargeCount() >= CFG.MaxActive then
-		-- Limit: przycisk podskakuje — „najpierw odpal”, zamiast ciszy.
-		pop(1.35)
+		-- Limit: detonator podskakuje — „najpierw odpal”, zamiast ciszy.
+		pop(CFG.LimitPop)
+		TouchControlsController.nudge(CFG.DetonateTouchName)
 		return
 	end
 	local mouse = localPlayer:GetMouse()
@@ -332,6 +386,8 @@ function C4Controller.init()
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then return end -- czat, pole tekstowe, klik w przycisk HUD
 		if input.KeyCode == CFG.DetonateKey then
+			keyHeld = true
+			setKeyDown(true)
 			detonate()
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1 or input.KeyCode == Enum.KeyCode.ButtonR2 then
 			-- ⚠️ Rzut z kliknięcia, NIE z samego `Tool.Activated` (zgłoszenie Kacpra 25.10, log DIAG):
@@ -341,6 +397,12 @@ function C4Controller.init()
 			tryThrow()
 		end
 	end)
+	-- Puszczenie G liczy się zawsze (także gameProcessed — czat otwarty w trakcie trzymania).
+	UserInputService.InputEnded:Connect(function(input)
+		if input.KeyCode == CFG.DetonateKey then releaseKey() end
+	end)
+	UserInputService.WindowFocusReleased:Connect(releaseKey)
+	TouchControlsController.bind(CFG.DetonateTouchName, { press = detonate })
 	-- Activated pozostaje obsługą dotyku; InputBegan wyżej zachowuje obejście PC/R2.
 	ToolActivation.bind(TOOL_NAME, tryThrow)
 	localPlayer.CharacterAdded:Connect(hookCharacter)
@@ -372,10 +434,14 @@ function C4Controller.init()
 	local found = hud:FindFirstChild(CFG.DetonateButtonName, true)
 	if found and found:IsA("GuiButton") then
 		button = found
-		found.Activated:Connect(detonate)
+		hookKey(found)
+		found.Activated:Connect(function()
+			tapKey()
+			detonate()
+		end)
 		refreshButton()
 	else
-		warn(("[C4Controller] brak HUD.%s (GuiButton) — detonator tylko z klawisza %s")
+		warn(("[C4Controller] brak HUD.%s (GuiButton) — na PC detonator tylko z klawisza %s")
 			:format(CFG.DetonateButtonName, CFG.DetonateKey.Name))
 	end
 end

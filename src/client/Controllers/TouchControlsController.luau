@@ -9,7 +9,7 @@
 -- co klawiatura, serwer waliduje jak dotąd.
 --
 -- Kontrakt Studio (STUDIO_CONTRACT → „Telefon”): `HUD.TouchControls` (Frame, Visible=false)
--- z przyciskami-dziećmi `Sprint`, `Push`, `Build`, `Rotate`, `Aim`, `Fire` (GuiButton, każdy
+-- z przyciskami-dziećmi `Sprint`, `Push`, `Build`, `Rotate`, `Aim`, `Fire`, `Detonate` (GuiButton, każdy
 -- z `SelectStroke` UIStroke i `Pop` UIScale). Kontener ma AnchorPoint 0,5/0,5 i stoi na środku
 -- skoku — pozycje przycisków są liczone od tego środka.
 
@@ -141,6 +141,12 @@ function TouchControlsController.setShown(name: string, shown: boolean)
 	if (wanted[name] == true) == shown then return end
 	wanted[name] = shown
 	refresh()
+end
+
+-- Podskok bez wciśnięcia: właściciel mechaniki mówi „najpierw użyj mnie” (limit C4 → DETONATE).
+function TouchControlsController.nudge(name: string)
+	local b = buttons[name]
+	if b and b.Visible then pop(b) end
 end
 
 -- Biała ramka = stan włączony (trzymany sprint, celowanie) — jak wybrany slot paska.

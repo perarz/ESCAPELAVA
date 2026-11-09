@@ -56,6 +56,7 @@ local localPlayer = Players.LocalPlayer
 
 -- cf = gotowy kadr (pozycja kamery + kierunek na model). Liczony RAZ przy otwarciu
 -- sklepu: ani markery, ani wystawa nie ruszają się w trakcie, więc nie ma czego śledzić.
+-- center = środek modelu: wokół niego kamera krąży za myszą (`focusCamera` → `camOrbit`).
 type Entry = { id: string, def: any, cf: CFrame, center: Vector3 }
 -- Model itemu znaleziony na wystawie, zanim dobierzemy mu kamerę.
 type Display = { id: string, def: any, center: Vector3, size: Vector3 }
@@ -316,8 +317,7 @@ end
 
 local function autoCFrame(center: Vector3, size: Vector3, sceneCF: CFrame, sceneSize: Vector3): CFrame
 	-- 23.10 (Kacper: „lekki kąt do itema”): kierunek obrócony w poziomie o AutoCameraYaw —
-	-- item widać trochę z boku, nie płasko na wprost. Ten sam obrót dla wszystkich kadrów,
-	-- więc sortowanie po RightVector niżej dalej idzie wzdłuż ściany.
+	-- item widać trochę z boku, nie płasko na wprost. Ten sam obrót dla wszystkich kadrów.
 	local dir = CFrame.Angles(0, math.rad(CFG.AutoCameraYaw), 0)
 		:VectorToWorldSpace(roomDirection(center, sceneCF, sceneSize))
 	local cam = Workspace.CurrentCamera
@@ -413,12 +413,9 @@ local function buildEntries()
 		table.insert(entries, { id = d.id, def = d.def, cf = cf, center = d.center })
 	end
 
-	-- Kolejność = tak, jak itemy wiszą na ścianie, od lewej (21.10, Kacper: „zła kolejność”):
-	-- do tej pory szła z `shopOrder`, więc ◀▶ skakało po ścianie tam i z powrotem. „W prawo”
-	-- = prawa strona kadru, a wszystkie kadry patrzą w tę samą ścianę.
-	local right = entries[1] and entries[1].cf.RightVector or Vector3.xAxis
 	table.sort(entries, function(a, b)
-		return a.center:Dot(right) < b.center:Dot(right)
+		if a.def.price == b.def.price then return a.def.name < b.def.name end
+		return a.def.price < b.def.price
 	end)
 end
 
@@ -624,13 +621,12 @@ function ShopController.init()
 			warnOnce("lobby", "brak Workspace.Lobby — sklep nie otworzy się promptem")
 			return
 		end
-		-- Napis SHOP nad sprzedawcą: lawa płynie przez litery, za ścianami napis znika (LobbySign).
+		-- Napis SHOP nad sprzedawcą: lawa płynie przez litery (LobbySign).
 		local sign = lobby:FindFirstChild(CFG.SignName, true)
 		local label = sign and sign:FindFirstChild("Label", true)
 		local grad = label and label:FindFirstChild("Lava")
 		if sign and sign:IsA("BillboardGui") and grad and grad:IsA("UIGradient") then
-			local own = lobby:FindFirstChild(CFG.ShopModelName, true) or sign.Parent :: Instance
-			LobbySign.start(sign, grad, own, CFG.SignFlowColors, CFG.SignFlowSpeed, CFG.SignFlowSpan)
+			LobbySign.start(sign, grad, CFG.SignFlowColors, CFG.SignFlowSpeed, CFG.SignFlowSpan)
 		end
 		local hooked = false
 		local function hook(inst: Instance)

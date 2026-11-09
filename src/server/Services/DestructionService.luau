@@ -1713,6 +1713,35 @@ function DestructionService.shatterToClients(list: { Instance }, center: Vector3
 	sendHandoff(h, center, cars.radius, cars.impulse)
 end
 
+-- Jedna szyba BEZ wybuchu (09.11, Kacper: „szyby wybijać pushem” — F w szybę i pchnięty gracz
+-- lecący w okno, PushService). Te same reguły co szyby w wybuchu (`collectGlass`): Glass,
+-- niszczalna, niechroniona, nie w trakcie innego niszczenia. Listwa, która trzymała się tylko
+-- tej szyby, spada jak po bombie. Wraca z mapą po rundzie (MapService widzi brak parta).
+-- `from` = skąd przyszło uderzenie — odłamki lecą od niego. Zwraca, czy stłukł.
+function DestructionService.shatterGlass(part: BasePart, from: Vector3): boolean
+	if not part.Parent or part.Material ~= Enum.Material.Glass then return false end
+	local ctx = buildCtx()
+	if isCharacterPart(part) or isProtected(part, ctx) or not isDestructible(part, ctx) then return false end
+	if DebrisService.isRegistered(part) or pendingParts[part] then return false end
+	local center = part.Position
+	local reach = math.max(part.Size.X, part.Size.Y, part.Size.Z)
+	Remotes.GlassFX:FireAllClients({
+		from = from,
+		seed = rng:NextInteger(1, 2_000_000_000),
+		glass = { { cf = part.CFrame, size = part.Size, color = part.Color } },
+	})
+	StructuralService.releaseInstance(part)
+	part:Destroy()
+	if StructuralService.anyNear(center, reach) then
+		local h = newHandoff()
+		for _, piece in ipairs(StructuralService.takeUnsupportedStripsNear(center, reach)) do
+			handOff(h, piece, false, true)
+		end
+		sendHandoff(h, center, reach, 0)
+	end
+	return true
+end
+
 -- Drobnica i meble leżące na kawałkach, które właśnie spadają — do klientów, inaczej
 -- zostałyby w powietrzu. Kawałki są już odkotwiczone, więc same się nie kwalifikują.
 function DestructionService.dropResting(pieces: { BasePart }, center: Vector3)

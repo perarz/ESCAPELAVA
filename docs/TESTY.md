@@ -1,7 +1,81 @@
 # CO PRZETESTOWAĆ
 
-## ⏭️ Pomijanie rundy (06.11, ramka przez MCP — Cmd+S wymagany) — NIEPRZETESTOWANE
-Sama logika nie była uruchomiona. **Do rundy z pomijającym potrzeba dwóch graczy**: Studio → Test → Clients and Servers → 2 Players albo kolega. Sam na serwerze sprawdzisz tylko dwa pierwsze punkty.
+## Lobby niewidoczne z mapy — 09.11
+
+- [ ] Napisy SHOP / COSMETICS: szybko machaj kamerą w lobby (także zza budynków i latarni) — napis nie miga. Widać go z całego lobby (SHOP najwyżej znika w najdalszym rogu przy maksymalnym oddaleniu kamery), z mapy żadnego.
+- [ ] W rundzie wejdź na dach w rogu mapy najbliżej lobby i spójrz w jego stronę: wyspy, wieży maga ani ludzi w lobby nie widać (pusty horyzont).
+- [ ] Zgiń i włącz SPECTATE: z kamery nad mapą lobby też nie widać; po wyjściu z obserwowania / w LOBBY wyspa jest na miejscu, stoisz na niej normalnie (nie spadasz).
+- [ ] Koniec rundy (teleport do lobby): wyspa jest od pierwszej klatki, bez mignięcia pustki i bez spadania.
+- [ ] W lobby: sklep i przymierzalnia otwierają się i zamykają normalnie, napisy SHOP / COSMETICS na miejscu, mgła przy wieży maga działa.
+- [ ] Kolega w lobby z itemem w ręce, ty na mapie: nie widać go; gdy wróci na mapę, widać go razem z itemem (nic nie zostaje przezroczyste).
+- [ ] Gracz wyrzucony wybuchem tuż za barierę jest dalej widoczny.
+- [ ] **Lobby oddalone (09.11, noc):** wejście do gry i powrót po rundzie — lądujesz na wyspie przy spawnach (nie w powietrzu, nie spadasz), kamera patrzy jak wcześniej. Start rundy przenosi na mapę normalnie.
+- [ ] **Lobby oddalone:** obejdź wyspę — sklep (E przy sprzedawcy), przymierzalnia, napisy SHOP / COSMETICS, wieża maga z mgłą, manekiny i sprzedawcy stoją na swoich miejscach, nic nie zostało w starym miejscu ani nie wisi obok wyspy.
+
+## Bariery na skraju mapy — 09.11
+
+- [ ] Podejdź do krawędzi mapy wysoko (dach budynku przy skraju): z ~40 studów pojawia się czerwone pole siłowe, z bliska wyraźne i lekko pulsujące; odejdź — znika. Ze środka miasta nie widać czerwieni.
+- [ ] Hak w barierę → pudło (lina wylatuje i wraca), sztuka nie schodzi. Output: `[Grapple] … pudło — nie do złapania: InvisableWall`.
+- [ ] Bariera dalej blokuje przejście (nic nie zmienione w kolizji).
+- [ ] Kolega daleko od bariery nie widzi czerwieni, gdy ty stoisz przy niej (efekt tylko u siebie).
+- [ ] Po śmierci / w trakcie obserwowania — liczy się kamera, nic się nie sypie.
+
+## Szyby pushem — 09.11
+
+- [ ] Na piętrze stań przodem do okna (blisko, w zasięgu F) → F → szyba pęka z odłamkami lecącymi na zewnątrz, bez wybuchu i ognia. Pęka tylko ta jedna tafla.
+- [ ] Szyba z murkiem pod spodem (parapet ~4 studa, większość okien) też pęka od F.
+- [ ] Gracz między tobą a szybą bliżej niż szyba → pchnięty gracz, nie szyba. Szyba bliżej → szyba pęka, gracz za nią nie.
+- [ ] Wypchnij kolegę w stronę niskiego okna (parapet przy podłodze) → szyba pęka tuż przed nim, a on wylatuje przez okno. Przy wysokim parapecie: szyba pęka, on zatrzymuje się na murku.
+- [ ] Mur między wami a szybą → nic nie pęka.
+- [ ] Z przedmiotem w ręce F nie tłucze (jak pchnięcie). Poza rundą nic.
+- [ ] Po rundzie szyby wracają. W Output `[Push] … wybił szybę` / `… wypchnął gracza przez szybę`.
+- [ ] Uwaga: brzęku na razie nie ma — `Config.Destruction.FX.GlassSoundId` jest pusty (tak samo przy bombie).
+
+## Drabina zamiast mostu + napis SHOP — 09.11 (MCP — Cmd+S wymagany)
+
+- [ ] Napisy SHOP i COSMETICS (zasięg 250): widać je z prawie całego lobby; z mapy — także z dachów przy północno-wschodnim rogu (najbliżej lobby) — nie widać żadnego. Od 09.11 (noc) nie chowają się już za ścianami — w lobby widać je przez budynki.
+- [ ] Sklep: w miejscu blueprintu wisi mała drabina na kołkach, nazwa „Ladder”, kamera na nią najeżdża; ikona w pasku i ekwipunku to drabina (rysowana z modelu).
+- [ ] Wyciągnij drabinę: w ręce mała drabina pionowo przed postacią (krzywo → jedna liczba `Config.Bridge.HeldGripRotation`).
+- [ ] Duch: pochylona drabina, stopa pod kursorem, R obraca, zielony/czerwony jak most (za daleko, na lawie).
+- [ ] Celuj w ziemię tuż przy ścianie budynku → duch sam się odsuwa, wierzch dotyka ściany. Postaw → drabina stoi oparta, nie wystrzeliwuje, nie przelatuje przez ścianę.
+- [ ] Wejdź po niej: W na drabinę — wspina się bez sprintu? Drabina nie ucieka spod nóg? Z wierzchu da się wejść na piętro/dach (16 studów ≈ piętro)?
+- [ ] Zejście z wierzchu drabiny na dół nie zadaje obrażeń od upadku.
+- [ ] Postaw na otwartej ulicy (nic przed nią) → przewraca się do przodu i leży płasko.
+- [ ] Postaw przy krawędzi dachu, przodem nad przepaść do sąsiedniego budynku (< ~15 studów) → przewraca się i leży jak most; da się po niej przejść.
+- [ ] Bomba przy drabinie odrzuca ją w całości (sabotaż jak przy moście). Koniec rundy → drabiny znikają.
+- [ ] Telefon: dotknij miejsce → duch tam, ROTATE obraca, BUILD stawia.
+- [ ] Kontrola: drabiny na mapie dalej przyciągają i chronią przed obrażeniami od upadku jak dotąd.
+
+## Detonator C4, paski odnowienia, sceny pod mapą — 09.11 (MCP — Cmd+S wymagany)
+Kacper: detonator „widziałem i no spoko” (wygląd), reszta NIEPRZETESTOWANA.
+- [ ] PC, rzuć C4 → po prawej, trochę nad środkiem: biały klawisz „G”, obok DETONATE, za nim żółte „x1”. Bez czerwonej ramki. Rzuć jeszcze dwa → „x2”, „x3”.
+- [ ] Wciśnij i przytrzymaj G → klawisz wciska się w dół (biała ścianka zjeżdża, szary bok prawie znika), napis lekko podskakuje, ładunki wybuchają. Puść → klawisz wraca z lekkim odbiciem. Podpowiedź znika, gdy ładunków nie ma.
+- [ ] Klik myszką w podpowiedź → klawisz krótko się wciska i odpala (jak G); z C4 w ręce klik w nią nie rzuca kostki.
+- [ ] Czwarty rzut ponad limit → podpowiedź podskakuje.
+- [ ] Otwarty czat, wpisz „g” → nic nie wybucha, klawisz się nie wciska.
+- [ ] Wygląd: klawisz ostry przy każdej rozdzielczości, „G” czytelne, napis równo obok klawisza, „x3” na tej samej linii. Za duże / za małe / za nisko → napisz.
+- [ ] Paski odnowienia (09.11, wygląd): rzuć bombę / pchnij F → pasek pod celownikiem ma grubszy czarny obrys, zaokrąglone końce i lekko cieniowany biały pasek; dwa paski naraz (F + bomba) się nie stykają. Pasek bandaża wygląda tak samo.
+- [ ] Pasek odnowienia stoi niżej (0,68 zamiast 0,63): wyraźnie pod celownikiem, nad paskiem itemów, nic nie zasłania.
+- [ ] Sceny pod mapą (09.11): otwórz sklep → kamera jedzie do sklepu jak dotąd, wszystkie 7 itemów, lampki świecą, przewijanie działa. Otwórz COSMETICS i przymierz coś → postać stoi na platformie, oświetlona; porównaj jasność przymierzalni z wcześniejszą (pod mapą nie ma światła nieba — za ciemno → napisz). Z mapy i lobby nie widać już dwóch pudeł na wschód od mapy.
+- [ ] Sklep bez filtra lawy (09.11, poprawka): w sklepie i w przymierzalni obraz ma być czysty — bez pomarańczowego zabarwienia i rozmycia. Kontrola: w rundzie zanurz się w lawie → pod taflą filtr nadal się włącza. Kamera sklepu nie stoi w miejscu i w konsoli nie ma błędu `ShopController:155` (`e.center`).
+- [ ] SPECTATE i SKIP (09.11): w lobby nie ma przycisku SPECTATE (SKIP jest). Zgiń w rundzie → SPECTATE jest i działa. Koniec rundy (ROUND OVER) → znikają oba, SPECTATE i SKIP; oglądanie innego gracza samo się kończy. Po ROUND OVER, w lobby → SKIP wraca, SPECTATE nie.
+- [ ] Telefon (emulator) → klawisza „G” NIE ma; jest okrągły czarny DETONATE przy skoku. Dotknięcie odpala wszystkie, przycisk znika po wybuchu. Czwarty rzut ponad limit → przycisk podskakuje.
+
+## Spectate — 06.11
+
+Testy agenta wykonane za jawną zgodą Kacpra. Test kontrolowany uruchamiał kod kontrolera w LocalScript, prawdziwe Humanoidy, kamerę i PlayerModule; lista dwóch graczy i zdarzenia stanu były zastępcze. Nie jest to test replikacji pomiędzy dwoma klientami.
+
+- [x] Play solo: bootstrap bez błędu Spectate, RoundParticipant ustawiony uczestnikowi, panel niewidoczny na mapie; po śmierci/powrocie do lobby NO PLAYERS.
+- [x] Kontrolowany test: 18 asercji — inicjalizacja, pierwszy cel wg UserId, Custom CameraSubject, blokada ruchu, następny i zawijanie w obie strony, zmiana po śmierci, brak celów, powrót kamery/sterowania, ponowne otwarcie/zamknięcie, koniec rundy, własny udział, przekazanie kamery kosmetykom i odejście ostatniego celu.
+- [x] Narzędziem wejścia kliknięto Open i Next w kontrolowanym teście: kamera zmieniała cel prawidłowo.
+- [x] Poprawka katalogu kosmetyków: podczas przekazania kamera zachowuje Scriptable, ale CameraSubject wraca do własnego Humanoida.
+- [ ] Prawdziwy multiplayer: gracz A pomija/umiera, ogląda B/C; B umiera/wychodzi, lista się aktualizuje; następna runda przywraca własną kamerę.
+- [ ] Fizyczny PPM + ruch myszy i dotyk obracają kamerę wokół celu; scroll/pinch i ściany działają. Automatyczny ruch myszy dawał 11 zdarzeń ze zsumowanym Delta=0, także na własnej kamerze, więc wynik obrotu NIEZALICZONY.
+- [ ] Prawdziwy telefon: czytelność/klikalność strzałek i X.
+- [ ] Cmd+S zapisuje nowe HUD.Spectate w placu.
+
+## ⏭️ Pomijanie rundy (06.11, ramka przez MCP — Cmd+S wymagany) — ogólne działanie potwierdzone przez Kacpra
+Kacper 06.11: „skip już działa”; bez wskazania konkretnych przypadków z listy. Przegląd kodu i zgodność 14 modułów ze Studio w Edit potwierdzone; to nie dodatkowy test Play. Poniższe pola pozostają otwarte do szczegółowego potwierdzenia. **Do rundy z pomijającym potrzeba dwóch graczy**: Studio → Test → Clients and Servers → 2 Players albo kolega. Sam na serwerze sprawdzisz tylko dwa pierwsze punkty.
 - [ ] Sam: mała szara ramka SKIP pod licznikiem, klik → płynnie szersza, czerwona ramka DON'T SKIP, klik ponownie → szara SKIP, reaguje od razu, także przy szybkim klikaniu. Napis mieści się w ramce, ramka nie nachodzi na licznik
 - [ ] Sam, po kliknięciu SKIP: koniec lobby (albo K) → runda NIE startuje, ekran się nie ściemnia, lobby odlicza od nowa. Log: `[GameLoop] nikt nie chce grać`. Klik DON'T SKIP → następna runda rusza normalnie
 - [ ] Dwóch, A pomija, B gra: B leci na mapę, A zostaje dokładnie tam, gdzie stał, postać się nie przeładowuje, nie ma zasłony ani 3-2-1, licznik pokazuje STARTING, a potem czas rundy
@@ -130,7 +204,7 @@ Kod zsynchronizowany i parsuje się (odczyt Edit), przyciski postawione przez MC
 - [ ] Most: schowanie mostu albo śmierć → BUILD i ROTATE znikają.
 - [ ] RPG w rundzie: AIM obok PUSH. Dotknij → zoom, celownik, biała ramka, nad skokiem pojawia się FIRE. FIRE → rakieta w środek celownika. AIM drugi raz → koniec celowania, FIRE znika. Bez AIM dotknięcie ekranu strzela w dotknięte miejsce (jak dotąd).
 - [ ] RPG: celowanie włączone, schowaj wyrzutnię / zgiń / koniec rundy → celowanie się wyłącza, po ponownym wyciągnięciu nie włącza się samo.
-- [ ] C4: przyklejone ładunki → DETONATE jest teraz WYŻEJ na prawej krawędzi (przesunięty z 0,55 na 0,40) i nie nachodzi na przyciski. Na PC sprawdź, czy wyższa pozycja nie przeszkadza.
+- [ ] C4: przyklejone ładunki → okrągły czarny DETONATE (jak SPRINT) nad przyciskami, między ROTATE/AIM a FIRE; nie nachodzi na żaden z nich, także z RPG i mostem w ręce (09.11, patrz „Detonator C4”).
 - [ ] Bomba, hak, napój i rzut C4 dotknięciem ekranu nadal działają (bez nowych przycisków).
 - [ ] **Loadout palcem** (zgłoszenie 02.11: „przeciągam item na slota, klinuje się i zostaje tam”; poprawka 02.11): w lobby otwórz Inventory, przeciągnij kartę na slot i puść → karta wskakuje do slotu i znika, slot pokazuje item. Powtórz 5× na różne sloty, też szybkim ruchem. Przeciągnij i puść obok slotów → karta wraca na miejsce. Przeciągnij zajęty slot poza sloty → item wyjęty. Lista kart nie przewija się pod przeciąganą kartą; zwykłe przewijanie listy palcem dalej działa. Drugi palec w trakcie przeciągania nic nie psuje. Jeśli karta znowu zawiśnie — napisz, gdzie dokładnie (pod palcem, na slocie) i czy znika po zamknięciu panelu.
 - [ ] Ten sam loadout myszą na PC: przeciąganie, upuszczanie na slot i obok działa jak dotąd.
@@ -225,8 +299,7 @@ Pierwszy test Kacpra 25.10 (log): przyklejanie klikiem i odpalenie G dwóch ład
 - [ ] Jeden klik = jeden rzut (nie dwa naraz); klik w przycisk na HUD (pasek, DETONATE) nie rzuca
 - [ ] Rzuć i wciśnij G, zanim doleci → wybucha w powietrzu, tam gdzie akurat jest
 - [ ] Wciśnij **G** → wszystkie 3 wybuchają po kolei (szybki łańcuch), każdy jak bomba: dziura, odrzut, obrażenia; przycisk znika
-- [ ] Przycisk detonatora: czerwony DETONATE po prawej, znaczek „G” w lewym rogu, „x1/x2/x3” w prawym — liczba zgadza się z ładunkami; klik myszą też odpala
-- [ ] Na telefonie (emulator) → przycisk odpala tak samo, nie zasłania przycisku skoku, znaczka „G” nie ma
+- [ ] Detonator: zastąpiony 09.11 — lista w sekcji „Detonator C4, paski odnowienia, sceny pod mapą — 09.11” na górze
 - [ ] Rzuć, schowaj C4 (wyciągnij hak), odleć, wciśnij G → wybuch daleko od ciebie
 - [ ] Zużyj ostatnie C4 → kostka znika z ręki, slot x0, ale G dalej odpala przyklejone
 - [ ] Stoisz przy własnym ładunku i odpalasz → ciebie też rani (jak bomba), kill za samobójstwo bez nagrody
@@ -689,3 +762,23 @@ Telefon i anty-cheat mają jeszcze braki kodu opisane w DO_RELEASE. Nie traktowa
 - Try vest while looking up/down beforehand: head joins torso, vest lower; rotate 360 degrees and verify lamp stays fixed relative to scene.
 - Buy changes wallet amount; close/reopen and respawn: no leftover preview/fill; normal HUD restored.
 Static Edit review, source parse/sync and build are not Play acceptance.
+
+
+## Bandage — 06.11, solo Play przez agenta za zgodą Kacpra
+
+Fixture: `tests/BANDAGE_PLAY.server.luau` i `tests/BANDAGE_PLAY.client.luau`, instalowane osobno tylko w Play. Normalne Script/LocalScript korzystają z aktywnego cache usług, nie z `require` przez MCP. Wynik aktualnej sesji: `BandageIntegrationResults.Status = passed`, Error pusty, 15/15 asercji. Fixture przywrócił inventory/loadout/cash i ustawienie dev infinite items. Testowe skrypty nie należą do drzewa Rojo.
+
+- [x] Aktywna runda i wyposażenie bandaża z loadoutu.
+- [x] ModelIcon w hotbarze oraz pasek BANDAGING po użyciu.
+- [x] Po 0,8 s HP40 i 8 sztuk: brak przedwczesnego leczenia/zużycia.
+- [x] Spam 10 żądań podczas użycia: dokładnie HP40→75 i 8→7 sztuk.
+- [x] HP85→100, 7→6 sztuk; kolejna próba przy pełnym HP bez efektu i kosztu.
+- [x] Zmiana na hak: po upływie czasu nadal HP40, 6 sztuk, brak paska i aktywnego użycia.
+- [x] Ragdoll: anulowanie, HP40 i 6 sztuk bez opóźnionego leczenia.
+- [x] Nieprawidłowy payload i zerowy stan magazynu odrzucane.
+- [x] Ostatnia sztuka: HP40→75, 1→0, usunięcie Toola.
+- [x] Koniec rundy w trakcie: sztuka pozostaje, Tool i aktywne użycie usunięte.
+- [ ] Zakup za 40$ przez panel, wybór kafelka i zapis loadoutu po ponownym wejściu.
+- [ ] Ostateczna poza rąk, chodzenie podczas gestu, telefon i widoczność animacji u drugiego gracza.
+
+Pierwszy test z rzeczywistym kliknięciem Toola potwierdził leczenie i ruch czterech Motor6D. Późniejszy kontrolowany podgląd lokalny nie utrzymał Toola (zrzut bez gestu), więc nie jest akceptacją wyglądu poprawionej pozy. Błąd pierwszej wersji fixture (próba zapisania LocalScript.Source przez Script) naprawiono rozdzielając instalację; nie był to błąd kodu gry.

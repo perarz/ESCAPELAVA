@@ -1,8 +1,59 @@
 # STATUS — ESCAPE LAVA
 
-Aktualizacja **06.11.2026**. Ostatni pełny audyt 23.10: kod repo, lokalna historia Git, checklisty i odczyt Studio w Edit, bez Play, pomiaru FPS i publikacji ([audyt kontekstu](CONTEXT_AUDIT_2026-10-23.md)). Sekcje niżej idą od najnowszej; starszy wpis nie unieważnia nowszego.
+Aktualizacja **09.11.2026**. Ostatni pełny audyt 23.10: kod repo, lokalna historia Git, checklisty i odczyt Studio w Edit, bez Play, pomiaru FPS i publikacji ([audyt kontekstu](CONTEXT_AUDIT_2026-10-23.md)). Sekcje niżej idą od najnowszej; starszy wpis nie unieważnia nowszego.
+
+## 08–09.11 — drzewko umiejętności i rebirth u maga: PLAN, kodu i panelu brak
+
+Kacper chce dalszego rozwoju, „żeby gra się nie nudziła”. Pełny plan: [SKILLS_PLAN](SKILLS_PLAN.md). Ustalone:
+- **Drzewko:** korzeń +5% szybkości, od niego odnogi po 2 poziomy. Poziom I kosztuje kasę, poziom II kasę i wymaganie (kille, przetrwane albo rozegrane rundy).
+- **Odnogi:** SPEED, STAMINA, LAVA SKIN, TOUGHNESS, GREED i FORCE (F wybija małą dziurę w ścianie).
+- **Rebirth:** zabiera tylko drzewko. W zamian daje +5% kasy na zawsze, a do 10. rebirthu także nowe odnogi i itemy w sklepie. Liczba rebirthów bez limitu.
+- **Wygląd:** kamera na maga `TowerMage` i panel, efekty z ui-resources.com, ikony game-icons z czarnym obrysem i mikroanimacje (sekcja w planie).
+- **Zasoby:** 14 obrazów wgranych 09.11 za zgodą Kacpra. ID są w planie i w `artifacts/ui-effects/ASSETS.md` (poza gitem, repo publiczne).
+
+Otwarte:
+- akceptacja liczb przez Kacpra;
+- nagrody rebirthów 5–10;
+- liczba rebirthów przy nicku;
+- przed wydaniem drzewka podpis CC BY game-icons w opisie gry (DO_RELEASE).
+
+Agent, który to wdraża, zaczyna od sekcji „Brief dla agenta wykonawczego” na końcu SKILLS_PLAN. Są tam: pytania do Kacpra przed kodem, gotowe miejsca w kodzie, mag w placu, ID zasobów i szkic testów.
+
+Następny krok: podgląd panelu `StarterGui.SkillTree` przez MCP do oceny wyglądu. Kacper go zlecił 09.11 i przerwał aktualizacją kontekstu. Kod (etap 2) rusza dopiero po commicie drugiego agenta, bo dotyka tych samych plików (`Config`, `Remotes`, `MovementController`, `PlayerService`, `PushService`, pliki `init`).
+
+## 09.11 (noc) — lobby oddalone od mapy, NIEPRZETESTOWANE, Cmd+S wymagany
+
+Kacper: „oddal to lobby od mapy”. Wybrał ~500 studów od barier i zostawienie chowania lokalnego (sama odległość wyspy nie schowa — plac bez mgły). Przez MCP w Edit przesunięte o (+204, 0, +330) prosto od mapy, na tej samej wysokości: `Workspace.Lobby` (z `SpawnPoints`, straganami i napisami) i `Workspace.WizardTower`, czyli 3764 party i pivoty 265 modeli bez `PrimaryPart`. Pozycje docelowe liczone przed ruchem — każdy part sprawdzony, odchyłka 0. Środek wyspy (59, 451) → (263, 781), brzeg ~505 studów od barier (było ~110). Nic w lobby nie łączy się z partami spoza niego, terenu (Terrain) przy wyspie nie ma, Rojo nie zarządza `Workspace.Lobby`. Kod czyta pozycje z placu (spawny, stragany, mgła wieży, widok po spawnie), więc w logice nic się nie zmienia — tylko komentarze z pomiarami. Napisy: kamera z mapy najbliżej ~650 od SHOP i ~700 od COSMETICS (było ~285 / ~326), `MaxDistance` bez zmian. Cofnięcie: Ctrl+Z w Studio (krok „Assistant 57”), dopóki Studio jest otwarte. Testy: TESTY → „Lobby niewidoczne z mapy — 09.11”, dwa ostatnie punkty.
+
+## 09.11 (noc) — napisy SHOP / COSMETICS bez migania, NIEPRZETESTOWANE, Cmd+S wymagany
+
+Kacper: napis migał przy szybkim ruchu kamery. Przyczyna: `LobbySign` chował napis za ścianami promieniem kamera → napis co 0,1 s, a promień łapał słupy i krawędzie. Na prośbę Kacpra chowanie usunięte — widoczność wyłącznie ze stałego `MaxDistance`: SHOP 275 (przez MCP, wymaga Cmd+S), COSMETICS 250. Pomiar z 09.11: chodliwe lobby sięga 269 / 223 od napisów, kamera z mapy najbliżej ~285 / ~326. Skutek uboczny: w lobby napisy widać przez budynki (`AlwaysOnTop`). Kod zgodny ze Studio i parsuje się. Test: TESTY → „Lobby niewidoczne z mapy — 09.11”, pierwszy punkt.
+
+## 09.11 (noc) — lobby niewidoczne z mapy, NIEPRZETESTOWANE
+
+Kacper chciał, żeby z mapy nie było widać lobby; zamiast przenoszenia wybrał chowanie lokalne. Pomiar w Edit: wyspa lobby (koło ~370 studów) wisi na wysokości dachów, ~110 studów od barier, a plac nie ma mgły, chmur ani Atmosphere — przeniesiona byłaby widoczna gdzie indziej. Nowy `LobbyVisibilityController`: kamera nad obszarem gry (pudło barier w XZ + 30 studów, powyżej Y −50) → lobby (`Workspace.Lobby` + `WizardTower`) i postacie innych dalej niż 40 studów za barierą znikają z obrazu tego gracza (`LocalTransparencyModifier`, efekty wyłączone). Kolizja zostaje, więc obserwujący stoi dalej na wyspie. Liczby w `Config.LobbyHide`. Kod w Studio zgodny z dyskiem i parsuje się; plac bez zmian (Cmd+S niepotrzebny). Testy: TESTY → „Lobby niewidoczne z mapy — 09.11”.
+
+## 09.11 (wieczór) — bariery: hak + czerwone pole siłowe, NIEPRZETESTOWANE
+
+Decyzje Kacpra: bariery na skraju mapy (`Map.Locked.InvisableWalls`, 4 ściany) widać tylko z bliska, wzór = ForceField. Hak: trafienie w barierę = pudło (`GrappleService.isAnchorable`, `Utils.barrierFolder`). Wygląd lokalny (`BarrierController`): czerwone pole siłowe od 40 studów, pełne od 15, przezroczystość pulsuje 0,2–0,6 co 1,6 s. Plac bez zmian (Cmd+S niepotrzebny), kod w Studio zgodny z dyskiem i parsuje się. Testy: TESTY → „Bariery na skraju mapy — 09.11”.
+
+## 09.11 (wieczór) — szyby pushem, NIEPRZETESTOWANE
+
+Decyzje Kacpra: F w szybę ją tłucze, pchnięty gracz wylatuje przez okno, bliższe (szyba / gracz / beczka) wygrywa, jedna tafla. `PushService` liczy promienie od HRP serwera (tułów i głowa), szybę na torze pchniętego tłucze tuż przed jego dolotem; nowe `DestructionService.shatterGlass` + `Remotes.GlassFX` (same odłamki, bez wybuchu). Kod w Studio zgodny z dyskiem i parsuje się. Pomiar w Edit: promień sięga 304 z 343 okien; przy parapecie 4 studa (większość) pchnięty rozbija szybę, ale zatrzymuje go murek — wylatuje przez niskie okna. Dźwięk szkła dalej pusty (`GlassSoundId`). Testy: TESTY → „Szyby pushem — 09.11”. Kod tylko w skryptach — Cmd+S niepotrzebny dla tej zmiany.
+
+## 09.11 (później) — drabina zamiast mostu, NIEPRZETESTOWANE, Cmd+S wymagany
+
+Na prośbę Kacpra item mostu (`bridge_builder`, id bez zmian ze względu na zapisy) stawia **drabinę**: pochyloną o 75°, 16 studów, z fizyką jak most — oparta o ścianę stoi, bez oparcia przewraca się do przodu, a nad przepaścią kładzie jak most (decyzje Kacpra). Wspólny wzór ustawienia `LadderPlacement` (duch + serwer): ściana przed drabiną cofa stopę, aż wierzch się oprze. Pomiar w Edit na mapie (obserwacja, nie test): pochylenie, wysokość 15,6 i strona szczebli zgodne; potem 125 ścian z całej mapy × 2 odległości stopy = 250 ustawień, tymczasowe kopie usunięte. Pierwsza wersja (1 promień) zostawiała szynę w słupach i gzymsach → 6 promieni (środek i pod szynami, wzdłuż spodu i wierzchu), do 3 cofnięć, cofnięta stopa siada na krawężniku. Wynik końcowy: **234/250 bez nachodzeń**, wierzch oparty o coś w 156, koszt 0,011 ms. Zostało 16 przy nietypowej geometrii (balkony/dachy budynków ×10, fundament ×2, niewidzialna ściana na skraju mapy ×2, latarnia ×2) — tam część drabiny nie zderza się z tym jednym elementem (NoCollisionConstraint ze spawnu), reszta działa. Modele przez MCP: `ReplicatedStorage.Ladder`, `LadderTool` (dłoń + ikona z modelu), wystawa na kołkach blueprintu; stary blueprint z wystawy w `ServerStorage.RetiredItems`. Napis SHOP widać z 300 studów (było 90). Testy: TESTY → „Drabina zamiast mostu + napis SHOP — 09.11”.
+
+## 09.11 — detonator C4 jako podpowiedź klawisza, NIEPRZETESTOWANE, Cmd+S wymagany
+
+Na prośbę Kacpra czerwony przycisk DETONATE zastąpiła podpowiedź sterowania: biały cieniowany klawisz „G”, obok DETONATE i żółte „x3” (decyzje Kacpra: tylko PC, trochę niżej niż wcześniej, licznik za napisem, klawisz wciska się przy G). Telefon dostał okrągły czarny DETONATE w stylu SPRINT przy skoku (wcześniej używał czerwonego przycisku, który teraz jest tylko na PC). UI postawione przez MCP w Edit, kod (`C4Controller`, `TouchControlsController.nudge`, `Config.C4`) zgodny ze Studio i parsuje się. Kacper obejrzał detonator: „no spoko”. Potem: paski odnowienia grubszy obrys 3, zaokrąglone, cieniowane, niżej (Y 0,68); **sceny sklepu i przymierzalni przeniesione pod mapę** o (−350, −300, 0) razem z 11 luźnymi partami pokoi (STUDIO_CONTRACT → „Sklep-NPC i scena”). Reszta nietestowana w Play. Po teście Kacpra dwie poprawki: (1) kamera sklepu stała w miejscu z błędem `ShopController:155` — zmiana sortowania z 07.11 usunęła środek itemu, którego używa krążenie kamery; przywrócony, sortowanie po cenie bez zmian; (2) w sklepie był filtr „pod lawą”, bo kamera była pod taflą — próg `Config.Lava.Submerged.FloorY` (−50). Testy: TESTY → „Detonator C4, paski odnowienia, sceny pod mapą — 09.11”.
 
 ## 06.11 — punkt wznowienia (dzień premiery)
+
+**06.11 — SPECTATE:** na zlecenie Kacpra dodano obserwowanie żywych uczestników z lobby: przycisk pod SKIP, poprzedni/następny, nazwa i X; natywna kamera Custom z obrotem. Serwer publikuje RoundParticipant, klient zarządza kamerą i blokadą ruchu. Kacper jawnie pozwolił agentowi samodzielnie uruchamiać/testować Play przy tym zadaniu (wyjątek od dotychczasowej zasady) i użyć subagentów. Test solo: start, oznaczenie uczestnika, ukrycie przycisku na mapie, powrót do lobby/NO PLAYERS; kontrolowany test klienta z dwoma zastępczymi celami: 18 asercji zaliczonych, również kliknięcia Open/Next. Naprawiono oddawanie CameraSubject przy otwarciu samego katalogu kosmetyków. Pełny multiplayer i fizyczny obrót myszą/dotykiem pozostają niepotwierdzone: narzędzie ruchu myszy raportowało Delta=0 (także na zwykłej kamerze), a sterowanie oknem Studio do wielu klientów miało timeout. Build i składnia przeszły. Testowe obiekty usunięte przez zakończenie Play; UI w Edit wymaga Cmd+S. Bez publikacji i commita. Szczegóły testów: TESTY → Spectate.
+
+**06.11 — późniejsze potwierdzenie SKIP:** Kacper: „skip już działa”. Zakres wykonanych przypadków nie został wyszczególniony, więc nie zaliczamy automatycznie całej checklisty. Dodatkowy przegląd kodu: wybór rundy, brak nagrody za przetrwanie dla pomijających, dostęp do sklepów/loadoutu, respawn i cleanup. Odczyt Studio w Edit: 14 powiązanych modułów zgodnych z dyskiem i poprawnych składniowo; `SkipButton` ma `Fill`, `Label`, `Pop`, HUD ma `ResetOnSpawn=false`. Nie uruchamiano Play; przypadki z dwoma graczami i opóźnioną siecią nie zostały w tej kontroli zweryfikowane. Poniższe wcześniejsze oznaczenia SKIP jako całkowicie nieprzetestowanego zastępuje to potwierdzenie.
 
 **Gdzie jesteśmy:** praca 05–06.11 poszła w sklep i pomijanie rundy. Ocena Kacpra po obejrzeniu: światło „git jest”, panel „takto spoko całkiem” i „no może być”. To ocena wyglądu, nie zaliczenie listy z TESTY. Logika pomijania rundy i pełna runda po dzisiejszych zmianach nie mają wyniku testu.
 
@@ -89,7 +140,7 @@ Następny krok: test Kacpra — głowa po przymierzeniu kamizelki, jej wysokoś�
 
 Lobby **25 s**, w nim ramka SKIP pod licznikiem (06.11): kto ją kliknie, zostaje w lobby na kolejne rundy; przygotowanie i teleport pod zasłoną; **3-2-1** na mapie z blokadą ruchu/itemów; runda z płynnie przyspieszającą lawą, **bez faz**; **3 s FINISHING**, wypłata ocalałym, zasłona i cleanup/odbudowa, potem **od razu lobby** (10 s „ROUND OVER” w lobby usunięte 26.10). Produkcyjny cel rundy: **80 s**, obecnie **240 s testowo**.
 
-Kod zawiera **6 itemów**: Bomb 50$, Bridge 100$, Grapple 40$, Energy Drink 25$, RPG 75$, **C4 60$** (25.10 — C4 = zaplanowana sticky bomb, decyzja Kacpra; przyklejanie, G i rzut z ikoną zadziałały w testach; 25.10 wieczorem wysoki łuk jak granat + zamach ręki — NIEPRZETESTOWANE; `ReplicatedStorage.C4` i `HUD.Detonator.DetonateButton` postawione przez MCP). Loadout to **3 stałe sloty**, ekwipunek jest dostępny wyłącznie w lobby, a pomijającemu rundę także w jej trakcie. Nowy item nie wymaga czwartego slotu.
+Kod zawiera **7 itemów**: Bomb 50$, Bridge 100$, Grapple 40$, Energy Drink 25$, RPG 75$, **Bandage 40$**, **C4 60$** (25.10 — C4 = zaplanowana sticky bomb, decyzja Kacpra; przyklejanie, G i rzut z ikoną zadziałały w testach; 25.10 wieczorem wysoki łuk jak granat + zamach ręki — NIEPRZETESTOWANE; `ReplicatedStorage.C4` i `HUD.Detonator.DetonateButton` postawione przez MCP). Loadout to **3 stałe sloty**, ekwipunek jest dostępny wyłącznie w lobby, a pomijającemu rundę także w jej trakcie. Nowy item nie wymaga czwartego slotu.
 
 Destrukcja v4 obejmuje **wszystkie 10 budynków**; starszy pass podparcia działa poza nimi. Fizyka dużych brył zostaje. **Gruz nie zadaje obrażeń**; lokalne odłamki nie mają kolizji ani wpływu na promienie. Obrażenia od upadku pozostają. Jeden profil `Config.Graphics.Profile`, bez trybów Potato/Full i ich panelu.
 
@@ -188,3 +239,10 @@ To porządek pracy wynikający z istniejącej listy; nie oznacza zatwierdzenia n
 27.10: Na prosbe Kacpra napis CosmeticsSign podniesiony 3x: StudsOffsetWorldSpace.Y z 9 do 27. Pozostale ustawienia zachowane. Odczyt Edit potwierdzony; Cmd+S wymagany.
 
 27.10: Ostateczna wysokość CosmeticsSign.StudsOffsetWorldSpace.Y = 24 (zamiast 27), ustawiona i potwierdzona odczytem Edit. Cmd+S wymagany.
+
+
+## 06.11 — Bandage: implementacja i test Play
+
+Dodany siódmy item: biały zwój z czerwonym krzyżem, wystawa w sklepie, kafelek Inventory i ikona hotbara renderowana z modelu. Cena 40$, leczenie +35 HP po 3 s (maksymalnie MaxHealth). Loadout nadal ma 3 sloty. Gest bandażowania i pasek BANDAGING; można chodzić. Zmiana itemu, ragdoll, śmierć lub koniec rundy przerywają bez zużycia. Serwer rozlicza leczenie i sztukę; klient wyłącznie pokazuje animację.
+
+Za zgodą Kacpra agent wykonał solo Play: 15 asercji integracyjnych zaliczonych na prawdziwych remotes i działających usługach, w tym spam, limit HP i anulowanie. Dane ekwipunku/loadoutu przywrócone przez fixture. Szczegóły i pozostałe testy: TESTY. Nowa poza rąk wymaga jeszcze wizualnej akceptacji w ruchu; test wieloosobowy i telefon pozostają otwarte. Studio wróciło do Edit. Model, wystawa i szablon paska wymagają Cmd+S; bez publikacji i commita.

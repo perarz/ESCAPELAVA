@@ -36,6 +36,8 @@ Premiera wyznaczona przez Kacpra: **06.11.2026**. Obecny problem release’u to 
 
 Sklep kosmetyczny i garderoba są już w trakcie dopracowywania po wdrożeniu; uzgodniony zakres i punkt wznowienia w [STATUS](STATUS.md), plan w [COSMETICS_PLAN](COSMETICS_PLAN.md). Nie traktować ich jako niezaczętej propozycji. Daily rewards i monetyzacja pozostają dalszymi kierunkami wymagającymi wyboru zakresu. Kosmetyka bez bonusów; dawny plan pancerzy nie stanowi zatwierdzonego zadania do v1.0.
 
+Długoterminowy cel gracza (08–09.11, etap planu): drzewko umiejętności u maga w wieży, czyli stałe bonusy za kasę i wymagania, oraz rebirth, który zeruje drzewko w zamian za procent do kasy, nowe odnogi i itemy. To jedyne źródło bonusów do gry. Plan i liczby: [SKILLS_PLAN](SKILLS_PLAN.md), stan: [STATUS](STATUS.md).
+
 Świadomie poza v1.0: voting map, lobby parkour, pożary jako mechanika, trzęsienia, blackout, bounty, kradzież monet, king zone, niewidzialne trapy, łamliwe podłogi, windy, tunele, gejzery lawy. Ogień wraków/beczek jest efektem, nie pożarem rozprzestrzeniającym się po mapie.
 
 ## Repo i plac

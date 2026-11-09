@@ -13,6 +13,9 @@
 --   - Velocity NIE może być ustawiane server-side (NetworkOwner=LocalPlayer → klient
 --     przerysuje state). Wysyłamy Remotes.Pushed do target client, target sam aplikuje
 --     velocity na swoim HRP — klient owns physics więc zmiana się utrzyma.
+--   - SZYBY (09.11, Kacper): F w szybę ją tłucze (bliższe z szyby, gracza i beczki wygrywa),
+--     a szyba na torze lotu pchniętego pęka tuż przed nim — wylatuje przez okno. Oba liczy
+--     serwer promieniami od swojej kopii HRP; tłucze DestructionService.shatterGlass.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -29,6 +32,7 @@ local AntiCheatService = require(script.Parent.AntiCheatService)
 local GameLoopService = require(script.Parent.GameLoopService)
 local RagdollService = require(script.Parent.RagdollService)
 local CarService = require(script.Parent.CarService)
+local DestructionService = require(script.Parent.DestructionService)
 
 local PushService = {}
 local roundEpoch = 0
@@ -38,6 +42,7 @@ local MAX_RANGE = Config.Push.MaxRange
 local CONE_DOT = Config.Push.ConeDot
 local PUSH_FORCE = Config.Push.Force
 local PUSH_LIFT = Config.Push.Lift
+local GLASS = Config.Push.Glass
 
 local lastPushAt: { [Player]: number } = {}
 
@@ -99,6 +104,41 @@ local function pickBarrel(pusherHRP: BasePart): (Model?, number)
 	return best, bestDist
 end
 
+-- Szyba, która jest PIERWSZĄ rzeczą na linii od `root` w kierunku `dir` (mur przed nią = nic),
+-- z kilku wysokości ciała; najbliższa. Postacie nie zasłaniają — pchnięty i pchający też nie.
+local glassParams = RaycastParams.new()
+glassParams.FilterType = Enum.RaycastFilterType.Exclude
+glassParams.RespectCanCollide = true
+
+local function glassAhead(root: BasePart, dir: Vector3, length: number): (BasePart?, number)
+	local ignore: { Instance } = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player.Character then table.insert(ignore, player.Character) end
+	end
+	glassParams.FilterDescendantsInstances = ignore
+	local best: BasePart? = nil
+	local bestDist = math.huge
+	for _, height in ipairs(GLASS.RayHeights) do
+		local hit = Workspace:Raycast(root.Position + Vector3.new(0, height, 0), dir * length, glassParams)
+		if hit and hit.Distance < bestDist and hit.Instance.Material == Enum.Material.Glass then
+			best, bestDist = hit.Instance, hit.Distance
+		end
+	end
+	return best, bestDist
+end
+
+-- Pchnięty leci na szybę → pęka tuż przed jego dolotem (czas z prędkości pchnięcia).
+local function breakGlassInFlight(targetRoot: BasePart, dir: Vector3, pusher: Player)
+	local pane, dist = glassAhead(targetRoot, dir, GLASS.FlightReach)
+	if not pane then return end
+	local glass: BasePart = pane
+	task.delay(math.max(0, dist / PUSH_FORCE - GLASS.FlightLead), function()
+		if glass.Parent and DestructionService.shatterGlass(glass, targetRoot.Position) then
+			print(("[Push] %s wypchnął gracza przez szybę %s"):format(pusher.Name, glass:GetFullName()))
+		end
+	end)
+end
+
 -- Item w ręce = Tool w postaci (schowany leży w Backpack). Wołane też po Windup, więc
 -- item wyjęty w trakcie zamachu też odwołuje pchnięcie i beczkę.
 local function holdsBlockedTool(character: Model): boolean
@@ -121,10 +161,25 @@ local function resolvePush(pusher: Player)
 	local target = pickTarget(pusher, pusherHRP)
 	local barrel, barrelDist = pickBarrel(pusherHRP)
 	local targetRoot = target and Utils.getRoot(target)
-	if barrel and (not targetRoot or barrelDist < (targetRoot.Position - pusherHRP.Position).Magnitude) then
+	local targetDist = if targetRoot then (targetRoot.Position - pusherHRP.Position).Magnitude else math.huge
+	local look = pusherHRP.CFrame.LookVector
+	local flatLook = Vector3.new(look.X, 0, look.Z)
+	local pane: BasePart? = nil
+	local paneDist = math.huge
+	if flatLook.Magnitude > 0.1 then
+		pane, paneDist = glassAhead(pusherHRP, flatLook.Unit, MAX_RANGE)
+	end
+	-- Bliższe wygrywa (Kacper 09.11): beczka, szyba albo gracz.
+	if barrel and barrelDist < targetDist and barrelDist < paneDist then
 		-- Wybuch tą samą ścieżką co auto trafione bombą: kill dla pchającego, łańcuch beczek.
 		CarService.ignite(barrel, pusher)
 		print(("[Push] %s odpalił beczkę %s"):format(pusher.Name, barrel:GetFullName()))
+		return
+	end
+	if pane and paneDist < targetDist then
+		if DestructionService.shatterGlass(pane, pusherHRP.Position) then
+			print(("[Push] %s wybił szybę %s"):format(pusher.Name, pane:GetFullName()))
+		end
 		return
 	end
 	if not target then return end  -- cooldown już zużyty, brak celu = miss
@@ -148,6 +203,7 @@ local function resolvePush(pusher: Player)
 
 	-- Klient target'a aplikuje velocity (network ownership = klient, server set nie działa)
 	Remotes.Pushed:FireClient(target, velocity)
+	breakGlassInFlight(targetHRP, dir, pusher)
 
 	-- Tag pusher jako attacker na target humanoid — jeśli target wpadnie w lawę
 	-- w oknie KillCreditWindowSec, push dostaje credit.

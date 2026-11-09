@@ -1,5 +1,12 @@
 --!strict
 -- BridgeService.luau
+-- ⚠️ OD 09.11 TO DRABINA (Kacper: „zamiast mostu drabinę do stawiania”). Item, remote'y, folder
+-- i nazwy w kodzie zostają mostowe (`bridge_builder`, `BuildBridge`, `ActiveBridges`) — id itemu
+-- siedzi w zapisach graczy, a reszta to wewnętrzne nazwy. Różnica względem mostu: model
+-- `ReplicatedStorage.Ladder` staje POCHYLONY (LadderPlacement — ten sam wzór co duch), anchor =
+-- stopa drabiny na powierzchni pod kursorem. Fizyka jak u mostu: oparta o ścianę stoi, bez
+-- oparcia przewraca się do przodu, więc nad przepaścią kładzie się jak most.
+--
 -- Server-authoritative budowanie mostu. Klient w build mode wybiera position+rotationY
 -- myszą i klika LMB → BuildBridge Remote → server validate + consume + spawn mostu z fizyką.
 --
@@ -7,8 +14,8 @@
 --   1. Klient klika hotbar slot z bridge_builder → HotbarController fires EquipItem("bridge_builder")
 --   2. Server BridgeService.onEquip → validate alive + count > 0 → fire BridgeBuildMode(true)
 --   3. Klient enters build mode (BridgeController) — ghost preview podąża za myszą, R obraca
---   4. Klient LMB → fires BuildBridge(anchorPos, rotationY); anchorPos = bliższa krawędź mostu
---      (= pozycja kursora), NIE centrum. Server liczy centrum = anchor + length/2 wzdłuż +Z.
+--   4. Klient LMB → fires BuildBridge(anchorPos, rotationY); anchorPos = stopa drabiny
+--      (= punkt pod kursorem), NIE centrum. Server liczy ustawienie `LadderPlacement.cframe`.
 --   5. Server validate (alive, count > 0, anchor-distance ≤ max, typecheck) → consume → spawn
 --   6. Po consume jeśli count == 0 → fire BridgeBuildMode(false) (forced exit), inaczej zostaje
 --   7. UnequipItem → BridgeService.onUnequip → fire BridgeBuildMode(false)
@@ -43,6 +50,7 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local ItemDefinitions = require(ReplicatedStorage.Shared.Modules.ItemDefinitions)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Utils = require(ReplicatedStorage.Shared.Modules.Utils)
+local LadderPlacement = require(ReplicatedStorage.Shared.Modules.LadderPlacement)
 
 local ItemService = require(script.Parent.ItemService)
 local LoadoutService = require(script.Parent.LoadoutService)
@@ -164,13 +172,13 @@ local function makePhysical(bridge: Instance): BasePart
 	return root
 end
 
-local function makeBridge(position: Vector3, rotationY: number, def: any): Instance
-	local cf = CFrame.new(position) * CFrame.Angles(0, math.rad(rotationY), 0)
+-- `cf` = środek obrysu i obrót (z LadderPlacement — pochylona drabina).
+local function makeBridge(cf: CFrame, def: any): Instance
 	local template = if def.worldModel then Utils.getAsset(def.worldModel) else nil
 
 	if template and template:IsA("Model") then
 		local model = template:Clone()
-		model.Name = "Bridge"
+		model.Name = template.Name
 		for _, d in ipairs(model:GetDescendants()) do
 			if d:IsA("BasePart") then
 				applyBridgeProperties(d)
@@ -205,7 +213,16 @@ local function makeBridge(position: Vector3, rotationY: number, def: any): Insta
 	return bridge
 end
 
--- Tool z blueprintem — czysto wizualny sygnał „ten gracz stawia mosty". Budowanie
+-- Dłoń trzyma środek małej drabiny (09.11; największa bryła to szyna z boku, nie środek) —
+-- jak C4. Obrót z `Config.Bridge.HeldGripRotation`.
+local function heldGrip(model: Model, handle: BasePart): CFrame
+	local r = Config.Bridge.HeldGripRotation
+	local center = model:GetBoundingBox().Position
+	return CFrame.new(handle.CFrame:PointToObjectSpace(center))
+		* CFrame.Angles(math.rad(r.X), math.rad(r.Y), math.rad(r.Z))
+end
+
+-- Tool z małą drabiną (do 09.11 blueprint) — czysto wizualny sygnał „ten gracz stawia drabiny". Budowanie
 -- obsługuje BridgeController; Tool.Activated celowo bez listenera.
 local function giveBlueprintTool(player: Player, def: any)
 	local existing = equippedTools[player]
@@ -222,7 +239,7 @@ local function giveBlueprintTool(player: Player, def: any)
 		return
 	end
 
-	local tool = Utils.makeHeldTool(template, "BlueprintTool", ITEM_ID)
+	local tool = Utils.makeHeldTool(template, "BlueprintTool", ITEM_ID, heldGrip)
 	if not tool then return end
 
 	Utils.holdTool(char, tool)
@@ -265,7 +282,7 @@ local function handleBuildBridge(player: Player, anchorPos: any, rotationY: any)
 		return
 	end
 
-	-- Typecheck (klient wysyła ANCHOR = bliższa krawędź mostu, nie centrum)
+	-- Typecheck (klient wysyła ANCHOR = stopa drabiny, nie centrum)
 	if not isValidVector3(anchorPos) then
 		Remotes.BridgeResult:FireClient(player, false, "invalid_position")
 		return
@@ -315,10 +332,10 @@ local function handleBuildBridge(player: Player, anchorPos: any, rotationY: any)
 		return  -- nie exit — klient widzi czerwony ghost i wie że za daleko
 	end
 
-	-- Na lawie (01.10): most z fizyką utonąłby w niej od razu, a gracz straciłby item za nic.
-	-- Ten sam próg co ghost w BridgeController — PRZED consume.
+	-- Na lawie (01.10): drabina z fizyką utonęłaby w niej od razu, a gracz straciłby item za nic.
+	-- Ten sam próg co ghost w BridgeController — PRZED consume. Od 09.11 liczy się stopa drabiny.
 	local dims = ItemDefinitions.worldSize(ITEM_ID) or Vector3.new(def.width, def.thickness, def.length)
-	if (anchorPos :: Vector3).Y - dims.Y * 0.5 <= LavaService.getSurfaceY() + Config.Bridge.LavaMargin then
+	if (anchorPos :: Vector3).Y <= LavaService.getSurfaceY() + Config.Bridge.LavaMargin then
 		Remotes.BridgeResult:FireClient(player, false, "on_lava")
 		log(player, "odrzucony", "na lawie")
 		return
@@ -333,17 +350,15 @@ local function handleBuildBridge(player: Player, anchorPos: any, rotationY: any)
 	-- Rate limit start dopiero po consume (żeby odrzucone requesty nie blokowały gracza).
 	lastBuildAt[player] = now
 
-	-- Anchor → centrum (musi być spójne z BridgeController.anchorToCenter). Długość bierze
-	-- się z MODELU przez wspólne ItemDefinitions.worldSize — gdyby serwer liczył z liczb
-	-- w definicji, a klient z modelu, most stawałby gdzie indziej niż pokazywał ghost.
+	-- Stopa → ustawienie drabiny: ten sam `LadderPlacement.cframe` liczy duch u klienta.
+	-- Wymiary z MODELU przez wspólne ItemDefinitions.worldSize — gdyby serwer liczył z liczb
+	-- w definicji, a klient z modelu, drabina stawałaby gdzie indziej niż pokazywał duch.
 	-- (`dims` policzone wyżej, przy sprawdzaniu lawy.)
-	local rad = math.rad(rotationY :: number)
-	local forward = Vector3.new(math.sin(rad), 0, math.cos(rad))
-	local centerPos = (anchorPos :: Vector3) + forward * (dims.Z * 0.5)
+	local cf = LadderPlacement.cframe(anchorPos :: Vector3, rotationY :: number, dims, {})
 
-	-- Spawn mostu: ustawiony i zakotwiczony → do Workspace → bryła fizyczna (kolejność
+	-- Spawn: ustawiona i zakotwiczona → do Workspace → bryła fizyczna (kolejność
 	-- wymagana przez `makePhysical`).
-	local bridge = makeBridge(centerPos, rotationY :: number, def)
+	local bridge = makeBridge(cf, def)
 	bridge.Parent = getOrCreateActiveFolder()
 	local root = makePhysical(bridge)
 	-- Fizyka na SERWERZE na stałe. Silnik oddaje niezakotwiczoną bryłę najbliższemu graczowi,
