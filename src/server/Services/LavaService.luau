@@ -28,6 +28,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local GameLoopService = require(script.Parent.GameLoopService)
 local KillService = require(script.Parent.KillService)
+local SkillService = require(script.Parent.SkillService)
 
 local LavaService = {}
 
@@ -183,7 +184,8 @@ local function damageSubmerged(dt: number)
 		-- wychodzi bez efektu — czyli kolejność jest tu częścią mechaniki, nie stylem.
 		KillService.refreshTag(hum)
 
-		hum:TakeDamage(hum.MaxHealth / seconds * dt)
+		-- LAVA SKIN (drzewko, 09.11): ułamek mniej obrażeń, ze stanu serwera.
+		hum:TakeDamage(hum.MaxHealth / seconds * dt * (1 - SkillService.getBonus(player, "lava")))
 
 		if hum.Health <= 0 and not pendingDeath[hum] then
 			pendingDeath[hum] = true

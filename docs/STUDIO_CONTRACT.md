@@ -12,7 +12,7 @@ Aktualizacja: **06.11.2026** (nowsze wpisy mają własne daty). Kod i wybrane ob
 - **09.11 — lobby oddalone od mapy (MCP, Cmd+S wymagany).** `Workspace.Lobby` i `Workspace.WizardTower` przesunięte w całości o (+204, 0, +330) — prosto od mapy, ta sama wysokość. Środek wyspy (263, 781), brzeg ~505 studów od pudła barier. Kod nie ma zapisanych pozycji lobby (spawny, stragany, napisy, mgła wieży czytane z placu), więc przesuwając lobby, przesuwać CAŁE (z wieżą i `Lobby.SpawnPoints`), a nie pojedyncze części. Nowy element lobby stawiać w tym folderze albo dopisać do `Config.LobbyHide.Roots`.
 - **09.11 — lobby chowane z mapy (`LobbyVisibilityController`).** Wszystko, co należy do lobby i ma znikać z widoku z mapy, musi leżeć w `Workspace.Lobby` albo w modelu wpisanym w `Config.LobbyHide.Roots` (dziś także `Workspace.WizardTower`, który stoi na wyspie, ale poza folderem). Obszar gry = obrys barier (`Map.Locked.InvisableWalls`); lobby musi stać poza nim z zapasem (od 09.11 brzeg wyspy ~505 studów od barier, strefa chowania sięga 30 studów za nie). Przeniesienie lobby bliżej mapy albo nowy element lobby poza folderem = sprawdzić te dwie rzeczy. W placu nic nie zmieniono.
 - `Workspace.Lobby.Spawn` — zakotwiczony BasePart, dziś tylko **zapas**, gdy `Lobby.SpawnPoints` jest pusty. Stał NA gruncie (124,74) i wystawał 1 stud jako szary klocek — 02.11 na zgłoszenie Kacpra („widać szarą płytkę na spawnie”) Transparency=1 i bez kolizji/zapytań/dotyku; pod nim zwykła ziemia, nie dziura. Lobby może zawierać zagnieżdżone dekoracje.
-- `Workspace.Map.Locked.CashSpawns` — markery punktów cash; `ReplicatedStorage.Cash` to asset paczki. `Workspace.ItemSpawns` nie oznacza wdrożonego systemu wszystkich pickupów itemów.
+- `Workspace.Map.Locked.CashSpawns` — markery punktów cash; `ReplicatedStorage.Cash` to asset paczki. **Stan 13.11 (MCP, Cmd+S wymagany): 50 płytek `CashSpawn01..50`** 4×1×2, Transparency=1, bez kolizji/zapytań/dotyku, SPÓD na podłodze (kod bierze `Position` + `Config.Cash.SpawnHeightOffset`, czyli kasa wisi ~2,5 nad podłogą). Kod nie robi raycastu — marker musi stać na podłodze. Co rundę losowane `SpawnFraction` z nich. Do tego `Map.Locked.SpawnPoints` ma od 13.11 **16 punktów**: stare `SidewalkSpawn1..6`, nowe `SidewalkSpawn7..14` (obrzeża mapy) i `HotelLobbySpawn1..2` (hol PupleHotel, parter). `Workspace.ItemSpawns` nie oznacza wdrożonego systemu wszystkich pickupów itemów.
 - Rzeczy runtime: `ActiveBridges`, `ActiveCash`, `BlastDebris`, grupy kolapsu i lokalne FX — nie budować ich jako statycznej mapy.
 
 ## Budynki na destrukcji v4
@@ -41,7 +41,8 @@ Wszystko poza budynkami nadal może korzystać ze starszego passu podparcia. Nie
 ## Sklep-NPC i scena — stan 23.10
 
 - **09.11 — wystawa drabiny (MCP, Cmd+S wymagany).** `WeaponShopScene.Decorations.Ladder` = `ReplicatedStorage.Ladder` w skali 0,325, wisi na kołkach `Arsenal.Mounts.Peg_Blueprint` (kołki przechodzą między szczeblami pod górną szyną), przed `Board_Blueprint`, środek (−315,09; −173,03; 16); bez tagów; sprawdzone: nie nachodzi na nic. Kadr z markera `ShopCameras.BlueprintCamera` (najbliższy). Stary model wystawy `Blueprint` przeniesiony do **`ServerStorage.RetiredItems.Blueprint`** (do przywrócenia). Nazwy kołków/tablicy zostały `*_Blueprint`. `ShopSign.MaxDistance` 90 → 300 (prośba Kacpra „zwiększ zasięg widzenia napisu shop”), a potem **oba napisy, `ShopSign` i `CosmeticsSign`, = 250** (Kacper: „żeby nie było widać z mapy”), a na koniec dnia **`ShopSign` = 275**, gdy `MaxDistance` stał się jedynym, co chowa napisy (kod przestał je chować za ścianami — migały). Pomiar w Edit: z wnętrza barier mapy kamera jest najbliżej ~285 od SHOP i ~326 od COSMETICS (punkt + 15 studów kamery), chodliwe lobby (flood fill od spawnu, 360×360) sięga 269 od SHOP i 223 od COSMETICS — SHOP znika tylko w najdalszym rogu lobby. Większa wartość niż ~280 = SHOP widać z rogu mapy. **Po oddaleniu wyspy (09.11, noc)** kamera z mapy jest najbliżej ~650 od SHOP i ~700 od COSMETICS — wartości do ~600 nie są już widoczne z mapy.
-- **09.11 — obie sceny pod mapą (MCP na prośbę Kacpra, Cmd+S wymagany).** `WeaponShopScene`, `ClothesShopScene` i 11 luźnych `Workspace.Part` pokoi (ściany, podłoga, dachy + 2 party ze `SpotLight` przymierzalni) przesunięte razem o **(−350, −300, 0)**, bez obrotu. Wcześniej wisiały ~90 studów na wschód od mapy na wysokości dachów (Y 116–146) i było je widać z gry; teraz stoją pod środkiem lawy, Y −183…−158 (dno mapy −5,5, lawa ~3, `FallenPartsDestroyHeight` −500). Współrzędne niżej w tym rozdziale i w opisach COSMETICS (np. Z itemów, Y 124,96, Y 134, SpotLighty 54,25/129) są sprzed przeniesienia: X −350, Y −300, Z bez zmian. Kod liczy kadry od scen, więc nie wymagał zmian. Cofnięcie: to samo przesunięcie z przeciwnym znakiem. Pod mapą nie dochodzi światło nieba — sklep ma własne `SceneAmbient`, przymierzalnia nie. ⚠️ Sceny muszą stać poniżej `Config.Lava.Submerged.FloorY` (−50): wyżej kamera sklepu i przymierzalni jest „pod taflą lawy” i dostaje pomarańczowy filtr z rozmyciem (zgłoszenie Kacpra 09.11).
+- **09.11 — obie sceny pod mapą (MCP na prośbę Kacpra, Cmd+S wymagany).** `WeaponShopScene`, `ClothesShopScene` i 11 luźnych `Workspace.Part` pokoi (ściany, podłoga, dachy + 2 party ze `SpotLight` przymierzalni) przesunięte razem o **(−350, −300, 0)**, bez obrotu. Wcześniej wisiały ~90 studów na wschód od mapy na wysokości dachów (Y 116–146) i było je widać z gry; teraz stoją pod środkiem lawy, Y −183…−158 (dno mapy −5,5, lawa ~3, `FallenPartsDestroyHeight` −500). Współrzędne niżej w tym rozdziale i w opisach COSMETICS (np. Z itemów, Y 124,96, Y 134, SpotLighty 54,25/129) są sprzed przeniesienia: X −350, Y −300, Z bez zmian. Kod liczy kadry od scen, więc nie wymagał zmian. Cofnięcie: to samo przesunięcie z przeciwnym znakiem. Pod mapą nie dochodzi światło nieba — sklep ma własne `SceneAmbient`, przymierzalnia nie. ⚠️ Sceny muszą stać poniżej `Config.Lava.Submerged.FloorY` (−50): wyżej kamera sklepu i przymierzalni jest „pod taflą lawy” i dostaje pomarańczowy filtr z rozmyciem (zgłoszenie Kacpra 09.11). ⚠️ **Pokój przymierzalni przebudowany 12.11** (następny punkt): liczba „11 luźnych `Workspace.Part`” i dawna zawartość są nieaktualne; przesunięcie scen o (−350, −300, 0) obowiązuje dalej.
+- **12–13.11 — `Workspace.ClothesShopScene` przebudowana na pracownię krawca (MCP na prośbę Kacpra, Cmd+S wymagany).** Kontrakt kodu bez zmian: `Decoriations.Platform.platform` (pisownia `Decoriations`; pozycja (−307; −180,39; −37), walec 5 × 0,3; teraz orzech + mosiężny okrąg `Build.Room.PlatformTrim.BrassRing`). Zawartość to `Build.Room`: `Wall_*` (4), `Floor_Base`, `FloorBoards`, `Ceiling`, `CeilingBeams`, `BackWall` (boazeria i słupy), `Mirror` (lustro w drewnianej ramie, bez odbić), `Sconces`, `Lights` (`Key_*` / `Rim_*` SpotLight, 3 lampy wiszące), `Props` (`Pegboard`, `FabricShelves`, `Rack`, `SewingTable`, rigi `R6_Head` / `R6_Torso` / `R6_Back` z założonymi dynią, kamizelką i plecakiem, `Base` — podstawki). Pokój: X −319…−291, Z −58…−16, podłoga Y −181,9, wysokość 11. Kamera gry (auto z bounding boxa postaci) stoi przy x≈−294 i patrzy w −X; korytarz przed podestem wolny — nic tam nie stawiać. **Bez żadnych napisów** (decyzja Kacpra). Rigi R6 to dekoracja: kotwiczone, bez `Humanoid` / `Animate`, bez kolizji i promieni. Światło celowo ciemne (13.11: ściany `9a825a`, key 3,2 / 34°), żeby podest był najjaśniejszy; kod dokłada lokalne `PointLight` (`FittingFill*`). Dawna zawartość (`Racks`, `Mannequins`, `Clothes`, `ClothesMaterial`, `Workshop`, 7 luźnych `Workspace.Part`): `ServerStorage.ClothesShopBackup_1211`.
 - `Workspace.Lobby.…WeaponsShop.NPC` — sprzedawca, rekurencyjne szukanie **przez WeaponsShop**, nie dowolny NPC. Party zakotwiczone. ShopService tworzy `ShopPrompt`, jeśli brak; prompt ma E, „Shop / Seller”, dystans 12. Zakup walidowany z serwera do 18 studów. ClothesShop.NPC to inny sprzedawca.
 - `Workspace.WeaponShopScene` — osobna scena; gracz zostaje przy sprzedawcy, porusza się tylko kamera. `Decorations.<sceneModel>` to wystawa. W placu sześć modeli (Bomb, Blueprint, HandHook, EnergyDrink, Rpg, StickyBomb) i od 25.10 **sześć definicji**: `StickyBomb` to wystawa itemu **C4** (decyzja Kacpra 25.10: C4 = sticky bomb; nazwy modelu wystawy nie trzeba zmieniać).
 - `ShopCameras` — markery pozycji, obecnie **nieużywane** (`UseCameraMarkers=false`). Dodanie markera haka nie jest zadaniem blokującym release. Po ewentualnym włączeniu parowanie po odległości, nazwy i obrót nie wyznaczają kierunku; markery anchored/niewidoczne/bez kolizji.
@@ -56,6 +57,8 @@ Wszystko poza budynkami nadal może korzystać ze starszego passu podparcia. Nie
 
 ### COSMETICS — kontrakt dodany 26.10
 
+> ⚠️ **Wpisy poniżej powstawały kolejno (v4 → v6e) i część się nadpisuje — obowiązuje najnowszy.** Stan na 13.11: `Body.Dressing` (ramka z postacią) + `Body.Shelf` (karty) + `Body.Fitting` (przebieralnia ze sceną; wrócił 10.11 noc, wpis „v6” niżej mówiący o usunięciu `Body.Fitting` jest zastąpiony), `Design` = `shop_v6e`. Płyta ceny na karcie (`Card.PriceRow`: `CashIcon`, `Price`, `PriceShadow`, `Plate`) ma od 13.11 **rozmiary liczone przez kod** (`Config.Cosmetics.UI.PlateHeight/TextSize/IconSize`) i przezroczysty `TextButton` `BuyHit` tworzony w kodzie przy budowie karty (hover → BUY, klik kupuje); w Studio go nie ma. Opis bieżący: STATUS → „COSMETICS — stan bieżący”.
+
 **27.10 — uproszczenie COSMETICS na prośbę Kacpra:** usunięto Wallet, napis ESCAPE LAVA / THE CLOSET, zakładki i etykiety kategorii. Wszystkie produkty we wspólnym katalogu (garderoba nadal tylko posiadane). Sam licznik kasy po lewej, poniżej kontrolek Robloxa; główny tytuł wyśrodkowany. Kategorie wyposażenia i zapis pozostają bez zmian. Kopia UI: `ServerStorage.CosmeticsUI_v2_2710`; skrypt zmiany: `artifacts/cosmetics/simplify_ui.luau`. Build i kontrola Edit, bez testu Play. Wymagany Cmd+S.
 
 **Aktualizacja po feedbacku 26.10: pełny ekran.** Małe okno zostało odrzucone. `Backdrop` ma nieprzezroczyste tło katalogu, `Root.Fit` liczy pełny viewport (wysokość referencyjna 1080, pion szerokość 800); root wypełnia ekran bez marginesu zewnętrznego. `Catalog.CategoryTabs` zawiera przyciski All/Head/Face/Torso/Back; stary FilterButton ukryty. Większe kafle mają CategoryWord, Orbit i Foot/ActionHint, a brakujące modele neutralny manekin + oznaczenie niedostępności. CloseButton to kopia `Inventory.Panel.Body.CloseButton` (86×86, Fredoka X, te same gradienty i obrysy). Kopia poprzedniego UI w `ServerStorage.CosmeticsUI_v1_2610`. Stan wyjściowy Cosmetics.Enabled=false, szablon ukryty, brak kart demonstracyjnych. Nie testowano Play ani telefonu.
@@ -64,6 +67,7 @@ Kacper zatwierdził osobny wyjątek: agent buduje UI COSMETICS w Studio. `Starte
 
 - `Workspace.Lobby.…ClothesShop.NPC` — istniejący sprzedawca; serwer tworzy `CosmeticsPrompt` na jego korzeniu, aktywny tylko w LOBBY. Zakup wymaga bliskości właściwego NPC (parametry w Config.Cosmetics). Garderoba dostępna przyciskiem w całym lobby.
 - `Workspace.ClothesShopScene.Decoriations.Platform.platform` — istniejąca platforma, rzeczywista pisownia. Jest obrócona, dlatego wysokość wyliczana z rzutu osi i rozmiaru. Opcjonalny `CosmeticsCamera` BasePart w scenie wyznacza kadr; bez niego kamera przed postacią, liczby w Config.
+- **10.11:** `HalloweenPumpkin` ma siatki z `assets/models/HalloweenPumpkin/solid/solid/HalloweenPumpkin.fbx` (asset modelu `134552405559468`): bez otworów, mina z przodu (−Z). Stary w `ServerStorage.HalloweenPumpkin_BeforeSolid_1011`.
 - `ReplicatedStorage.Cosmetics` — **27.10: HalloweenPumpkin gotowy jako Accessory; KevlarVest i SchoolBackpack nadal wymagają importu**. Wymagane Accessory `HalloweenPumpkin`, `KevlarVest`, `SchoolBackpack`. Folder nie ma placeholderów udających zaimportowane modele.
 - Każdy produkt: BasePart/MeshPart `Handle` bezpośrednio w Accessory, z JEDNYM bezpośrednim Attachmentem odpowiedniej nazwy (toolbox ragdolla bierze pierwszy). Brak skryptów w assetach; Archivable=true dla Accessory, Handle, attachmentu i części. Helper montażu odtwarza sztywne weldy i wyłącza masę/kolizję/dotyk/zapytania. Nie obrabia geometrii ciała.
 
@@ -78,41 +82,56 @@ Punkty origin/kolory dyni i plecaka w ich plikach IMPORT.md; nie ustawiać attac
 Drzewo UI (wszystkie `*Shadow` mają ten sam rodzic co tekst; standard Fredoka):
 
 ```text
-StarterGui.Cosmetics [ScreenGui, DisplayOrder 35, atrybut Design="shop_v4"]
-  Backdrop [TextButton, pełny ekran, blokuje klikanie świata]
-    Tone [UIGradient — ciemny fiolet → lawowy brąz u dołu], Studs [ImageLabel 6927295847, tylko w katalogu]
-    (27.10: oba animuje kod w katalogu — Studs dostaje rozmiar ekranu + 1 kafel i płynie po skosie, Tone „oddycha” kolorem dołu i Offset; w placu zostają wartości spoczynkowe. Rozmiar kafla czytany z `Studs.TileSize`, liczby w `Config.Cosmetics.UI.Backdrop*`.)
-  Root [Frame, center, NoHudScale=true]
-    Fit [UIScale, wyłącznie skalowanie do ekranu]
+StarterGui.Cosmetics [ScreenGui, DisplayOrder 35, ZIndexBehavior Sibling, atrybut Design="shop_v6e"]
+  Backdrop [TextButton, pełny ekran, blokuje klikanie świata] → Tone [UIGradient 16,14,22 → 5,4,8, statyczny], Studs [0,95]
+  Root [Frame, center, NoHudScale=true] → Fit [UIScale: skala ekranu, rozmiar Root liczy kod]
     Body [Frame]
       Pop [UIScale, animacja wejścia]
-      Header [Frame, przezroczysty], Title [TextLabel + Gold UIGradient], Status [TextLabel, do prawej]
-      CloseButton [TextButton, Surface/Label/LabelShadow], Cash [klon HUD.Cash]
-      Catalog [Frame]
-        Empty [TextLabel] — bez filtrów kategorii (27.10)
-        Items [ScrollingFrame, tylko pion, klony CardTemplate]
-      Fitting [Frame]
-        RarityTag [Frame] → Fill [Tint UIGradient], Label
-        ItemName [TextLabel, TextScaled ≤84]
-        PriceRow [Frame] → CashIcon [ImageLabel], Price [Tint UIGradient]
-        NeedMore [TextLabel]
-        ActionButton [TextButton, Surface (UIGradient + Shine), Label, Hover]
-        BackButton [TextButton, Surface, Label, Hover], RotateArea, RotateHint
-      Unlocked [Frame, Visible=false] → Pop [UIScale], Rays [Frame z belkami], Title [Gold], ItemName
+      Cash [klon HUD.Cash, WalletScale 0,55 — nad ramką postaci, pozycję liczy kod]
+      Title [TextLabel + Flow UIGradient, płynie jak napis nad sprzedawcą] + TitleShadow — nad panelem kart
+      CloseButton [TextButton, Surface (UICorner 6, Outline 7), Label, Hover] — prawy górny róg, pozycję liczy kod
+      Header [Frame, przezroczysty, nieużywany]
+      Dressing [Frame — lewa kolumna; pozycję i rozmiar liczy kod]
+        Frame [Frame, UICorner 6, Outline 8, Fill UIGradient] — ramka z postacią
+          View [ViewportFrame — kopia postaci w obecnym stroju, kod]
+          Led [Frame] → Stroke [UIStroke 4, biały] → Flow [UIGradient — kolor i obrót liczy kod]
+          RarityTag [Frame] → Fill [UICorner 4, Outline 5, Tint], Label, LabelShadow
+          ItemName, ItemNameShadow [TextScaled ≤ 56], RotateHint, RotateHintShadow
+        ActionButton [TextButton SeparateLabel, Surface (UIGradient, Shine, Sweep, UICorner 6, Outline 7), Label, LabelShadow, Hover]
+        NeedMore, NeedMoreShadow, Status, StatusShadow
+      Shelf [Frame — prawa kolumna, bez tła i obrysu (10.11 v6b); pozycję i rozmiar liczy kod]
+        Items [ScrollingFrame, tylko pion, pasek 14 px; karty układa kod], Empty, EmptyShadow
+      Unlocked [Frame, Visible=false] → Pop, Rays [belki], Title, TitleShadow, ItemName, ItemNameShadow
   CardTemplate [Frame, Visible=false, NoHudScale=true]
-    Card [TextButton, Outline 5 Round]
-      Hover [UIScale], Fill [Frame, Gradient = kolor rzadkości]
-      Art [Frame] → Rays [Frame z 8 belkami, UIAspectRatioConstraint]
-      Preview [ViewportFrame — sam przedmiot]
-      Foot [Frame, ciemny pas] → Square, Edge
-      Rarity, ItemName [TextLabel], Unavailable [TextLabel]
-      PriceRow [Frame, UIListLayout] → CashIcon, PriceText → Price [Tint UIGradient]
-HUD.SideButtons.CosmeticsButton [TextButton, kopia stylistyki Inventory, fiolet; Fill.Studs.ImageTransparency=0.25 jak Inventory — 28.10]
+    Card [TextButton, Corner 6, Outline 8 Round]
+      Hover [UIScale], Fill [Frame, Corner 6, Gradient = kolor rzadkości]
+      Art [Frame] → Rays [ImageLabel sunburst 103597417902108]
+      RoundHalftone [ImageLabel 71507787473480, środek obszaru przedmiotu, 0,72, Z 2; Art Z 3, Preview Z 4], Stars [ImageLabel 94086428390420, tylko rzadsze], ShineFx [ImageLabel 93141629737706, przy najechaniu]
+      Preview [ViewportFrame — sam przedmiot], Unavailable, UnavailableShadow
+      RarityTag [Frame (16, 16)] → Fill [UICorner 4, Outline 5, Tint], Label, LabelShadow
+      ItemName, ItemNameShadow [lewy dolny róg], State, StateShadow [OWNED / WEARING pod nazwą]
+      PriceRow [Frame, kotwica (1, 1), szerokość liczy kod] → Plate [UICorner 4, Outline 5, Tint], CashIcon, Price, PriceShadow
+      Mystery, MysteryShadow [„?”], Lock [ImageLabel 72783047857523 — game-icons padlock] — tylko COMING SOON
+      Led [Frame, wcięcie 6 px — wewnątrz karty, nie pod obrysem] → Stroke [UIStroke 3] → Flow [UIGradient]
 ```
+
+**12.11 — sklep v6e:** `Fitting.ActionButton.Surface` / `BackButton.Surface` — gradient trzech przystanków bez bieli (BACK ustawia też kod z `Colors.Back`).
+
+**11.11 — sklep v6d:** bez `Shine` / `Studs` na plakietkach, tabliczce i BUY; bez `Stripes`; `Led` wewnątrz karty (wcięcie 6, ramka postaci 7, grubość 3) — pod obrysem migał na rogach. Kopia sprzed zmian: `ServerStorage.CosmeticsUI_v6c_1111`.
+
+**10.11 — sklep v6c:** `Dressing.Frame` ma tylko postać (usunięte `RarityTag`, `ItemName`, `ActionButton`, `NeedMore`; `Status` wrócił do `Body`). `Body.Fitting` wrócił z `ServerStorage.CosmeticsUI_v5b_1011` (przebieralnia ze sceną, `Visible=false`, rogi 6 / 4). `Halftone` → `Stripes` + na karcie `RoundHalftone`. Kopia sprzed zmian: `ServerStorage.CosmeticsUI_v6b_1011`.
+
+**10.11 — sklep v6b:** `CornerFx` usunięty z karty i ramki postaci, `Shelf` bez obrysu, tła i rogów, nowy `Halftone` (u góry karty i ramki, kolor liczy kod). Kopia sprzed zmian: `ServerStorage.CosmeticsUI_v6_1011`.
+
+⚠️ *(częściowo zastąpione: `Body.Fitting` i scena wróciły w v6c)* **10.11 — sklep v6 (MCP na prośbę Kacpra, Cmd+S wymagany):** jeden ekran = przebieralnia w UI. Po lewej `Body.Dressing` (ramka z kopią postaci w `View`, kasa nad nią, BUY pod nią), po prawej `Body.Shelf` z kartami: prawdziwe + `PlaceholderCount` kart COMING SOON (tylko w sklepie). Usunięte: `Body.Catalog`, `Body.Fitting` (scena przebieralni i kamera nie są już używane przez kod; `ClothesShopScene` w Workspace zostaje nietknięta), `Card.Foot`, `Backdrop.BorderOutline`. Karty prawie kwadratowe (6), obrys 8 + LED; ozdoby z ui-resources (ID w `artifacts/ui-effects/ASSETS.md`). Kopia sprzed zmian: `ServerStorage.CosmeticsUI_v5b_1011`; zapis: `artifacts/cosmetics/shop_v6_ui.luau`. Kod bez `Body.Dressing`/`Body.Shelf` wyłącza sklep z ostrzeżeniem w Output.
+
+**10.11 — sklep v5b (MCP na prośbę Kacpra, Cmd+S wymagany):** obrysy X/BACK/BUY 7, karta 6, plakietki 5; plakietki ze studsami i połyskiem; cena na karcie na tabliczce `PriceRow.Plate` (kolor stanu `Colors.Plate`, napis biały); grubszy pasek przewijania. Układ: duże karty (`LargeCards`) na całą szerokość na górze, z widocznym kawałkiem następnego rzędu (`FeaturedPeek`) — liczy kod. Kopia sprzed zmian: `ServerStorage.CosmeticsUI_v5_1011`; zapis: `artifacts/cosmetics/shop_v5b_ui.luau`.
+
+**09.11 — sklep v5 (MCP na prośbę Kacpra, Cmd+S wymagany):** kolory tła i tytułu z napisu COSMETICS nad sprzedawcą, **nie** nagłówek jak w INVENTORY (Kacper wprost). Karty: sunburst zamiast belek i plakietka rzadkości `RarityTag` (szerokość i kolor `Rarities[*].Tag` ustawia kod). BUY ma `Sweep` do połysku. Promienie UNLOCKED! zostały belkami. Kopia poprzedniej wersji: `ServerStorage.CosmeticsUI_v4_0911`; zapis budowy: `artifacts/cosmetics/shop_v5_ui.luau`. Sunburst zanika do zera na krawędzi koła (pomiar pliku), więc obracany nie wychodzi rogami poza kartę.
 
 **27.10 wieczór — sklep v4:** kolory kart, tagu i promieni ustawia kod z `Config.Cosmetics.UI.Rarities` według `CosmeticDefinitions.rarity`; kolory cen i przycisku z `Config.Cosmetics.UI.Colors` (gradient o nazwie `Tint` / `UIGradient` w `Surface`). Usunięte: `Fitting.ActionBar`, `Card.ActionHint`, `Header.Accent`, stare `Card.Price` i `Fitting.Price` bez wiersza z ikoną. Promienie to ostre belki zanikające na końcach, nigdy nie dochodzą do krawędzi karty (bez CanvasGroup). Kopia poprzedniej wersji: `ServerStorage.CosmeticsUI_v3_2710`; zapis budowy: `artifacts/cosmetics/shop_v4_ui.luau`. **Cmd+S wymagany.**
 
-Desktop: trzy kolumny, większa dynia 2×2; pionowy ekran: dwie kolumny i wyższy panel. `Cosmetics` nie dodawać do `ScaledGuis`: własne skalowanie uwzględnia obie osie. Podglądy modeli są klonowane lokalnie, UI klonuje wyłącznie szablon postawiony w Studio. Przy braku importu etykieta COMING SOON, bez sprzedaży. Skrypt autorski `artifacts/cosmetics/build_ui.luau` jest tylko zapisem wykonanej budowy Edit; odmawia zastępowania istniejącego Cosmetics.
+Poziomo (v6): ramka postaci po lewej, panel kart po prawej, kolumn tyle, ile zmieści kart ≥ `MinCard` (2–4); pionowo: ramka na górze (`PortraitDressingShare`), karty pod nią. `Cosmetics` nie dodawać do `ScaledGuis`: własne skalowanie uwzględnia obie osie. Podglądy modeli są klonowane lokalnie, UI klonuje wyłącznie szablon postawiony w Studio. Przy braku importu etykieta COMING SOON, bez sprzedaży. Skrypt autorski `artifacts/cosmetics/build_ui.luau` jest tylko zapisem wykonanej budowy Edit; odmawia zastępowania istniejącego Cosmetics.
 
 ### Modele użytkowe
 
@@ -159,7 +178,7 @@ Sky/LightingPreset i gotowe lampy żyją w placu. Historycznie 36 kloszy uliczny
 
 ## StarterGui — HUD i panele
 
-Wymagane ScreenGui z **ResetOnSpawn=false**: HUD, Inventory, ShopUI, RoundTransition, RoundCountdown i EnergyVignette. HUD skaluje się z `Config.UI.ReferenceHeight=1200`, ScreenInsets=DeviceSafeInsets. Teksty/cienie/ramki: UI_RULES. Kod tylko podłącza logikę i animację do obiektów placu.
+Wymagane ScreenGui z **ResetOnSpawn=false**: HUD, Inventory, ShopUI, RoundTransition, RoundCountdown, EnergyVignette i FallVignette (12.11). HUD skaluje się z `Config.UI.ReferenceHeight=1200`, ScreenInsets=DeviceSafeInsets. Teksty/cienie/ramki: UI_RULES. Kod tylko podłącza logikę i animację do obiektów placu.
 
 ### HUD
 
@@ -171,6 +190,7 @@ Wymagane ScreenGui z **ResetOnSpawn=false**: HUD, Inventory, ShopUI, RoundTransi
 - **`HUD.Detonator.DetonateButton`** (09.11 przebudowany przez MCP na prośbę Kacpra — **wymaga Cmd+S**; wcześniej czerwony przycisk z 25.10): podpowiedź sterowania **tylko na PC** — biały klawisz „G”, obok `DETONATE`, za nim żółte „x3”, bez ramki. `Detonator` = przezroczysty Frame 356×80, kotwica 1/0,5, pozycja {1,−24},{0,46,0} (prawa krawędź, trochę niżej niż 0,40 z 28.10 — na telefonie już się nie pokazuje), niesie `HudScale`. `DetonateButton` = przezroczysty TextButton na całą ramkę (klik myszką też odpala), **Visible=false**, UIScale `Pop`. Dzieci: `Keybind` (Frame 70×74, x=0) = `Body` (bok klawisza: szary gradient 165→118, UICorner 12, czarny obrys 4 Round) + `Face` (górna ścianka 70×62, biały gradient 255→224, UICorner 12) z `Label` „G” (Fredoka 42, ciemny 40/40/52, bez obrysu i cienia — nadruk na klawiszu, nie pływający tekst); `Label`/`LabelShadow` „DETONATE” (Fredoka 46, x=86, obrys 4 Miter, cień −3/+3); `Count`/`CountShadow` „x3” (Fredoka 40, żółty 255/220/80 jak liczniki paska, x=305). Wciśnięcie G przesuwa `Face` i `Body` o `Config.C4.KeyPress.Depth` (bok 12 px → 4 px). Pokazuje go C4Controller z przyklejonymi ładunkami w rundzie, tylko z klawiaturą i bez sterowania dotykowego. Kod szuka `DetonateButton` w całym HUD. Brak = detonacja tylko klawiszem, warn w Output. Telefon: `HUD.TouchControls.Detonate` (niżej).
 - **`HUD.TouchControls`** (28.10, „Telefon”, postawiony przez MCP na prośbę Kacpra — **wymaga Cmd+S**; zrzut układu: `artifacts/touch/touch_controls_preview_2810.jpg`): przezroczysty Frame 0×0, kotwica 0,5/0,5, **Visible=false**, własny `HudScale`. Pozycja w Studio {1,−60},{1,−55} to tylko zapas (środek skoku na telefonie) — kod przestawia kontener na środek prawdziwego `TouchGui.TouchControlFrame.JumpButton`. Dzieci = okrągłe TextButtony 130×130 (kotwica 0,5/0,5, Visible=false, AutoButtonColor=false) w stylu slotów paska: `UICorner` 0,5, `SelectStroke` czarny 7 Round (biały = włączone), `Fill` czarny z gradientem przezroczystości 0,84→0,17, `Label` + `LabelShadow` (Fredoka, obrys 3 Miter, cień −2/+2), `Pop` UIScale. Pozycje liczone od środka skoku (px projektu, w lewo/w górę): `Build` i `Fire` {0,0},{0,−180} (nad skokiem), `Push` {0,−132},{0,−123}, `Sprint` {0,−180},{0,13} (obok skoku), `Rotate` i `Aim` {0,−306},{0,−124}, **`Detonate`** {0,−190},{0,−300} (09.11, klon `Sprint` z napisem DETONATE — pokazuje go C4Controller z przyklejonymi ładunkami, osobne miejsce, bo bywa widoczny razem z każdym innym). Pary Build/Fire i Rotate/Aim dzielą miejsce — most i RPG nie są w ręce naraz. Nazwy przycisków = kontrakt `TouchControlsController.bind`; widoczność ustawia wyłącznie kod.
 - `HUD.SideButtons.InventoryButton` z Badge/Pop, pokazuje się tylko w lobby. Panelu wyboru grafiki nie przywracać.
+- **Mikro animacje przycisków HUD (13.11, `HudButtonFx`, bez zmian w placu):** `HUD.SideButtons.CosmeticsButton` (ma `Pop` UIScale jak Inventory) rośnie na hover i odbija po kliknięciu; `HUD.RoundSkip.SkipButton` — kod dodaje `Pop` UIScale i rusza ikonę `SkipIcon` (nie zmieniać jej nazwy ani ułożenia na kotwicy); `HUD.Spectate.Open` — kod dodaje `Pop` i rusza `Eye.Pupil` (kotwica 0,5/0,5; nazwy `Eye` i `Pupil` są kontraktem). Przyciski z kotwicą przy dolnej krawędzi rosną w górę.
 - `HUD.RoundSkip.SkipButton`: kwadrat 140×140 na lewo od Slot1, symetrycznie do SPECTATE. Osobny rodzic ma pozycję i skalę hotbara. `Fill` z UIGradient, ikona przewinięcia, `Label` i `LabelShadow`. Oba kafelki zachowują stały rozmiar także pod kursorem. Serwerowy stan SKIP zmienia podpis i kolor przez `RoundSkipController`, a oba napisy mieszczą się w tym samym kafelku. Zmiany w placu wymagają Cmd+S.
 - **27.10: zębatka przeniesiona do `HUD.SettingsCorner.SettingsButton`** — prawy górny róg (`SettingsCorner` = przezroczysty Frame 56×56, kotwica 1/0, pozycja {1,−16},{0,4}, własny `HudScale`; rząd paska Robloxa, nad listą graczy). Przycisk wypełnia ramkę, `Gear.Size` = 0,65. Kod szuka zębatki po nazwie w całym HUD. Poniżej opis wyglądu z 26.10 (rozmiary sprzed przeniesienia).
 - `HUD.Version` (27.10, **wymaga Cmd+S**): CanvasGroup 160×50 w prawym dolnym rogu (kotwica 1/1, {1,−16},{1,−8}), `GroupTransparency` 0,5 — cała etykieta z cieniem i obrysem półprzezroczysta naraz. W środku `VersionLabel` / `VersionLabelShadow` (Fredoka 34, obrys 3 Miter, cień −3/+3). Tekst wpisuje UIController: `"v" .. Config.UI.Version`.
@@ -257,6 +277,8 @@ BUY zielony; NOT ENOUGH $ szary; feedback BOUGHT!/ADD IT IN INVENTORY. Kod szuka
 
 01.11: `EnergyVignette.Speedlines` (ImageLabel na cały ekran, `rbxassetid://71354327211431`, ZIndex 2, ImageTransparency 1 w Studio) — linie prędkości; MovementController wygasza je razem z winietą i co chwilę losowo odbija/powiększa (`Config.EnergyDrink.Speedlines*`).
 
+12.11: `StarterGui.FallVignette` — ten sam układ co `EnergyVignette` (Enabled=false, ResetOnSpawn=false, IgnoreGuiInset, DisplayOrder −1, `Edges.Left/Right/Top/Bottom` z gradientem), bez `Speedlines`, krawędzie czerwone. `FallImpactController` ustawia kolor z `Config.FallDamage.Impact.Vignette.Color` i przezroczystość krawędzi przy raniącym upadku. Brak GUI = brak efektu na ekranie (świat działa dalej).
+
 ## ReplicatedFirst — ekran ładowania v2
 
 `ReplicatedFirst.LoadingGui` (nie „LoadingScreen”, bo to skrypt). `$ignoreUnknownInstances=true` w projekcie chroni GUI. Backdrop czarny; `Center` z HudScale → `Logo.Loading/LoadingShadow` („LOADING...”, szary) i `Title/TitleShadow` („ESCAPE LAVA”, żółty/pomarańczowy); `Bar.Fill.Studs`, Percent/PercentShadow i StatusLabel/StatusLabelShadow. **Montserrat Heavy** jest świadomym wyjątkiem fontu. Wypełnienie ciemnopomarańczowe ze studsami, puste tło bez studsów. Nazwy szczegółów porównać ze źródłem LoadingScreen przed przebudową. Kod klonuje istniejący wzór; brak modelu GUI nie jest naprawiany stworzeniem pełnego ekranu z kodu. **01.11 / 03.11:** kod buja `Title` + `TitleShadow` (`Rotation`, ten sam kąt) i maluje `Title.UIStroke` płynącą lawą: dokłada do KLONU obrysu `UIGradient` „Lava” i ustawia kolor obrysu na biały (gradient mnoży kolor). Obrys cienia zostaje czarny. Kolor obrysu ze Studio nie ma znaczenia — zmieniać stałe `TITLE_*` w skrypcie. Napis nie skaluje się (03.11: tekst w Robloxie ma tylko całe rozmiary fontu → skala dawała skoki); nie dodawać `UIScale` do tytułu.
@@ -286,6 +308,31 @@ BUY zielony; NOT ENOUGH $ szary; feedback BOUGHT!/ADD IT IN INVENTORY. Kod szuka
 ### Wieża maga — otoczenie (02.11, MCP na prośbę Kacpra, wymaga Cmd+S)
 
 `Workspace.WizardTower.Grounds` (Model): `Path` — kamienne schody od podnóża wzgórza do drzwi: górny bieg (3 stopnie po 0,93) z niższego stopnia cokołu 146,48 na płaskowyż 142,74, podest z nierównych płyt, dolny bieg (19 stopni po 0,85) na plac 125,71, na dole rzednący wachlarz płyt i głazy. **03.11 przebudowa (Kacper: „szersze, bardziej nieregularne”): szer. 8** (górny bieg na osi drzwi, podest i dolny bieg przesunięte o 1 w prawo — płaskowyż przy krawędzi zwęża się z lewej); stopień = lity ciemny trzon + 3–4 kamienie o różnej wysokości (±0,06), wysunięciu krawędzi (−0,15…+0,12), skręcie (±5°) i minimalnym przechyle; górny bieg z poszarpanymi brzegami; murki dolnego biegu różnej wysokości (+0,8…1,35 nad stopniem) i grubości, czasem z kamienną czapą; głazy przy podeście i u podnóża. Poprzednia wersja (szer. 6) w `ServerStorage.TowerPath_Backup_0311`. Plastic + Studs, szarości. `Lanterns` — 8 latarenek (słupek, ramka, `Glow` Neon z `PointLight` fioletowym: Brightness 0,5, Range 7, bez cieni; słupek i stopka z kolizją, reszta bez). `Mist` — 2 niewidzialne obszary (bez kolizji/zapytań/dotyku) z `ParticleEmitter` „Mist” (smoke_main, Box/Volume, Size 6→14, przezroczystość ≥0,86, Lifetime 10–16): `PlateauMist` 50×1,6×50 wokół wieży, `StairsMist` 20×2×42 wzdłuż schodów; **03.11 gęściej**: BaseRate 11 / 7, rozmiar 8→16, przezroczystość ~0,8. **Atrybut `BaseRate`** = Rate na GRAPHICS HIGH — `TowerAmbienceController` mnoży go przez 0,5 na LOW; zmieniając gęstość mgły, zmieniać `BaseRate`. Kierunek i wysokości ścieżki liczone od `FrontDoor` — przesunięcie wieży wymaga przebudowy ścieżki.
+
+## Drzewko umiejętności — 10.11 (MCP na zlecenie Kacpra, Cmd+S wymagany)
+
+**Mag:** `Workspace.WizardTower` → `TowerMage` (Model z `HumanoidRootPart`, szukany rekurencyjnie; dziś `Interior.WizardRoom.TowerMage`). Nazwy w `Config.Skills.TowerModelName` / `MageName`. `ProximityPrompt` o nazwie `SkillTreePrompt` tworzy `SkillService` na `HumanoidRootPart` maga, jeśli go nie ma; własny prompt o tej nazwie zostaje nietknięty. Kamera panelu staje ~7,5 studa przed magiem, lekko z boku — kadr liczony z jego obrysu i kierunku „na wprost”, więc obrócenie albo przesunięcie maga przesuwa kadr (`Config.Skills.Camera`).
+
+**Panel:** `StarterGui.SkillTree` (ScreenGui, `ResetOnSpawn = false`, `Enabled = false`, `DisplayOrder = 2`, na liście `Config.UI.ScaledGuis`). Styl skopiowany z `ShopUI`: ciemny panel ze studsami, czarne obrysy, Fredoka, cienie `<Nazwa>Shadow`; nagłówek fioletowy zamiast żółtego. Kod szuka po nazwach:
+
+| Obiekt | Co to |
+|---|---|
+| `Panel` (760×1060, kotwica prawy środek) | całość; wjeżdża z prawej |
+| `Panel.Header` → `Title`, `RebirthBadge` (`Label`, `Pop`) | tytuł i „REBIRTH n” |
+| `Panel.CloseButton` | kopia X ze sklepu |
+| `Panel.Tree` (760×640) → `Circle` (+ `Layer2`, `Layer3`), `Lines`, `Rays`, `Nodes`, `Selector`, `Sparkles` (`StarTemplate`) | krąg za drzewkiem, kontenery na klony, łuk wyboru, promienie i gwiazdki zakupu |
+| `Panel.Tree.NodeTemplate` (ukryty, 86×86) → `Stroke`, `Pop`, `Glow`, `Fill` (`Shade`), `Ring`, `Icon`, `Lock`, `Tag` | wzór pola; kod klonuje go do `Nodes` pod nazwą id pola |
+| `Panel.Tree.LineTemplate` (ukryty) → `Base` → `Lava` (`Flow`) | wzór połączenia; klony w `Lines` |
+| `Panel.Details` → `NodeName`, `Effect`, `ReqLabel`, `ReqBar` (`Fill`), `ReqCount`, `Price`, `UnlockButton` (`Fill`, `Label`, `Hover`), `StatusLabel` | szczegóły wybranego pola |
+| `Panel.RebirthButton` → `Fill`, `Label`, `Icon`, `Border` (błyskawice, 9-slice), `Hover` | szary z „REBIRTH x/y”, lawowy gdy dostępny |
+| `Panel.Confirm` (przyciemnienie, `Active`) → `Box` → `Title`, `Lose`, `Keep`, `Gain`, `Extra`, `ConfirmButton`, `CancelButton` | okno potwierdzenia rebirthu |
+| `Panel.Reward` → `Rays`, `Title`, `Line1`, `Line2`, `Pop` | nagroda po rebirthcie |
+
+Pól i połączeń w placu NIE MA — `Nodes` i `Lines` są puste, kod klonuje je z szablonów przy starcie i liczy pozycje z `SkillDefinitions` oraz `Config.Skills.Layout`. Kolory pól i ikony ustawia kod (odnogi w `SkillDefinitions.branches`), więc przemalowanie szablonu zmienia tylko kształt, obrys i cieniowanie. Brak dowolnego elementu = brak jego efektu, bez błędu; brak `NodeTemplate` = drzewko bez pól (ostrzeżenie w logu).
+
+Zasoby (ID w [SKILLS_PLAN](SKILLS_PLAN.md) → „Plac w Studio”): krąg `135211706675942` ma alfę tylko do ~10%, dlatego leży w trzech warstwach. Zapis budowy: `artifacts/skilltree/skilltree_ui_v1.luau` (poza gitem), atrybut `SkillTree.Design = skilltree_v1`.
+
+**Tabela graczy (Tab):** trzecia kolumna `Rebirths` (`leaderstats`, lustro zapisu, tworzy `LeaderstatsService`).
 
 ## Spectate — 06.11
 

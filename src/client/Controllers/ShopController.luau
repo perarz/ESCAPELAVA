@@ -237,11 +237,19 @@ local function refreshUI()
 		end
 	end
 
-	local canAfford = currentCash >= (def.price or 0)
+	-- Item z rebirthu (09.11): przed wymaganym rebirthem przycisk jest szary i mówi, którego
+	-- rebirthu brakuje. Liczba rebirthów z atrybutu gracza (pisze serwer); zakup i tak
+	-- waliduje ShopService.
+	local needsRebirth = (def :: any).requiresRebirth
+	local rebirths = localPlayer:GetAttribute(Config.Skills.RebirthsAttribute)
+	local rebirthLocked = type(needsRebirth) == "number"
+		and (if type(rebirths) == "number" then rebirths else 0) < needsRebirth
+	local canAfford = currentCash >= (def.price or 0) and not rebirthLocked
 	ShopFx.setCanAfford(canAfford)
 	if btnBuy then
 		btnBuy.AutoButtonColor = canAfford
-		local text = if canAfford then CFG.BuyText else CFG.NoCashText
+		local text = if rebirthLocked then CFG.RebirthLockText:format(needsRebirth)
+			elseif canAfford then CFG.BuyText else CFG.NoCashText
 		-- Nowy przycisk (21.10): napis w `Label`, kolor w gradiencie `Fill` (jak ADD w ekwipunku).
 		local label = btnBuy:FindFirstChild("Label")
 		if label and label:IsA("TextLabel") then
@@ -485,6 +493,7 @@ end
 local function openShop()
 	if isOpen then return end
 	if localPlayer:GetAttribute("CosmeticsOpen") == true then return end
+	if localPlayer:GetAttribute(Config.Skills.OpenAttribute) == true then return end -- drzewko u maga (09.11)
 	if not ui then
 		warnOnce("ui", "brak StarterGui.ShopUI — sklep nieaktywny")
 		return

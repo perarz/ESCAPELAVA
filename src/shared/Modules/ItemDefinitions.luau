@@ -208,7 +208,10 @@ ItemDefinitions.c4 = {
 	},
 }
 
--- Kolejność wyświetlania w sklepie (porządek deterministyczny)
+-- ITEMY Z REBIRTHU (09.11, plan: docs/SKILLS_PLAN.md): pole `requiresRebirth = N` w definicji
+-- zamyka item w sklepie do N-tego rebirthu. ShopService odrzuca wtedy zakup
+-- („rebirth_required”), a panel sklepu pokazuje szary przycisk „REBIRTH N”. Dziś żaden item
+-- tego pola nie ma — nowe itemy projektujemy osobno, każdy to nowa mechanika.
 ItemDefinitions.bandage = {
 	id = "bandage",
 	name = "Bandage",
@@ -222,6 +225,7 @@ ItemDefinitions.bandage = {
 	maxStack = 9999,
 }
 
+-- Kolejność wyświetlania w sklepie (porządek deterministyczny)
 ItemDefinitions.shopOrder = { "bomb", "bridge_builder", "grapple", "energy_drink", "rpg", "c4", "bandage" }
 
 -- Realny rozmiar rzeczy, którą item stawia w świecie (`worldModel`), z fallbackiem na

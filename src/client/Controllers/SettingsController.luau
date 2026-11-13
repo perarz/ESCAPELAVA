@@ -64,6 +64,7 @@ end
 
 local function setOpen(on: boolean)
 	if on and player:GetAttribute("CosmeticsOpen") == true then return end
+	if on and player:GetAttribute(Config.Skills.OpenAttribute) == true then return end
 	isOpen = on
 	local p = panel
 	if not p then return end
@@ -80,6 +81,9 @@ function SettingsController.init()
 	initialized = true
 	player:GetAttributeChangedSignal("CosmeticsOpen"):Connect(function()
 		if player:GetAttribute("CosmeticsOpen") == true then setOpen(false) end
+	end)
+	player:GetAttributeChangedSignal(Config.Skills.OpenAttribute):Connect(function()
+		if player:GetAttribute(Config.Skills.OpenAttribute) == true then setOpen(false) end
 	end)
 	SettingsState.onChanged(refresh)
 
@@ -125,6 +129,12 @@ function SettingsController.init()
 		if gear and gear:IsA("GuiButton") then
 			gear.Activated:Connect(function() setOpen(not isOpen) end)
 			hookHover(gear, "Pop")
+			-- Drzewko u maga (10.11, Kacper): zębatka znika na czas panelu (leży pod jego X).
+			local function syncGear()
+				gear.Visible = player:GetAttribute(Config.Skills.OpenAttribute) ~= true
+			end
+			player:GetAttributeChangedSignal(Config.Skills.OpenAttribute):Connect(syncGear)
+			syncGear()
 		else
 			warn("[Settings] brak HUD.*.SettingsButton — panelu nie da się otworzyć")
 		end

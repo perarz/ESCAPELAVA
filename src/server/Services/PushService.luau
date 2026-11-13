@@ -16,6 +16,11 @@
 --   - SZYBY (09.11, Kacper): F w szybę ją tłucze (bliższe z szyby, gracza i beczki wygrywa),
 --     a szyba na torze lotu pchniętego pęka tuż przed nim — wylatuje przez okno. Oba liczy
 --     serwer promieniami od swojej kopii HRP; tłucze DestructionService.shatterGlass.
+--   - FORCE (09.11, drzewko umiejętności): gracz z kupionym FORCE wybija pchnięciem dziurę
+--     w ścianie mapy przed sobą — kolejny kandydat obok szyby, gracza i beczki, bliższe wygrywa.
+--     Dziura idzie zwykłą drogą destrukcji (DestructionService.detonate z `quiet`: sam gruz
+--     i pył), więc lobby, wieża i `Locked` są nietykalne, a mapa odbudowuje się po rundzie.
+--     FORCE II dodaje też siłę pchnięcia gracza. Poziom czytany ze stanu serwera (SkillService).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -33,6 +38,7 @@ local GameLoopService = require(script.Parent.GameLoopService)
 local RagdollService = require(script.Parent.RagdollService)
 local CarService = require(script.Parent.CarService)
 local DestructionService = require(script.Parent.DestructionService)
+local SkillService = require(script.Parent.SkillService)
 
 local PushService = {}
 local roundEpoch = 0
@@ -43,6 +49,7 @@ local CONE_DOT = Config.Push.ConeDot
 local PUSH_FORCE = Config.Push.Force
 local PUSH_LIFT = Config.Push.Lift
 local GLASS = Config.Push.Glass
+local FORCE = Config.Skills.Force
 
 local lastPushAt: { [Player]: number } = {}
 
@@ -127,12 +134,52 @@ local function glassAhead(root: BasePart, dir: Vector3, length: number): (BasePa
 	return best, bestDist
 end
 
+-- FORCE: ściana mapy, która jest PIERWSZĄ rzeczą na linii przed pchającym (jak szyba wyżej).
+-- Tylko zakotwiczona geometria, którą wolno niszczyć: nie lobby, nie `Locked`, nie gruz.
+-- Zwraca punkt trafienia najbliższego z promieni.
+local function wallAhead(root: BasePart, dir: Vector3, length: number): (Vector3?, number)
+	local ignore: { Instance } = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player.Character then table.insert(ignore, player.Character) end
+	end
+	glassParams.FilterDescendantsInstances = ignore
+	local ctx = Destructible.buildContext()
+	local best: Vector3? = nil
+	local bestDist = math.huge
+	for _, height in ipairs(FORCE.RayHeights) do
+		local hit = Workspace:Raycast(root.Position + Vector3.new(0, height, 0), dir * length, glassParams)
+		local part = hit and hit.Instance
+		if hit and part and part:IsA("BasePart") and hit.Distance < bestDist
+			and part.Anchored and part.Material ~= Enum.Material.Glass
+			and Destructible.isDestructible(part, ctx) and not Destructible.isProtected(part, ctx) then
+			best, bestDist = hit.Position, hit.Distance
+		end
+	end
+	return best, bestDist
+end
+
+-- Dziura od pchnięcia. `detonate` czeka na budżet CPU (yield) i sam pilnuje resetu rundy;
+-- błąd destrukcji nie może wywrócić pchnięcia, stąd osobny wątek i xpcall (jak BombService).
+local function punchWall(pusher: Player, point: Vector3, dir: Vector3, level: number)
+	local params = FORCE.Levels[math.clamp(level, 1, #FORCE.Levels)]
+	local center = point + dir * FORCE.Depth
+	task.spawn(function()
+		local ok, err = xpcall(DestructionService.detonate, function(e: any): string
+			return tostring(e) .. "\n" .. debug.traceback()
+		end, center, params, pusher)
+		if not ok then
+			warn(("[Push] BŁĄD destrukcji przy FORCE %s: %s"):format(tostring(center), tostring(err)))
+		end
+	end)
+	print(("[Push] %s wybił dziurę w ścianie (FORCE %d) w %s"):format(pusher.Name, level, tostring(point)))
+end
+
 -- Pchnięty leci na szybę → pęka tuż przed jego dolotem (czas z prędkości pchnięcia).
-local function breakGlassInFlight(targetRoot: BasePart, dir: Vector3, pusher: Player)
+local function breakGlassInFlight(targetRoot: BasePart, dir: Vector3, pusher: Player, speed: number)
 	local pane, dist = glassAhead(targetRoot, dir, GLASS.FlightReach)
 	if not pane then return end
 	local glass: BasePart = pane
-	task.delay(math.max(0, dist / PUSH_FORCE - GLASS.FlightLead), function()
+	task.delay(math.max(0, dist / speed - GLASS.FlightLead), function()
 		if glass.Parent and DestructionService.shatterGlass(glass, targetRoot.Position) then
 			print(("[Push] %s wypchnął gracza przez szybę %s"):format(pusher.Name, glass:GetFullName()))
 		end
@@ -169,17 +216,30 @@ local function resolvePush(pusher: Player)
 	if flatLook.Magnitude > 0.1 then
 		pane, paneDist = glassAhead(pusherHRP, flatLook.Unit, MAX_RANGE)
 	end
-	-- Bliższe wygrywa (Kacper 09.11): beczka, szyba albo gracz.
-	if barrel and barrelDist < targetDist and barrelDist < paneDist then
+	-- FORCE: ściana liczy się tylko u gracza z kupionym polem (poziom ze stanu serwera).
+	local forceLevel = math.floor(SkillService.getBonus(pusher, "force"))
+	local wallPoint: Vector3? = nil
+	local wallDist = math.huge
+	if forceLevel >= 1 and flatLook.Magnitude > 0.1 then
+		wallPoint, wallDist = wallAhead(pusherHRP, flatLook.Unit, MAX_RANGE)
+	end
+	-- Bliższe wygrywa (Kacper 09.11): beczka, szyba albo gracz; od drzewka także ściana.
+	if barrel and barrelDist < targetDist and barrelDist < paneDist and barrelDist < wallDist then
 		-- Wybuch tą samą ścieżką co auto trafione bombą: kill dla pchającego, łańcuch beczek.
 		CarService.ignite(barrel, pusher)
 		print(("[Push] %s odpalił beczkę %s"):format(pusher.Name, barrel:GetFullName()))
 		return
 	end
-	if pane and paneDist < targetDist then
+	-- Okno siedzi w murze: jeden promień trafia w szybę, drugi w parapet prawie tak samo
+	-- daleko — wtedy wygrywa szyba (`GlassTie`), jak przed drzewkiem.
+	if pane and paneDist < targetDist and paneDist <= wallDist + FORCE.GlassTie then
 		if DestructionService.shatterGlass(pane, pusherHRP.Position) then
 			print(("[Push] %s wybił szybę %s"):format(pusher.Name, pane:GetFullName()))
 		end
+		return
+	end
+	if wallPoint and wallDist < targetDist then
+		punchWall(pusher, wallPoint, flatLook.Unit, forceLevel)
 		return
 	end
 	if not target then return end  -- cooldown już zużyty, brak celu = miss
@@ -196,14 +256,16 @@ local function resolvePush(pusher: Player)
 		horizontal = Vector3.new(look.X, 0, look.Z)
 	end
 	local dir = horizontal.Unit
-	local velocity = dir * PUSH_FORCE + Vector3.new(0, PUSH_LIFT, 0)
+	-- FORCE II (drzewko): mocniejsze pchnięcie w poziomie; podrzut bez zmian.
+	local speed = PUSH_FORCE * (1 + SkillService.getBonus(pusher, "push"))
+	local velocity = dir * speed + Vector3.new(0, PUSH_LIFT, 0)
 
 	-- Okno bezkarności dla anti-cheata — pchnięcie to impuls od SERWERA, nie speedhack.
 	AntiCheatService.grantGrace(target)
 
 	-- Klient target'a aplikuje velocity (network ownership = klient, server set nie działa)
 	Remotes.Pushed:FireClient(target, velocity)
-	breakGlassInFlight(targetHRP, dir, pusher)
+	breakGlassInFlight(targetHRP, dir, pusher, speed)
 
 	-- Tag pusher jako attacker na target humanoid — jeśli target wpadnie w lawę
 	-- w oknie KillCreditWindowSec, push dostaje credit.

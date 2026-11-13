@@ -1,6 +1,6 @@
 # ESCAPE LAVA — kontekst do planowania
 
-Aktualizacja: **06.11.2026**. Ten dokument opisuje grę i sposób pracy. Jedno źródło bieżącego statusu: [STATUS](STATUS.md). Zadania do wydania: [DO_RELEASE](DO_RELEASE.md), potwierdzenia rozgrywki: [TESTY](TESTY.md).
+Aktualizacja: **13.11.2026**. Ten dokument opisuje grę i sposób pracy. Jedno źródło bieżącego statusu: [STATUS](STATUS.md). Zadania do wydania: [DO_RELEASE](DO_RELEASE.md), potwierdzenia rozgrywki: [TESTY](TESTY.md).
 
 ## Gra i cel
 
@@ -12,7 +12,7 @@ Cel biznesowy: szybkie wydanie i zarabianie Robuxów jako przygotowanie do więk
 
 Lobby **25 s** na zakupy/ekwipunek → przygotowanie i teleport pod zasłoną → **3-2-1** na mapie → runda projektowo **80 s** z płynnie przyspieszającą lawą → **3 s końca**, nagroda ocalałym → zasłona, naprawa naruszonych części mapy → od razu lobby. Aktualnie runda jest wydłużona do **240 s** na testy. Nie ma faz Easy/Mid/Hard/Endgame.
 
-Domyślnie grają wszyscy. Kto nie chce, klika małą ramkę **SKIP** pod licznikiem (po kliknięciu DON'T SKIP cofa decyzję): zostaje w lobby na kolejne rundy, nie zarabia, a sklep, ekwipunek i kosmetyki działają mu cały czas. Gdy pomijają wszyscy, lobby odlicza od nowa.
+Domyślnie grają wszyscy. Kto nie chce, klika przycisk **SKIP ROUND** po lewej od hotbara (po kliknięciu JOIN ROUND cofa decyzję): zostaje w lobby na kolejne rundy, nie zarabia, a sklep, ekwipunek i kosmetyki działają mu cały czas. Gdy pomijają wszyscy, lobby odlicza od nowa.
 
 Sklep: gracz zostaje przy sprzedawcy, a kamera jedzie na wystawę w wojskowym arsenale i lekko krąży za myszą. Panel ma pas płynącej lawy, 6 kropek nad ramką i animacje reakcji; na telefonie i padzie dochodzą wibracje.
 

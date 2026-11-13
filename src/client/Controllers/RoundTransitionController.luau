@@ -63,13 +63,21 @@ local function showCountdown(endsAt: number)
 			holder.Size = UDim2.fromOffset(side,side)
 		end
 		local image = holder:FindFirstChild(tostring(remaining))
-		local ready = image and image:IsA("ImageLabel") and ContentProvider:GetAssetFetchStatus(image.Image) == Enum.AssetFetchStatus.Success
+		local status = if image and image:IsA("ImageLabel") then ContentProvider:GetAssetFetchStatus(image.Image) else nil
+		-- Zwykły napis zastępczy TYLKO gdy obrazek naprawdę się nie wczytał (10.11, Kacper:
+		-- „pod studsowym odliczaniem jest stary zwykły napis”). Wcześniej pokazywał się też
+		-- w trakcie ładowania, czyli przy pierwszym odliczaniu sesji i na wolnej sieci.
+		local failed = status == Enum.AssetFetchStatus.Failure or image == nil
+		-- 12.11 (Kacper: „nie ma animacji pojawiania cyfr i jest przerwa między nimi”): obrazek
+		-- widoczny od razu, nie dopiero po statusie Success. Status potrafi przyjść później niż
+		-- zmiana cyfry — do 10.11 tę lukę zasłaniał napis zastępczy, po 10.11 zostawała pustka,
+		-- a wskok (CountdownPopTime) kończył się, zanim cyfra się pokazała.
 		for _,child in holder:GetChildren() do
-			if child:IsA("ImageLabel") then child.Visible = ready == true and child == image end
+			if child:IsA("ImageLabel") then child.Visible = not failed and child == image end
 		end
 		local fallback = holder:FindFirstChild("Fallback")
 		if fallback and fallback:IsA("TextLabel") then
-			fallback.Visible = not ready
+			fallback.Visible = failed
 			fallback.Text = tostring(remaining)
 			if image and image:IsA("ImageLabel") then fallback.TextColor3 = image.ImageColor3 end
 			local fit = fallback:FindFirstChild("Fit")

@@ -1,11 +1,11 @@
 # Roadmapa i decyzje produktu
 
-Aktualizacja: **06.11.2026**. Bieżący stan jest w [STATUS](STATUS.md), kolejka wydania w [DO_RELEASE](DO_RELEASE.md), testy w [TESTY](TESTY.md). „W kodzie” nie oznacza „potwierdzone w Play”.
+Aktualizacja: **13.11.2026**. Bieżący stan jest w [STATUS](STATUS.md), kolejka wydania w [DO_RELEASE](DO_RELEASE.md), testy w [TESTY](TESTY.md). „W kodzie” nie oznacza „potwierdzone w Play”.
 
 ## Zakres i decyzje obowiązujące
 
 - Szybkie rundy: projektowo 80 s, lobby 25 s; lawa płynnie przyspiesza, bez dawnych faz. Produkcyjne liczby wdrożyć razem i ocenić z ludźmi.
-- **Pomijanie rundy (06.11):** domyślnie grają wszyscy; mała ramka SKIP pod licznikiem działa do odkliknięcia. Nie pole startu. Pomijający stoi w lobby, nie zarabia, a sklep, ekwipunek i kosmetyki ma przez całą rundę. Podgląd rundy dla pomijających nie jest zatwierdzonym zadaniem.
+- **Pomijanie rundy (06.11):** domyślnie grają wszyscy; przycisk SKIP ROUND po lewej od hotbara (od 09.11; wcześniej mała ramka pod licznikiem) działa do odkliknięcia (JOIN ROUND). Nie pole startu. Pomijający stoi w lobby, nie zarabia, a sklep, ekwipunek i kosmetyki ma przez całą rundę. Podgląd rundy dla pomijających nie jest zatwierdzonym zadaniem.
 - **Loadout: 3 itemy** z docelowych 6. Panel Inventory tylko w lobby, brak trzeciego stoiska. Sloty nie przesuwają się po zużyciu ostatniej sztuki.
 - **09.11: most → DRABINA** (decyzje Kacpra: pochylona, fizyka jak most — oparta o ścianę stoi, bez oparcia przewraca się i nad przepaścią służy za most; 16 studów; model w stylu mostu z różnokolorowych, lekko krzywych desek). Ten sam item i slot (`bridge_builder`), ta sama obsługa (duch, R, klik, BUILD/ROTATE).
 - Wybrana szóstka: bomba, most, hak, RPG, energy drink, sticky bomb. **25.10: sticky bomb = C4** (decyzje Kacpra: rzucasz — dalej i płaściej niż bomba — i przykleja się do mapy, nie do graczy; maks. 3 naraz; odpalasz wszystkie klawiszem G / przyciskiem na telefonie; śmierć = ładunki znikają bez wybuchu). Cała szóstka w kodzie, C4 czeka na test. Nie zastępować wybranego zestawu dawną rekomendacją lotni/ściany/rozbiórki.
@@ -93,7 +93,7 @@ Do sprawdzenia przez Kacpra: TESTY → „Telefon”.
 
 ## Dalsze kierunki — do wyboru Kacpra
 
-1. Przebieralnia i sklep kosmetyczny — **26.10: rozpoczęta implementacja na polecenie Kacpra**, ustalenia i realizacja w [COSMETICS_PLAN](COSMETICS_PLAN.md), gotowość w STATUS. Wejście przez istniejącego ClothesShop.NPC i przycisk garderoby. To nowy system posiadania/zakładania i assetów, nie samo drugie okno sklepu.
+1. Przebieralnia i sklep kosmetyczny — **wdrożone (26.10–13.11), czeka na testy Play**: ustalenia w [COSMETICS_PLAN](COSMETICS_PLAN.md), bieżący stan w STATUS → „COSMETICS — stan bieżący”. Dalej: kolejne kosmetyki (face, nowe głowy) i ewentualny sklep skinów. Wejście przez istniejącego ClothesShop.NPC i przycisk garderoby. To nowy system posiadania/zakładania i assetów, nie samo drugie okno sklepu.
 2. Akcesoria: briefy w [AKCESORIA_PROMPTY](AKCESORIA_PROMPTY.md). Modele/pomysły nie oznaczają działającego systemu.
 3. Daily rewards od nowa jako UI (stary system usunięty).
 4. Monetyzacja: oferta VIP/gamepass/dev products — brak zatwierdzonej tu implementacji/oferty.

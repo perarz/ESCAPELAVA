@@ -84,6 +84,8 @@ export type DestructionParams = {
 	impulse: number,      -- prędkość gruzu w epicentrum (stud/s)
 	minImpulseT: number?, -- floor falloffu impulsu (krawędź ma drgnąć, nie stać)
 	glassRadius: number?, -- osobny (większy) promień tłuczenia szyb; 0/nil = tylko główny
+	quiet: boolean?,      -- 09.11 (FORCE z drzewka): dziura bez wybuchu — klienci rysują sam
+	                      -- pył i gruz, bez ognia, fali, huku i wstrząsu (ExplosionFXController)
 }
 
 export type BlastStats = {
@@ -1573,6 +1575,7 @@ function DestructionService.detonate(center: Vector3, params: DestructionParams?
 		seed = rng:NextInteger(1, 2_000_000_000),
 		glass = glassPanes,
 		cuts = cutPayload,
+		quiet = if params.quiet then true else nil,
 	})
 	stats.orphans += sendHandoff(handoff, center, radius, impulse)
 

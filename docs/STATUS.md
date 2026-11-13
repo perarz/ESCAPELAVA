@@ -1,8 +1,93 @@
 # STATUS — ESCAPE LAVA
 
-Aktualizacja **09.11.2026**. Ostatni pełny audyt 23.10: kod repo, lokalna historia Git, checklisty i odczyt Studio w Edit, bez Play, pomiaru FPS i publikacji ([audyt kontekstu](CONTEXT_AUDIT_2026-10-23.md)). Sekcje niżej idą od najnowszej; starszy wpis nie unieważnia nowszego.
+Aktualizacja **13.11.2026**. Ostatni pełny audyt 23.10: kod repo, lokalna historia Git, checklisty i odczyt Studio w Edit, bez Play, pomiaru FPS i publikacji ([audyt kontekstu](CONTEXT_AUDIT_2026-10-23.md)). Sekcje niżej idą od najnowszej; starszy wpis nie unieważnia nowszego. Wpisy o kolejnych wersjach UI COSMETICS (v4–v6e) wyniesione do [archiwum](archive/2026-11-13/COSMETICS_STATUS_v4-v6e.md); bieżący opis: „COSMETICS — stan bieżący (13.11)”.
 
-## 08–09.11 — drzewko umiejętności i rebirth u maga: PLAN, kodu i panelu brak
+**Stan na 13.11:** gra nie jest jeszcze opublikowana (potwierdził Kacper); wszystkie zmiany z 06.11 wzwyż są NIEPRZETESTOWANE w Play, a plac (UI, mapa, sceny) przez MCP wymaga zapisu Cmd+S. Kod zgadza się ze Studio (odczyt `.Source` + parsowanie 13.11). Studio: `ESCAPE LAVA`, placeId 107369017875577, `rojo serve` chodzi.
+
+## 13.11 (wieczór) — HUD: COSMETICS rośnie jak INVENTORY, mikro animacje SKIP ROUND i SPECTATE, NIEPRZETESTOWANE
+
+- **COSMETICS:** przycisk miał `Pop` (UIScale) na placu, ale kod go nie ruszał. Teraz `HudButtonFx.hook`: hover 1,07, wciśnięcie 0,93, klik odbija.
+- **SKIP ROUND:** ikona przesuwa się do przodu przy hover, po kliknięciu odskakuje w tył i „strzela”, co 4,5 s sama się szturcha (tylko gdy nikt nie najeżdża).
+- **SPECTATE:** źrenica oka patrzy za kursorem (promień 8 px), klik = mrugnięcie, mruga też sama co 3–6 s. Wyszarzony („NO PLAYERS”) nie reaguje.
+- Nowy moduł `src/client/Controllers/HudButtonFx.luau`, liczby w `Config.HudButtonFx`, podpięcie w `CosmeticsController`, `RoundSkipController`, `SpectateController`. Plac nietknięty (moduł dodaje tylko `UIScale` „Pop” na przyciskach, jak `InventoryController`). Nie sprawdzono składni w Studio (był Play), tylko czytaniem.
+
+## 13.11 (po południu) — sklep: płyta ceny na karcie → BUY, ciemniejsze światło przebieralni, NIEPRZETESTOWANE, Cmd+S wymagany
+
+- **Sklep (karty katalogu), nie przymierzalnia:** płyta ceny na karcie jest większa (`Config.Cosmetics.UI.PlateHeight` 72, `PlateTextSize` 50, `PlateIconSize` 88, wcześniej 52 / 36 / 64). W spoczynku pokazuje cenę; po najechaniu zmienia się w **BUY** (jaśniejsza zieleń `PlateHover`), a klik kupuje od razu, bez przymierzania (`quickBuy` w `CosmeticsController`, serwer waliduje jak zawsze; BUY od razu zakłada). Bez gotówki: cena zostaje, płyta szarzeje, klik pokazuje „NEED x$ MORE” i trzęsie płytą. Dotyk: od razu „BUY 750$”. Klik w resztę karty nadal otwiera przymierzalnię. Płyta ma przezroczysty przycisk `PriceRow.BuyHit` tworzony w kodzie przy budowie karty; nazwa na karcie kończy się przed płytą (`PlateNameReserve`).
+- **Przymierzalnia — cofnięte:** moja pierwsza wersja (płyta ceny zamiast przycisku w lewym dolnym rogu) była zrozumiana błędnie. `Fitting` przywrócony z `ServerStorage.CosmeticsUI_v6e_1311`, kod `showAction` usunięty.
+- **Światło sceny przebieralni (plac):** ściany `9a825a`, deski i belki ciemniejsze, lampy wiszące 0,8 / kinkiety 0,55, reflektory „key” węższe (34°) i mocniejsze (3,2); podest jest najjaśniejszy.
+- Kod zgodny ze Studio (parsuje się, znaczniki są).
+
+## 13.11 — COSMETICS: bezwładność obrotu postaci, ciemniejsze gradienty BUY / BACK, NIEPRZETESTOWANE
+
+- **Obrót z wybiegiem:** po puszczeniu postać (przebieralnia i ramka katalogu) kręci się dalej i wytraca prędkość (`Config.Cosmetics.UI.SpinFriction` 2,6 /s, `SpinMaxVelocity` 900 °/s, `SpinStopVelocity` 6 °/s, `SpinHoldTime` 0,07 s). Złapanie zatrzymuje wybieg; trzymany, nieruszany palec zeruje prędkość. Samoobrót wraca po `FittingSpinDelay` od zatrzymania. Kod: `turn`, `rotateBy`, `animate` w `CosmeticsController`.
+- **Gradienty:** BUY 46,196,84 → 28,152,62 → 12,96,40; BACK 92,66,142 → 62,42,100 → 34,22,58; połysk `Sweep` na BUY w jasnej zieleni zamiast bieli (ustawia kod). Plac nietknięty. Do sprawdzenia w Play: czy wybieg nie jest za długi / za krótki (stroić `SpinFriction`).
+
+## 13.11 — więcej kasy po mapie i 16 spawnów: PLAC PRZEZ MCP, NIEPRZETESTOWANE, Cmd+S wymagany
+
+Kacper: „porozstawiaj po mapie dużo kasy, usuń tą co jest, losowo; więcej spawnów na 15 osób, 1–2 na parterze budynku; kasa po dachach, budynkach, drogach, ale nie za dużo”. Decyzje (AskUserQuestion): 50 miejsc, co rundę 30; zostawić 6 starych spawnów i dodać 10; budynek wybieram sam.
+
+- **Kasa:** 9 starych markerów usunięte, 50 nowych `CashSpawn01..50` w `Map.Locked.CashSpawns` — 18 w środku budynków (parter i piętra, tylko miejsca z dojściem z ulicy), 14 na dachach (w tym najwyższe: hotel 106, GreenBuilding 102), 18 na ulicach/chodnikach/trawnikach. Co rundę gra losuje 30 z 50 (`Config.Cash.SpawnFraction` 1.0 → **0.6**), więc kasa za każdym razem gdzie indziej.
+- **Spawny:** 6 starych zostaje, +8 na chodnikach/ulicach na obrzeżach mapy (`SidewalkSpawn7..14`) i +2 w holu hotelu na parterze (`HotelLobbySpawn1..2`, PupleHotel, dywan Y 11,1, ~17 studów od siebie). Razem 16 — każdy z 15 graczy dostaje osobne miejsce. Kod nie ma limitu liczby spawnów.
+
+Każdy punkt postawiony promieniem na realną podłogę i sprawdzony odczytem: płasko, nad głową wolne (kasa 4 study, spawn 6), brak ścian i przeszkód obok, nic nad lawą. Wnętrza i hol hotelu — dojście z ulicy sprawdzone przeszukaniem po podłodze (bez skakania). Markery nowe mają `CanQuery/CanTouch = false` (stare kasy miały `true` — niewidzialny marker mógł łapać promienie haka/celownika). Cofnięcie: Ctrl+Z w Studio (krok „Assistant 9” + mała poprawka wysokości 5 punktów na dywanie/trawie). Kontrakt: [STUDIO_CONTRACT](STUDIO_CONTRACT.md). Testy: [TESTY](TESTY.md) → „Kasa i spawny 13.11”.
+
+## 12.11 — światło u maga cieplejsze, efekt upadku z obrażeniami: NIEPRZETESTOWANE, Cmd+S wymagany
+
+Kacper: „światło u maga bardziej ciepłe, ale fioletowe, ciemniejsze” + „VFX przy obrażeniach od upadku”. Decyzje (AskUserQuestion): ciepła śliwka; efekt w świecie i na ekranie; świat widzą wszyscy; siła skalowana obrażeniami.
+
+- **Mag:** doświetlenie przy otwartym drzewku 226,205,255 / 1,6 → **190,110,165 / 1,4** (`Config.Skills.Camera.Fill*`).
+- **Upadek, który zranił:** u wszystkich w promieniu 160 studów — pierścień kurzu w kolorze podłogi, odłamki wyskakujące spod stóp i fala na ziemi, wielkość od obrażeń. U poszkodowanego dodatkowo czerwone krawędzie ekranu (błysk i wygaszenie ~0,8 s); wstrząs ekranu jak dotąd. GRAPHICS LOW: połowa kurzu i odłamków, bez fali.
+
+**Kod:** nowy `FallImpactController`, remote `FallImpact` (serwer → wszyscy, tylko przy raniącym upadku), `FallDamageService` wysyła go obok `BombHit`; liczby w `Config.FallDamage.Impact`. Pięć zmienionych plików zgodnych ze Studio (suma) i się parsuje. **Plac (MCP w Edit):** `StarterGui.FallVignette` — kopia układu `EnergyVignette` bez linii prędkości, krawędzie czerwone. Bez Play nie widziane: kolor maga w kadrze i sam efekt. Testy: [TESTY](TESTY.md) → „Upadek i mag 12.11”.
+
+**Dalej 12.11 — odliczanie i miganie lawy.** (1) Cyfry 3-2-1 bez wskoku i z przerwą: od 10.11 obrazek cyfry pokazywał się dopiero po statusie „wczytany” z `ContentProvider`, który przychodzi później niż zmiana cyfry — przedtem lukę zasłaniał napis zastępczy. Teraz cyfra widoczna od razu, napis tylko przy błędzie wczytania (`RoundTransitionController`, zgodny ze Studio). (2) Gradient cyfr: `UIGradient` „Shade” na `RoundCountdown.Digits.1/2/3` (MCP, Cmd+S wymagany) — górna połowa w kolorze cyfry, dół do ~60% jasności (zielona → ciemnozielona, żółta → ciemnożółta, czerwona → ciemnoczerwona). (3) Lawa — „w najniższych punktach tafli czarne przemiguje”: **przyczyna zmierzona w Play (odczyt)** — pudło, z którego rodzą się popiół i iskry `Lava.Air`, stało 0,4 nad FIZYCZNĄ taflą (2,5–3,3), a fala sięga 1,5–3,6. Ciemny popiół rodził się pod grzbietami i wychodził w dolinach. Teraz start od grzbietu fali (`LavaWaveMesh:topY()`), sufit lotu bez zmian (w kanale dalej pod jezdnią). Odrzucone po sprawdzeniu: cień ukrytych płyt (`CastShadow` już false), podmiana `MaterialVariant`, zmiana `MeshSize`. Po tej zmianie Kacper: „częściej miga” — czyli migające czarne to SAM popiół (płatki pojawiają się i gasną; podniesione nad falę były widoczne wszędzie). **Popiół wyłączony** (`Lava.Air.AshRateMin/Max = 0`, było 3/20), iskry zostają, start nad grzbietem fali zostaje. Kod zgodny ze Studio (suma) i się parsuje. Kacper potem: „dalej miga, po minucie, w najniższych punktach; czy coś jest pod falą?”. **Prawdziwa przyczyna:** fala była wyśrodkowana na tafli, więc jej dołki schodziły ~1 stud POD prawdziwą lawę. Gdy lawa mijała ulicę (asfalt 8,8, renderuje się czarno), w dołkach wychodził czarny asfalt. Płyty lawy SĄ ukryte (`LocalTransparencyModifier` działa — zdjęcie w Edit: w kanale pod lawą widać niebo). Bąble skorupy (wyłączone po drodze przez błędną diagnozę) przywrócone. **Decyzja Kacpra „fala nad lawą”:** siatka podniesiona o `Waves.Amplitude` — dołek = prawdziwa tafla, grzbiet do ~2,1 nad nią (`LavaWaveMesh`). Zmierzone w Play: dołek równo z taflą (8,36/8,36 … 8,94/8,93). Minus: na grzbiecie fala może zakryć stopy, zanim zaczną parzyć. Popiół zostaje wyłączony. Kod zgodny ze Studio (suma), bez błędów w logu. **Dalej migało** → Kacper: „zrób od nowa, tekstura ma zostać, resztę efektów wyjebać”. **Siatka fali i wszystkie efekty tafli WYŁĄCZONE** (`Lava.Waves.Enabled = false`, `Lava.FX.SurfaceEffects = false`): została płyta lawy z teksturą `EscapeLava_RoundedRed_v4` i falowanie całej tafli z serwera (`Lava.Wobble`). Najmocniejsza hipoteza (niepotwierdzona pomiarem): siatka z EditableMesh, aktualizowana 20×/s, chwilami się nie rysowała — pierwsze zgłoszenie brzmiało „tekstura na chwilę znika”, a przez dziurę widać czarną ulicę. Rozbryzg przy wpadnięciu i widok spod tafli zostają. Play przez MCP: siatki brak, 0 widocznych partów/świateł/emiterów tafli, płyty widoczne, zrzut — tekstura na miejscu. Kod zgodny ze Studio. Powrót do fali/efektów: dwie flagi w Config (kod nietknięty).
+
+## 12.11 (wieczór) — nowa przebieralnia „pracownia krawca” (scena w Workspace), obejrzana zrzutem z Edit, bez Play, Cmd+S wymagany
+
+Na prośbę Kacpra: pierwsza wersja „butik lawy” odrzucona (napisy, brzydkie manekiny, kwadratowa obwódka okrągłego podestu). Teraz pokój 28×42×11 w stylu krawca, **bez żadnych napisów**: drewniana podłoga i belki, kremowe ściany ze studsami, lustro w drewnianej ramie za podestem, kinkiety i trzy lampy wiszące, tablica z narzędziami (nożyce, miara, szpule, kreda), regał z belami materiału, wieszak z płaszczami, stół z maszyną do szycia.
+- **Manekiny = prawdziwe rigi R6** (`CreateHumanoidModelFromDescription`, bez Humanoida i Animate, kotwiczone, pozowane ręcznie, na drewnianych podstawkach): dynia, kamizelka i plecak nałożone przez atrybuty rigu (`HatAttachment`, `BodyFrontAttachment`, `BodyBackAttachment`).
+- **Podest:** ten sam obiekt i ścieżka (`Decoriations.Platform.platform`), przemalowany na orzech; obwódka to mosiężny okrąg `Room.PlatformTrim.BrassRing` (średnica 5,3), nie kwadrat.
+- **Backup starej sceny:** `ServerStorage.ClothesShopBackup_1211` (scena + 7 luźnych `Workspace.Part`; te zostały usunięte z Workspace). Kod nietknięty.
+- **Poprawka detali (12.11):** podstawki manekinów (mosiężna stopa 0–0,1 + drewniany dysk 0,1–0,4, bez przenikania), pierścień podestu poniżej jego powierzchni, tablica narzędzi przebudowana (linijka z podziałką, nożyce, szpule, kreda, miara; wszystko płasko na desce, bez nachodzenia), wieszak z trzema płaszczami o odstępach 2,0, maszyna do szycia ułożona z brył bez nakładania.
+- Zrzut z kadru gry (Edit) przeszedł; nie sprawdzono w Play: jasność postaci przy światłach z kodu i kolizja kamery z lampą nad podestem.
+
+## COSMETICS — stan bieżący (13.11), zastępuje wpisy v4–v6e
+
+Jedno miejsce, które opisuje, jak sklep i garderoba wyglądają **teraz**; historia wersji i odrzucone pomysły: [archiwum](archive/2026-11-13/COSMETICS_STATUS_v4-v6e.md).
+- **Wejście:** przycisk COSMETICS w HUD (pod INVENTORY; od 13.11 rośnie na hover jak INVENTORY, `HudButtonFx`) = garderoba (tylko posiadane), E przy sprzedawcy `ClothesShop.NPC` = sklep (tylko w lobby). Własny `CosmeticsOpen` blokuje nakładanie się z innymi panelami.
+- **Katalog (jeden ekran):** po lewej ramka z kopią postaci gracza w `ViewportFrame` (obrót przeciąganiem z **bezwładnością** od 13.11, sam po 3 s bez dotyku), kasa nad nią; po prawej przewijana siatka kart (kolumny z szerokości, 9 kart COMING SOON tylko w sklepie). Karta: kolor z `Config.Cosmetics.UI.Rarities`, obrys 8 z LED w środku, plakietka rzadkości, nazwa, OWNED / WEARING. **Płyta ceny (13.11):** większa (`PlateHeight` 72), po najechaniu zmienia się w **BUY** i klik kupuje od razu (`quickBuy`), bez gotówki szarzeje i pokazuje „NEED x$ MORE”.
+- **Przebieralnia:** klik w resztę karty → scena `ClothesShopScene` (od 12.11 **pracownia krawca**, opis i kontrakt: STUDIO_CONTRACT), kopia postaci na `Decoriations.Platform.platform`, kamera z bounding boxa i parallax za myszą, BACK i BUY / EQUIP / UNEQUIP (`Colors.Buy`, `Colors.Back`, bez bieli; połysk BUY jasnozielony). Przymierzanie nie zmienia zapisanego stroju; BUY od razu zakłada (`CashService.purchase`).
+- **Plac:** `StarterGui.Cosmetics` (`Design` = `shop_v6e`); kopie historyczne `ServerStorage.CosmeticsUI_v*`, nowsza `CosmeticsUI_v6e_1311`. Test: TESTY → „COSMETICS — aktualny test”.
+
+
+## 09–10.11 — drzewko umiejętności i rebirth u maga: KOD I PANEL, NIEPRZETESTOWANE, Cmd+S wymagany
+
+Wdrożony cały [SKILLS_PLAN](SKILLS_PLAN.md) poza samymi itemami z rebirthu. Decyzje Kacpra z 09.11: liczby z planu zaakceptowane; rebirthy 5–10 na razie samo +5% kasy; liczba rebirthów jako kolumna w tabeli graczy (Tab); FORCE robi dziurę bez wybuchu („sam gruz i pył”).
+
+**Dla gracza:** E przy magu w wieży → kamera podjeżdża do maga, po prawej panel z drzewkiem. START (+5% szybkości), od niego sześć odnóg po dwa poziomy; przed pierwszym rebirthem tylko SPEED i STAMINA. Poziom II wymaga rund albo killi liczonych od ostatniego rebirthu. Gdy wszystko odblokowane jest kupione, REBIRTH zeruje drzewko (kasa, itemy i kosmetyki zostają) i daje +5% kasy na zawsze oraz kolejną odnogę.
+
+**Co gdzie działa:**
+- SPEED i STAMINA: ruch gracza; limit prędkości anty-cheatu rośnie tak samo, liczony ze stanu serwera.
+- LAVA SKIN: mniej obrażeń od lawy. TOUGHNESS: mniej od wybuchów i upadku; śmiertelny upadek dalej zabija.
+- GREED i rebirthy: mnożnik nagrody za przetrwanie i kill (nie pickupy). Komunikaty pokazują kwotę po mnożniku.
+- FORCE: F w ścianę mapy wybija dziurę (I ≈ 7 studów, II ≈ 10 i +20% siły pchnięcia). Bliższe wygrywa jak dotąd: beczka, szyba, gracz albo ściana. Lobby i wieża nietykalne.
+- Itemy z rebirthu: sklep zna pole `requiresRebirth` (szary przycisk „REBIRTH N”, serwer odrzuca zakup). Żaden item go jeszcze nie ma — itemy projektujemy osobno.
+
+**Kod:** nowe `SkillDefinitions`, `StatsService`, `SkillService`, `SkillTreeController`, `SkillTreeFx`; liczby w `Config.Skills`. Opisy: [ARCHITECTURE](ARCHITECTURE.md). Zmiany zrobione 09.11 (serwer, ruch, sklep, pozostałe panele — 26 plików) są w Studio zgodne z dyskiem (suma) i się parsują. **Cztery pliki z 10.11 (`SkillTreeController`, `SkillTreeFx`, `Config`, start klienta) NIE są jeszcze sprawdzone w Studio:** `rojo serve` chodzi, ale wtyczka nie była połączona. Po Connect trzeba sprawdzić sumy i parsowanie, zanim ktokolwiek odpali Play — błąd składni w nowym kontrolerze zatrzymałby start całego klienta.
+
+**Plac (MCP w Edit, Cmd+S wymagany):** `StarterGui.SkillTree` (244 obiekty, `Design = skilltree_v1`), zapis budowy w `artifacts/skilltree/skilltree_ui_v1.luau`, zrzut podglądu z Edit w `artifacts/skilltree/preview_v1.jpg`. Podgląd miał tymczasowe pola — usunięte, panel wyłączony. Kontrakt: [STUDIO_CONTRACT](STUDIO_CONTRACT.md) → „Drzewko umiejętności”. Cofnięcie budowy: Ctrl+Z w Studio (krok „SkillTree UI v1”).
+
+**Nie widziane bez Play:** kadr kamery na maga, animacje, kaskada otwarcia, sekwencja rebirthu, dziura od FORCE. Liczby kadru: `Config.Skills.Camera`.
+
+Otwarte:
+- test Kacpra: [TESTY](TESTY.md) → „Drzewko umiejętności i rebirth”;
+- itemy z rebirthu 1 i 3 (osobne plany) i nagrody rebirthów 5–10;
+- dźwięki (puste ID w `Config.Shop.Fx.Feedback` i `Config.Skills.Force.SoundId`);
+- przed wydaniem podpis CC BY game-icons w opisie gry ([DO_RELEASE](DO_RELEASE.md));
+- przy 100 rebirthach +500% kasy — ocenić po pierwszych tygodniach (`Config.Skills.RebirthCashBonusMax`).
+
+## 08–09.11 — drzewko umiejętności i rebirth u maga: PLAN (wdrożony 09–10.11, wpis wyżej)
 
 Kacper chce dalszego rozwoju, „żeby gra się nie nudziła”. Pełny plan: [SKILLS_PLAN](SKILLS_PLAN.md). Ustalone:
 - **Drzewko:** korzeń +5% szybkości, od niego odnogi po 2 poziomy. Poziom I kosztuje kasę, poziom II kasę i wymaganie (kille, przetrwane albo rozegrane rundy).
@@ -11,15 +96,7 @@ Kacper chce dalszego rozwoju, „żeby gra się nie nudziła”. Pełny plan: [S
 - **Wygląd:** kamera na maga `TowerMage` i panel, efekty z ui-resources.com, ikony game-icons z czarnym obrysem i mikroanimacje (sekcja w planie).
 - **Zasoby:** 14 obrazów wgranych 09.11 za zgodą Kacpra. ID są w planie i w `artifacts/ui-effects/ASSETS.md` (poza gitem, repo publiczne).
 
-Otwarte:
-- akceptacja liczb przez Kacpra;
-- nagrody rebirthów 5–10;
-- liczba rebirthów przy nicku;
-- przed wydaniem drzewka podpis CC BY game-icons w opisie gry (DO_RELEASE).
-
-Agent, który to wdraża, zaczyna od sekcji „Brief dla agenta wykonawczego” na końcu SKILLS_PLAN. Są tam: pytania do Kacpra przed kodem, gotowe miejsca w kodzie, mag w placu, ID zasobów i szkic testów.
-
-Następny krok: podgląd panelu `StarterGui.SkillTree` przez MCP do oceny wyglądu. Kacper go zlecił 09.11 i przerwał aktualizacją kontekstu. Kod (etap 2) rusza dopiero po commicie drugiego agenta, bo dotyka tych samych plików (`Config`, `Remotes`, `MovementController`, `PlayerService`, `PushService`, pliki `init`).
+Otwarte punkty tego planu rozstrzygnął wpis 09–10.11 wyżej.
 
 ## 09.11 (noc) — lobby oddalone od mapy, NIEPRZETESTOWANE, Cmd+S wymagany
 
@@ -51,6 +128,8 @@ Na prośbę Kacpra czerwony przycisk DETONATE zastąpiła podpowiedź sterowania
 
 ## 06.11 — punkt wznowienia (dzień premiery)
 
+> ⚠️ **Stan z 06.11, przed terminem premiery — nieaktualizowany.** Kacper 13.11: termin minął, gra **nie jest jeszcze opublikowana**, nowej daty brak. Lista kroków poniżej jest wciąż w zasadzie aktualna (testy, ustawienia produkcyjne, publikacja), ale zrobione od 06.11 rzeczy są w sekcjach wyżej.
+
 **06.11 — SPECTATE:** na zlecenie Kacpra dodano obserwowanie żywych uczestników z lobby: przycisk pod SKIP, poprzedni/następny, nazwa i X; natywna kamera Custom z obrotem. Serwer publikuje RoundParticipant, klient zarządza kamerą i blokadą ruchu. Kacper jawnie pozwolił agentowi samodzielnie uruchamiać/testować Play przy tym zadaniu (wyjątek od dotychczasowej zasady) i użyć subagentów. Test solo: start, oznaczenie uczestnika, ukrycie przycisku na mapie, powrót do lobby/NO PLAYERS; kontrolowany test klienta z dwoma zastępczymi celami: 18 asercji zaliczonych, również kliknięcia Open/Next. Naprawiono oddawanie CameraSubject przy otwarciu samego katalogu kosmetyków. Pełny multiplayer i fizyczny obrót myszą/dotykiem pozostają niepotwierdzone: narzędzie ruchu myszy raportowało Delta=0 (także na zwykłej kamerze), a sterowanie oknem Studio do wielu klientów miało timeout. Build i składnia przeszły. Testowe obiekty usunięte przez zakończenie Play; UI w Edit wymaga Cmd+S. Bez publikacji i commita. Szczegóły testów: TESTY → Spectate.
 
 **06.11 — późniejsze potwierdzenie SKIP:** Kacper: „skip już działa”. Zakres wykonanych przypadków nie został wyszczególniony, więc nie zaliczamy automatycznie całej checklisty. Dodatkowy przegląd kodu: wybór rundy, brak nagrody za przetrwanie dla pomijających, dostęp do sklepów/loadoutu, respawn i cleanup. Odczyt Studio w Edit: 14 powiązanych modułów zgodnych z dyskiem i poprawnych składniowo; `SkipButton` ma `Fill`, `Label`, `Pop`, HUD ma `ResetOnSpawn=false`. Nie uruchamiano Play; przypadki z dwoma graczami i opóźnioną siecią nie zostały w tej kontroli zweryfikowane. Poniższe wcześniejsze oznaczenia SKIP jako całkowicie nieprzetestowanego zastępuje to potwierdzenie.
@@ -70,7 +149,7 @@ Na prośbę Kacpra czerwony przycisk DETONATE zastąpiła podpowiedź sterowania
 
 Otwarte poza tą listą: dźwięki (ID poda Kacper), anty-cheat paczka 6 (niezrobiona; agent radził po premierze, decyzja Kacpra otwarta), limit graczy w ustawieniach miejsca.
 
-**06.11 — pomijanie rundy, NIEPRZETESTOWANE, Cmd+S wymagany:** mini ramka SKIP pod licznikiem, po kliknięciu czerwone DON'T SKIP (decyzja Kacpra: przycisk zamiast pola startu, przełącznik do odkliknięcia). Pomijający stoi w lobby, nie zarabia, sklep, ekwipunek i kosmetyki działają mu przez całą rundę; gdy pomijają wszyscy, lobby odlicza od nowa. Opis: ARCHITECTURE → `RoundSkipService`; testy: TESTY → „Pomijanie rundy” (runda z pomijającym wymaga dwóch graczy).
+**06.11 — pomijanie rundy, NIEPRZETESTOWANE, Cmd+S wymagany** *(UI przebudowany 09.11 na kwadratowy przycisk SKIP ROUND / JOIN ROUND po lewej od hotbara)*: mini ramka SKIP pod licznikiem, po kliknięciu czerwone DON'T SKIP (decyzja Kacpra: przycisk zamiast pola startu, przełącznik do odkliknięcia). Pomijający stoi w lobby, nie zarabia, sklep, ekwipunek i kosmetyki działają mu przez całą rundę; gdy pomijają wszyscy, lobby odlicza od nowa. Opis: ARCHITECTURE → `RoundSkipService`; testy: TESTY → „Pomijanie rundy” (runda z pomijającym wymaga dwóch graczy).
 
 **05.11 — tło sklepu: arsenał, NIEPRZETESTOWANE, Cmd+S wymagany:** brązowe listwy i ladę (`Decorations.Workshop`) zastąpił wojskowy magazyn `WeaponShopScene.Arsenal` (oliwkowe panele ze studsami, stalowe słupy, tablice za itemami, stalowa lada ze skrzyniami), decyzje Kacpra w jednej turze. Itemy nieruszone (pozycje sprawdzone odczytem), każdy dostał uchwyt, żeby nie lewitował. Zrzuty z Edit obejrzane, w grze jeszcze nie. **06.11 światło:** stare `ShopLights` usunięte, kontrast robią lampki nad itemami: tablica i item jasne, reszta ściany ciemna; słabe oświetlenie z góry trzyma widoczną podłogę, `Config.Shop.SceneAmbient` neutralne zamiast brązowego. Blat lady ciemna stal. **06.11 panel, NIEPRZETESTOWANE:** nowy `ShopFx`: wjazd panelu, reakcje przycisków, przejście przy zmianie itemu, efekt zakupu i błędu, wibracje, połysk BUY, 6 małych kropek nad ramką, płynący pas lawy na dole panelu; kamera lekko krąży za myszą. Dźwięki przygotowane, ale puste: ID poda Kacper (`Config.Shop.Fx.Feedback`). Opis: STUDIO_CONTRACT → „WeaponShopScene”; testy: TESTY → „arsenał”.
 
@@ -116,31 +195,13 @@ Następny test: [TESTY](TESTY.md) → „31.10” (napój, F z każdym itemem, r
 
 Przyciski dotykowe wdrożone według decyzji Kacpra z 28.10 (plan: [ROADMAP](ROADMAP.md) → „Sterowanie na telefonie”). Okrągłe przyciski w stylu slotów przy skoku Robloxa: **SPRINT** (trzymanie), **PUSH**, w trybie mostu **BUILD/ROTATE** (dotknij miejsce → duch staje, BUILD stawia), z RPG **AIM** (przełącznik) i **FIRE**. Bomba, hak, napój i C4 już wcześniej działały dotknięciem ekranu. Nowy `TouchControlsController` + podpięcia w Movement/Push/Bridge/Rpg, bez zmian na serwerze. `HUD.TouchControls` postawiony przez MCP, `HUD.Detonator` przesunięty z Y 0,55 na 0,40 (zwolnił miejsce nad skokiem). 7 plików zsynchronizowanych z Studio (suma zgodna z dyskiem) i parsuje się; zrzut układu z atrapą skoku: `artifacts/touch/touch_controls_preview_2810.jpg`. **Play nietestowany, Cmd+S wymagany.** Testy: [TESTY](TESTY.md) → „Telefon”.
 
-## COSMETICS — punkt wznowienia 27.10.2026
-
-**28.10 — przycisk HUD Cosmetics:** przezroczystość `Fill.Studs` zmieniona z 0,9 na 0,25 jak w Inventory. Potwierdzone odczytem Edit; wymagany Cmd+S. Do sprawdzenia w Play: widoczność wzoru na przycisku.
-
-Bieżący zakres rozmowy: dopracowanie sklepu i garderoby. Kacper zezwolił agentowi również na edycję ich UI w Studio. Poniższy stan zastępuje starsze wpisy o brakującym imporcie, studsach kafli, prostym liczniku i jednoczesnym BACK/X.
-
-**27.10 wieczór — sklep v4 („item shop”, decyzje Kacpra):** układ zostaje (przewijany katalog → przymierzalnia), wygląd przerobiony, bo poprzedni był „AI slop”. **Rzadkość** zamiast kolorów kategorii: dynia HALLOWEEN (ciemny fiolet + pomarańczowe promienie), kamizelka EPIC, plecak RARE; LEGENDARY/COMMON czekają na kolejne przedmioty (`CosmeticDefinitions.rarity`, kolory w `Config.Cosmetics.UI.Rarities`). **Kup = od razu załóż** (serwer zapisuje kasę, własność i strój w jednym zapisie). Karty pokazują sam przedmiot, duży; duża karta stale się kołysze, reszta po najechaniu. Przymierzalnia bez granatowego paska: rzadkość, nazwa, cena, „NEED X$ MORE — SURVIVE N ROUNDS”, duży BUY jak w sklepie broni, samoobracanie po 3 s. Zakup: odliczanie kasy + UNLOCKED! na środku. Kopia poprzedniego UI: `ServerStorage.CosmeticsUI_v3_2710`; zapis budowy: `artifacts/cosmetics/shop_v4_ui.luau`. Zrzuty z Edit obejrzane, 5 plików zsynchronizowanych i parsuje się. **Play nietestowany, Cmd+S wymagany.** `rojo build` pada na starym `src/shared/Modules/init.meta.json` (Tags jako SharedString, plik z września) — niezwiązane z tą zmianą, `rojo serve` działa. Testy: [TESTY](TESTY.md) → „sklep v4”. **Później 27.10:** tło katalogu lekko animowane (studsy płyną po skosie, poświata lawy oddycha; `Config.Cosmetics.UI.Backdrop*`), szpara pod głową w przymierzalni naprawiona (patrz niżej), a żółty nagłówek Inventory ma ostre górne rogi (zmiana w placu, opis i cofnięcie w STUDIO_CONTRACT). Do tego zębatka ustawień w prawym górnym rogu (`HUD.SettingsCorner`) i półprzezroczysty numer wersji w prawym dolnym (`HUD.Version`, numer w `Config.UI.Version` = "0.8"). Zrzuty z Edit obejrzane, kod zsynchronizowany; **Cmd+S wymagany**, Play tych zmian nietestowany.
-
-- Wszystkie trzy akcesoria są zaimportowane: dynia 500$, kamizelka 750$, plecak 600$. Własność i wyposażenie mają zapis; kosmetyki nie dają bonusów do gry.
-- Pełnoekranowy, ciemny katalog z pionowym przewijaniem i różnymi rozmiarami kafli; bez zakładek kategorii i studsów na kaflach. Marginesy i mniejszy hover poprawione. Kategorie nadal służą do składania stroju.
-- Przymierzalnia używa lokalnej kopii gracza w istniejącej scenie; obrót przeciąganiem myszy/dotykiem. W niej tylko BACK do listy, X tylko na liście. Portfel skopiowany z HUD (ikona + zielona kwota), widoczny w obu widokach.
-- Szpara między głową a tułowiem w przymierzalni (na postaci w grze jej nie ma) — **przyczyna zmierzona w Play 27.10**: po wstawieniu kopii do świata automatyczne skalowanie Humanoida zmniejszało dynamiczną głowę z 1,2 do 1,0 studa i przebudowywało stawy → szpara 0,09 studa. W Edit to się nie dzieje, dlatego statyczne sprawdzenie wyglądało dobrze. Poprawka: `CosmeticsPreview` wyłącza `AutomaticScalingEnabled` w kopii (pomiar: szpara −0,015 jak w szablonie). Do potwierdzenia okiem Kacpra w nowym Play.
-- Kamizelka obniżona o 0,18 studa przez attachment assetu. Dodatkowe lokalne światło jest teraz przypięte do nieruchomej platformy, poza obracaną postacią; sprzątane przy wyjściu. Dwa oryginalne reflektory Kacpra zachowane.
-- Napis nad stoiskiem: wysokość 24 study, zasięg 300, AlwaysOnTop i jawny Adornee. Spawn oddalony o ok. 106,5 studa (stary limit 80). Zrzut Edit nie renderował napisu — widoczność ze spawna nadal do potwierdzenia.
-- Ostatnia kontrola: składnia i synchronizacja CosmeticsController/CosmeticsPreview, Rojo build, diff-check oraz statyczny podgląd Edit. Tymczasowa postać/światło usunięte, GUI zamknięte, HUD i FOV przywrócone. **Nie uruchamiano Play; Cmd+S i publikacja niepotwierdzone.**
-
-Następny krok: test Kacpra — głowa po przymierzeniu kamizelki, jej wysokość, obrót przy nieruchomym świetle, BACK/lista/X, kwota po zakupie, napis ze spawna. Prośba „zaktualizuj kontekst” nie jest potwierdzeniem tych testów. Szczegóły obiektów w [STUDIO_CONTRACT](STUDIO_CONTRACT.md), przypadki w [TESTY](TESTY.md).
-
 ## Gra obecnie
 
 `LOBBY → PREPARING → COUNTDOWN → ROUND → FINISHING → RESETTING → LOBBY` (26.10: bez POST_ROUND — po zasłonie od razu lobby; NIEPRZETESTOWANE).
 
-Lobby **25 s**, w nim ramka SKIP pod licznikiem (06.11): kto ją kliknie, zostaje w lobby na kolejne rundy; przygotowanie i teleport pod zasłoną; **3-2-1** na mapie z blokadą ruchu/itemów; runda z płynnie przyspieszającą lawą, **bez faz**; **3 s FINISHING**, wypłata ocalałym, zasłona i cleanup/odbudowa, potem **od razu lobby** (10 s „ROUND OVER” w lobby usunięte 26.10). Produkcyjny cel rundy: **80 s**, obecnie **240 s testowo**.
+Lobby **25 s**, w nim przycisk **SKIP ROUND** po lewej od hotbara (`HUD.RoundSkip.SkipButton`, od 09.11; po kliknięciu JOIN ROUND): kto go kliknie, zostaje w lobby na kolejne rundy; przygotowanie i teleport pod zasłoną; **3-2-1** na mapie z blokadą ruchu/itemów; runda z płynnie przyspieszającą lawą, **bez faz**; **3 s FINISHING**, wypłata ocalałym, zasłona i cleanup/odbudowa, potem **od razu lobby** (10 s „ROUND OVER” w lobby usunięte 26.10). Produkcyjny cel rundy: **80 s**, obecnie **240 s testowo**.
 
-Kod zawiera **7 itemów**: Bomb 50$, Bridge 100$, Grapple 40$, Energy Drink 25$, RPG 75$, **Bandage 40$**, **C4 60$** (25.10 — C4 = zaplanowana sticky bomb, decyzja Kacpra; przyklejanie, G i rzut z ikoną zadziałały w testach; 25.10 wieczorem wysoki łuk jak granat + zamach ręki — NIEPRZETESTOWANE; `ReplicatedStorage.C4` i `HUD.Detonator.DetonateButton` postawione przez MCP). Loadout to **3 stałe sloty**, ekwipunek jest dostępny wyłącznie w lobby, a pomijającemu rundę także w jej trakcie. Nowy item nie wymaga czwartego slotu.
+Kod zawiera **7 itemów**: Bomb 50$, Bridge 100$ (od 09.11 stawia drabinę, id `bridge_builder` bez zmian), Grapple 40$, Energy Drink 25$, RPG 75$, **Bandage 40$**, **C4 60$** (25.10 — C4 = zaplanowana sticky bomb, decyzja Kacpra; przyklejanie, G i rzut z ikoną zadziałały w testach; 25.10 wieczorem wysoki łuk jak granat + zamach ręki — NIEPRZETESTOWANE; `ReplicatedStorage.C4` i `HUD.Detonator.DetonateButton` postawione przez MCP). Loadout to **3 stałe sloty**, ekwipunek jest dostępny wyłącznie w lobby, a pomijającemu rundę także w jej trakcie. Nowy item nie wymaga czwartego slotu.
 
 Destrukcja v4 obejmuje **wszystkie 10 budynków**; starszy pass podparcia działa poza nimi. Fizyka dużych brył zostaje. **Gruz nie zadaje obrażeń**; lokalne odłamki nie mają kolizji ani wpływu na promienie. Obrażenia od upadku pozostają. Jeden profil `Config.Graphics.Profile`, bez trybów Potato/Full i ich panelu.
 
@@ -209,6 +270,8 @@ Studio: `ESCAPE LAVA`, placeId **107369017875577**, Edit. Przy pierwszym odczyci
 
 ## Kolejność dalszych prac
 
+> ⚠️ **Stan z 06.11, przed terminem premiery — nieaktualizowany.** Kacper 13.11: termin minął, gra **nie jest jeszcze opublikowana**, nowej daty brak. Lista kroków poniżej jest wciąż w zasadzie aktualna (testy, ustawienia produkcyjne, publikacja), ale zrobione od 06.11 rzeczy są w sekcjach wyżej.
+
 Do premiery obowiązuje krótka kolejność z sekcji 06.11 na górze. Poniżej pełna lista.
 
 1. Test Kacpra z TESTY, w tym T1–T7 dwukrotnie; naprawy tylko na podstawie konkretnych zgłoszeń i aktualnego logu.
@@ -217,29 +280,6 @@ Do premiery obowiązuje krótka kolejność z sekcji 06.11 na górze. Poniżej p
 4. Ustawienia produkcyjne oraz pełny test z ekipą na PC i telefonach. Szczegółowa lista: [DO_RELEASE](DO_RELEASE.md).
 
 To porządek pracy wynikający z istniejącej listy; nie oznacza zatwierdzenia nowego zakresu ani zmiany designu.
-
-27.10: All three cosmetics imported into ReplicatedStorage.Cosmetics (500/750/600). Static outfit inspected front/back in Edit; temporary mannequin removed. Play purchase/save/movement checks pending. Cmd+S required.
-
-27.10 fitting revision: full-screen scene, hidden catalog header and HUD while cosmetics is open (HUD restored on close), bottom purchase strip, BACK/X. TurnLeft/TurnRight removed; Fitting.RotateArea handles mouse/touch drag, global release and window focus cleanup. Camera framed from character bounds. Removed native rectangular GUI borders and card Orbit. Backup: ServerStorage.CosmeticsBeforeFitting_2710. Edit screenshot checked, source parse/sync and Rojo build passed; Play interaction not tested.
-
-27.10 camera/strokes follow-up: CosmeticsPreview now removes runtime-only BaseParts before posing the rig, restores template PivotOffset and uses HumanoidRootPart as PrimaryPart. This prevents ragdoll helpers from distorting bounds; live camera result still needs confirmation. COSMETICS text strokes: black Miter, 5 for TextSize >=32, otherwise 3; button borders 4, ActionBar border 4. Source parse/sync and build passed; no Play test. Cmd+S required.
-
-27.10 fitting polish: rectangular black corners fixed (border Miter -> Round, text retains Miter); X/BUY/BACK rebuilt with separate surface and label. Higher/wider camera checked in Edit with original scene lights. Ambient override removed. Two original lights found enabled outside ClothesShopScene; neither deleted nor replaced. Screenshot review, source sync/parse, build/diff checks complete; Play interaction remains unconfirmed. Cmd+S required.
-
-27.10: removed cosmetic card Studs and catalog footer slogan; added 24px internal scroll padding, 28px gaps, reduced hover to 1.015. Reviewed largest tile enlarged in Edit. Local preview-only PointLight fill added (brightness 2/range 16), original lamps untouched; lighting reviewed in Edit. Sign raised to world offset Y=9, max distance 300, AlwaysOnTop=true; spawn-to-sign distance measured 106.5 (old limit 80). Source parse/sync/build passed, Play pending. Cmd+S required.
-
-27.10 sign follow-up: explicitly assigned CosmeticsSign.Adornee to NPC.Head. Enabled/labels/300-stud range verified by Edit read, but the Edit capture did not render the BillboardGui (AbsoluteSize 0); actual spawn visibility still requires Kacper's Play check.
-
-27.10 cosmetics follow-up: fitting shows BACK only; catalog shows X. HUD Cash visual cloned into cosmetics, replaces plain Balance; visible in both views. Vest anchor raised by 0.18 locally to lower worn geometry by 0.18 studs. Preview strips inherited JointInstances and resets Bone.Transform so live neck/waist pose cannot conflict with restored body pose. Fill anchored to stationary platform and cleaned up separately. Static Edit review shows joined neck (attachment gap 0.000015 stud), lower vest, separate wallet/BACK; not proof of live fix. Both sources parsed/synced, Rojo build and diff check passed. Play pending; Cmd+S required.
-
-27.10: Removed only the 200 front rim triangles from HalloweenPumpkin.FaceBlack; 456 rear-face triangles remain. Mesh baked into DataModel content via CreateDataModelContentAsync, applied to existing MeshPart with original size/CFrame. Four parts and HatAttachment preserved. Edit front view inspected, temporary preview removed. Backup: ServerStorage.HalloweenPumpkin_BeforeRimRemoval_2710. Cmd+S required; Play not tested. Local build.py no longer creates front rims; existing FBX/blend/previews are older and have NOT been regenerated.
-
-27.10 CORRECTION after user report: the Studio EditableMesh rim edit was rejected as broken. Restored FaceBlack from HalloweenPumpkin_BeforeRimRemoval_2710 using original MeshId 99943081561875, original Size and CFrame. Do NOT reuse opaque DataModel mesh edit. Blender original opened and only front black rim vertices deleted; rear face remains 456 triangles. Saved HalloweenPumpkin_no-rims.blend and HalloweenPumpkin_no-rims.fbx, plus PumpkinBackFace.fbx (only changed mesh). front_no-rims.png rendered and inspected. Studio currently has ORIGINAL model with rims; corrected FBX NOT imported yet. CUA import blocked by ScreenCaptureKit error -3811 after initial timeout. Next: import corrected FBX through Studio, fit using same shared origin/attachment; do not blindly copy old FaceBlack Size because removing front geometry changes its bounding box. Verify front/back before replacing asset. Cmd+S remains unconfirmed.
-
-27.10: Na prosbe Kacpra napis CosmeticsSign podniesiony 3x: StudsOffsetWorldSpace.Y z 9 do 27. Pozostale ustawienia zachowane. Odczyt Edit potwierdzony; Cmd+S wymagany.
-
-27.10: Ostateczna wysokość CosmeticsSign.StudsOffsetWorldSpace.Y = 24 (zamiast 27), ustawiona i potwierdzona odczytem Edit. Cmd+S wymagany.
-
 
 ## 06.11 — Bandage: implementacja i test Play
 

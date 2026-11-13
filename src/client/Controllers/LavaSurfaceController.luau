@@ -272,7 +272,7 @@ local function tickVent(v: Vent, dt: number, y: number, cameraPos: Vector3)
 		v.bubble.Size = Vector3.new(width, math.max(0.05,capHeight), width * 0.85)
 		v.bubble.CFrame = CFrame.new(v.x, y - capHeight*0.5 + swell*capHeight*0.72, v.z)
 			* CFrame.Angles(0,v.rotation,0)
-		v.bubble.Transparency = collapse
+		v.bubble.Transparency = if FX.ShowCrustBubble then collapse else 1
 	else
 		v.bubble.Transparency = 1
 	end
@@ -423,7 +423,13 @@ end
 local function updateAir(on: boolean, y: number, pos: Vector3)
 	local a = air
 	if not a then return end
-	local rise = if heightAllowed then AIR.MaxRise else FX.MinSurfaceY - y - AIR.CanalMargin
+	-- Sufit lotu liczony od fizycznej tafli (w kanale: pod jezdnią), start od grzbietu fali.
+	-- 12.11: wcześniej pudło stało 0,4 nad FIZYCZNĄ taflą, czyli między doliną a grzbietem fali
+	-- (zmierzone w Play: pudło 2,5–3,3, fala 1,5–3,6) — ciemny popiół rodził się pod grzbietami
+	-- i migał w dolinach („czarne przemiguje w najniższych punktach tafli”).
+	local ceiling = if heightAllowed then y + AIR.MaxRise else FX.MinSurfaceY - AIR.CanalMargin
+	local spawnY = math.max(y, if wave then wave:topY() or y else y)
+	local rise = ceiling - spawnY
 	if not on or rise < AIR.MinRise then
 		a.embers.Enabled = false
 		a.ash.Enabled = false
@@ -432,8 +438,7 @@ local function updateAir(on: boolean, y: number, pos: Vector3)
 	local h = AIR.HalfSize
 	local cx = if maxX - minX > h * 2 then math.clamp(pos.X, minX + h, maxX - h) else (minX + maxX) / 2
 	local cz = if maxZ - minZ > h * 2 then math.clamp(pos.Z, minZ + h, maxZ - h) else (minZ + maxZ) / 2
-	-- Fizyczna tafla, nie fala: przy fali start bywa o ~1 stud wyżej, a limit w kanale musi trzymać.
-	a.anchor.Position = Vector3.new(cx, y + AIR.Lift, cz)
+	a.anchor.Position = Vector3.new(cx, spawnY + AIR.Lift, cz)
 	local ramp = math.clamp((y - AIR.RampStartY) / (AIR.RampEndY - AIR.RampStartY), 0, 1)
 	a.embers.Rate = AIR.EmberRateMin + (AIR.EmberRateMax - AIR.EmberRateMin) * ramp
 	a.ash.Rate = AIR.AshRateMin + (AIR.AshRateMax - AIR.AshRateMin) * ramp
@@ -444,7 +449,7 @@ local function updateAir(on: boolean, y: number, pos: Vector3)
 		a.ash.Lifetime = NumberRange.new(travel / AIR.AshSpeedMax * 0.5, travel / AIR.AshSpeedMax)
 	end
 	a.embers.Enabled = true
-	a.ash.Enabled = true
+	a.ash.Enabled = AIR.AshRateMax > 0
 end
 
 -- GRAPHICS LOW / HIGH na żywo. Skupiska ponad limitem gasną od razu; nowe dochodzą w
@@ -488,7 +493,7 @@ local function update(dt: number)
 	local nearest = Vector3.new(math.clamp(pos.X,minX,maxX), y, math.clamp(pos.Z,minZ,maxZ))
 	local cameraSurfaceY = if wave then wave:surfaceY(pos.X,pos.Z) or y else y
 	local surfaceVisible = pos.Y >= math.max(physicalY,cameraSurfaceY) and (nearest - pos).Magnitude <= FX.Distance
-	local allowed = heightAllowed and surfaceVisible
+	local allowed = heightAllowed and surfaceVisible and FX.SurfaceEffects
 	-- The street-height gate prevents smoke crossing roads; the surface itself
 	-- must already deform in canals before the lava reaches street level.
 	if wave then wave:update(dt, surfaceVisible) end
@@ -508,7 +513,7 @@ local function update(dt: number)
 		end
 	end
 	updateGlow(dt, extras and allowed, y, pos)
-	updateAir(extras and surfaceVisible, y, pos)
+	updateAir(extras and surfaceVisible and FX.SurfaceEffects, y, pos)
 	local now = os.clock()
 	for _, layer in ipairs(layers) do
 		local t = layer.texture

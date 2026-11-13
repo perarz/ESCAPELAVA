@@ -19,6 +19,7 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local RoundSkipState = require(script.Parent.RoundSkipState)
 local ShopController = require(script.Parent.ShopController)
+local HudButtonFx = require(script.Parent.HudButtonFx)
 
 local RoundSkipController = {}
 
@@ -37,6 +38,7 @@ local function refresh()
 	if not btn then return end
 	btn.Visible = not onMap and not HIDDEN_STATES[gameState] and not ShopController.isOpen()
 		and player:GetAttribute("CosmeticsOpen") ~= true
+		and player:GetAttribute(Config.Skills.OpenAttribute) ~= true
 	local wants = RoundSkipState.wantsSkip()
 	local label = btn:FindFirstChild("Label")
 	if label and label:IsA("TextLabel") then
@@ -57,6 +59,7 @@ function RoundSkipController.init()
 	-- Listenery PRZED czekaniem na HUD (zasada 9).
 	RoundSkipState.onChanged(refresh)
 	player:GetAttributeChangedSignal("CosmeticsOpen"):Connect(refresh)
+	player:GetAttributeChangedSignal(Config.Skills.OpenAttribute):Connect(refresh)
 	ShopController.onOpenChanged(function() refresh() end)
 	Remotes.AliveChanged.OnClientEvent:Connect(function(isAlive: any)
 		onMap = isAlive == true
@@ -78,6 +81,7 @@ function RoundSkipController.init()
 		return
 	end
 	button = btn
+	HudButtonFx.skip(btn)
 	btn.Activated:Connect(function()
 		Remotes.SetSkipRound:FireServer(not RoundSkipState.wantsSkip())
 	end)

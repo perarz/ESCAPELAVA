@@ -37,6 +37,17 @@ local REMOTE_NAMES = {
 	"SetCosmetic",        -- client→server: (category: string, cosmeticId: string), "" = unequip; LOBBY only
 	"CosmeticsChanged",   -- FireClient: ({owned: {[id]: true}, equipped: {[category]: id}}), after load/ClientReady/change
 	"CosmeticResult",     -- FireClient: (success: boolean, action: "buy"|"equip", id: string, reason: string?)
+	"UnlockSkill",        -- klient→server: FireServer(nodeId: string) — zakup pola drzewka u maga
+	                      --   (09.11, SkillService). Walidacja: pole, odnoga odblokowana, pole
+	                      --   poprzednie, wymaganie, kasa, odległość do maga
+	"Rebirth",            -- klient→server: FireServer() bez payloadu — rebirth u maga; tylko gdy
+	                      --   kupione jest wszystko, co odblokowane. Zabiera samo drzewko
+	"SkillResult",        -- FireClient: (success: boolean, action: "unlock"|"rebirth", id: string, reason: string?)
+	                      --   `id` = pole przy "unlock", "" przy "rebirth". Zawsze PO SkillsChanged
+	"SkillsChanged",      -- FireClient: (owned: {string}, rebirths: number,
+	                      --     stats: { cycle: {kills, survived, played}, total: {kills, survived, played} })
+	                      --   po wczytaniu, ClientReady, zakupie, rebirthie i zmianie statystyk.
+	                      --   `cycle` = od ostatniego rebirthu (wymagania pól), `total` = od początku gry
 	"EquipItem",          -- klient→server: FireServer(itemId: string) — dispatch po itemId,
 	                      --   każdy service equipowalnego itemu słucha i reaguje na SWÓJ id
 	                      --   (bomb→BombService, bridge_builder→BridgeService), reszta chowa swoje
@@ -50,19 +61,27 @@ local REMOTE_NAMES = {
 	"BridgeResult",       -- FireClient: (success: boolean, reason: string?) — feedback build
 	"HeadAim",            -- klient→server: FireServer(yaw: number, pitch: number) — radianach, throttled ~10Hz
 	                      -- server→klient: FireClient(sourcePlayer: Player, yaw: number, pitch: number) — broadcast do innych
-	"RoundWon",           -- FireAllClients: (winners: {Player}, rewardPerPlayer: number) — „YOU SURVIVED! +X$” tylko u ocalałych (WinMessageController)
+	"RoundWon",           -- (winners: {Player}, reward: number) — „YOU SURVIVED! +X$” (WinMessageController).
+	                      --   09.11: FireClient do KAŻDEGO ocalałego z JEGO kwotą po mnożniku drzewka
+	                      --   (`winners` = on sam); bez ocalałych FireAllClients({}, 0)
 	"PlayerKilled",       -- FireClient(zabójca): (killer: Player, victim: Player, weapon: string, reward: number) — komunikat „YOU KILLED”
 	"AliveChanged",       -- FireClient: (isAlive: boolean) — server-side aliveSet zmiana (round spawn=true, death=false)
 	                      --   `true` idzie PO teleporcie na mapę (07.10) — RoundTransitionController
 	                      --   zdejmuje na nim ciemne przejście
 	"BombHit",            -- FireClient: (intensity: number 0..1) — trafiony wybuchem: screen shake + FOV punch
+	"FallImpact",         -- FireAllClients: (player: Player, damage: number 0..1, ground: Vector3) — 12.11,
+	                      --   upadek, który zranił: kurz/odłamki w `ground` u wszystkich w pobliżu,
+	                      --   czerwone krawędzie ekranu u `player` (FallImpactController)
 	"BlastFX",            -- FireAllClients: (blast: {
 	                      --     center: Vector3, radius: number, impulse: number, minT: number,
 	                      --     seed: number,
 	                      --     glass: {{cf: CFrame, size: Vector3, color: Color3}},
 	                      --     cuts: {{cf: CFrame, size: Vector3, lc: Vector3, seed: number,
 	                      --             hole: number, color: Color3, mat: Enum.Material,
-	                      --             var: string, tr: number}} })
+	                      --             var: string, tr: number}},
+	                      --     quiet: boolean? })
+	                      --   `quiet` (09.11, FORCE z drzewka): dziura bez wybuchu — sam pył i gruz,
+	                      --   bez ognia, fali, huku i wstrząsu.
 	                      --   Klienci renderują CAŁE VFX wybuchu lokalnie (ExplosionFXController)
 	                      --   + odłamki z seed, odłamki szyb i KAWAŁKI DZIUR (DebrisFXController).
 	                      --   `cuts` (v3, 2026-09-23): party pocięte przez wybuch — klient liczy

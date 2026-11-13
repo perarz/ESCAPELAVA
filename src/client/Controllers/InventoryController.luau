@@ -1011,7 +1011,8 @@ end
 local function setOpen(open: boolean)
 	if open == isOpen or not (panel and backdrop) then return end
 	-- W sklepie ekwipunku nie ma (23.10, Kacper) — panel wchodziłby na panel sklepu.
-	if open and (not LoadoutState.isLobby() or ShopController.isOpen() or Players.LocalPlayer:GetAttribute("CosmeticsOpen") == true) then return end
+	if open and (not LoadoutState.isLobby() or ShopController.isOpen() or Players.LocalPlayer:GetAttribute("CosmeticsOpen") == true
+		or Players.LocalPlayer:GetAttribute(Config.Skills.OpenAttribute) == true) then return end
 	isOpen = open
 	openToken += 1
 	local token = openToken
@@ -1228,6 +1229,7 @@ end
 local function updateButton()
 	if inventoryButton then
 		inventoryButton.Visible = LoadoutState.isLobby() and not ShopController.isOpen() and Players.LocalPlayer:GetAttribute("CosmeticsOpen") ~= true
+			and Players.LocalPlayer:GetAttribute(Config.Skills.OpenAttribute) ~= true
 	end
 end
 
@@ -1252,6 +1254,11 @@ function InventoryController.init()
 	initialized = true
 	Players.LocalPlayer:GetAttributeChangedSignal("CosmeticsOpen"):Connect(function()
 		if Players.LocalPlayer:GetAttribute("CosmeticsOpen") == true then setOpen(false) end
+		updateButton()
+	end)
+	-- Drzewko u maga (09.11): jak sklep i kosmetyki — przycisk znika, otwarty panel się zamyka.
+	Players.LocalPlayer:GetAttributeChangedSignal(Config.Skills.OpenAttribute):Connect(function()
+		if Players.LocalPlayer:GetAttribute(Config.Skills.OpenAttribute) == true then setOpen(false) end
 		updateButton()
 	end)
 

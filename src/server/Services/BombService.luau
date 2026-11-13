@@ -28,6 +28,7 @@ local ItemService = require(script.Parent.ItemService)
 local LoadoutService = require(script.Parent.LoadoutService)
 local PlayerService = require(script.Parent.PlayerService)
 local KillService = require(script.Parent.KillService)
+local SkillService = require(script.Parent.SkillService)
 local DestructionService = require(script.Parent.DestructionService)
 local AntiCheatService = require(script.Parent.AntiCheatService)
 local RagdollService = require(script.Parent.RagdollService)
@@ -283,7 +284,8 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 		end
 
 		-- 1. Damage server-side (klient nie może modyfikować HP — anti-cheat)
-		hum:TakeDamage(hum.MaxHealth * def.damagePercent * damageT)
+		-- TOUGHNESS (drzewko, 09.11) zmniejsza obrażenia OFIARY; odrzut i ragdoll bez zmian.
+		hum:TakeDamage(hum.MaxHealth * def.damagePercent * damageT * (1 - SkillService.getBonus(p, "tough")))
 
 		-- Okno bezkarności dla anti-cheata: za chwilę poleci 450 stud/s z naszej winy.
 		-- Bez tego detektor prędkości (mierzy realnie przebytą drogę) uznałby ofiarę

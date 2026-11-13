@@ -69,6 +69,7 @@ local LavaHeatController = require(script.Controllers.LavaHeatController)
 local LavaSurfaceController = require(script.Controllers.LavaSurfaceController)
 local LavaSwimController = require(script.Controllers.LavaSwimController)
 local LavaSplashController = require(script.Controllers.LavaSplashController)
+local FallImpactController = require(script.Controllers.FallImpactController)
 local TowerAmbienceController = require(script.Controllers.TowerAmbienceController)
 local HudScaleController = require(script.Controllers.HudScaleController)
 local TouchControlsController = require(script.Controllers.TouchControlsController)
@@ -86,6 +87,7 @@ local SpectateController = require(script.Controllers.SpectateController)
 local SettingsController = require(script.Controllers.SettingsController)
 local BarrierController = require(script.Controllers.BarrierController)
 local LobbyVisibilityController = require(script.Controllers.LobbyVisibilityController)
+local SkillTreeController = require(script.Controllers.SkillTreeController)
 
 -- KAŻDY KONTROLER W OSOBNYM WĄTKU (paczka 3, przegląd 29.09 B-1). Dawniej startowały po
 -- kolei, a kilka czekało na UI — kontroler nr 5 nie podpinał listenerów, dopóki nr 4 nie
@@ -130,6 +132,7 @@ start("LavaHeatController", LavaHeatController)
 start("LavaSurfaceController", LavaSurfaceController)
 start("LavaSwimController", LavaSwimController)
 start("LavaSplashController", LavaSplashController)
+start("FallImpactController", FallImpactController)
 start("TowerAmbienceController", TowerAmbienceController)
 start("HudScaleController", HudScaleController)
 start("TouchControlsController", TouchControlsController)
@@ -147,6 +150,8 @@ start("SpectateController", SpectateController)
 start("SettingsController", SettingsController)
 start("BarrierController", BarrierController)
 start("LobbyVisibilityController", LobbyVisibilityController)
+-- Drzewko u maga (09.11): listenery stanu stoją przed czekaniem na panel, więc przed `ClientReady`.
+start("SkillTreeController", SkillTreeController)
 
 -- Wszystkie listenery stoją — dopiero teraz serwer wysyła stan startowy (init.server).
 Remotes.ClientReady:FireServer()

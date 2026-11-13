@@ -390,6 +390,12 @@ function ShopFx.itemChanged(index: number, direction: number)
 	feedback("Switch")
 end
 
+-- Wibracja i dźwięk z `Config.Shop.Fx.Feedback` dla innych paneli (COSMETICS 09.11, „przyciski
+-- jak w sklepie”) — jeden zestaw haptyki zamiast drugiej kopii.
+function ShopFx.feedback(kind: string)
+	feedback(kind)
+end
+
 function ShopFx.setCanAfford(value: boolean)
 	canAfford = value
 end

@@ -1,6 +1,6 @@
 # Co zostało do release’u
 
-Aktualizacja: **06.11.2026**, dzień premiery wyznaczony przez Kacpra. Krótka kolejność na dziś: [STATUS](STATUS.md) → „06.11”. Stan implementacji i dowody: [STATUS](STATUS.md). Testy wykonuje Kacper według [TESTY](TESTY.md); samo napisanie/skompilowanie kodu nie zalicza testu.
+Aktualizacja: **13.11.2026** (termin 06.11 wyznaczony przez Kacpra **minął bez publikacji — potwierdził 13.11, że gra nie jest jeszcze opublikowana**; nowej daty brak). Lista poniżej nadal obowiązuje; kolejność z 06.11: [STATUS](STATUS.md) → „06.11”, stan bieżący na górze STATUS. Stan implementacji i dowody: [STATUS](STATUS.md). Testy wykonuje Kacper według [TESTY](TESTY.md); samo napisanie/skompilowanie kodu nie zalicza testu.
 
 ## Najpierw akceptacja obecnej gry
 
@@ -40,7 +40,7 @@ Sprzątanie starszej destrukcji poza budynkami: najpierw ustalić jej rzeczywist
 - [ ] Latarnie świecące pod ulicę i szkło aut/automatów/przystanku — odłożone decyzje wizualne.
 - [ ] Sklep: ocenić kadry po zmianach 23.10. **Marker haka nie jest wymagany**: `UseCameraMarkers = false`.
 
-Loadout, energy drink, RPG (strzał + wybuch + efekty/odrzut), kill message i win message są już zaimplementowane. **Rocket jump wycofany**, brak zadania „RPG etap 2 = rocket jump”. Kosmetyki/sklep skinów/daily rewards/monetyzacja to dalsze kierunki, nie dopisana automatycznie bramka publikacji.
+Loadout, energy drink, RPG (strzał + wybuch + efekty/odrzut), kill message i win message są już zaimplementowane. **Rocket jump wycofany**, brak zadania „RPG etap 2 = rocket jump”. Sklep kosmetyczny z garderobą jest wdrożony (nietestowany w Play — TESTY → „COSMETICS — aktualny test”); kolejne kosmetyki, sklep skinów, daily rewards i monetyzacja to dalsze kierunki, nie dopisana automatycznie bramka publikacji.
 
 ## Tuż przed publikacją
 

@@ -328,7 +328,10 @@ Config.Lava = {
 
 	-- Connected cosmetic mesh; disable to retain the original flat surface.
 	Waves = {
-		Enabled = true,
+		-- 12.11 WYŁĄCZONE (Kacper: „dalej czasem miga… tekstura ma zostać, resztę efektów wyjebać”):
+		-- siatka fali (EditableMesh) chwilami się nie rysowała i przez dziurę było widać to, co pod
+		-- lawą. Zostaje płyta lawy z teksturą i falowaniem całej tafli z serwera (`Lava.Wobble`).
+		Enabled = false,
 		Cells = 24,
 		Amplitude = 1.05,
 		Wavelength = 96,
@@ -345,6 +348,9 @@ Config.Lava = {
 	-- V5: fixed local pool, 8 vents on HIGH / 4 on LOW (`Config.Settings` → graphics).
 	-- Tylko LavaSurfaceController. Damage/Submerged/Swim są niezależne.
 	FX = {
+		-- 12.11: false = żadnych efektów na tafli (bąble, rdzenie, iskry, dym, łuna, popiół) — patrz
+		-- `Waves.Enabled`. Rozbryzg przy wpadnięciu (`Splash`) i widok spod tafli działają dalej.
+		SurfaceEffects = false,
 		MinSurfaceY = 9,
 		MinSurfaceHysteresis = 1.2,
 		Distance = 140,
@@ -371,6 +377,9 @@ Config.Lava = {
 		CycleMax = 6.8,
 		GrowFraction = 0.42,
 		PopFadeFraction = 0.08,
+		-- Kopuła skorupy przy ventach. 12.11 na chwilę wyłączona przez błędną diagnozę migania (winny
+		-- był asfalt w dołkach fali — LavaWaveMesh); przywrócona. false = sam błysk żaru i iskry.
+		ShowCrustBubble = true,
 		BubbleMin = 1.8,
 		BubbleMax = 5.2,
 		BubbleHeightRatio = 0.32,
@@ -438,7 +447,9 @@ Config.Lava = {
 		RampStartY = 2.5,    -- wysokość tafli = najmniej (start rundy)
 		RampEndY = 100,      -- wysokość tafli = najwięcej (najwyższy dach ~109)
 		EmberRateMin = 4, EmberRateMax = 28,   -- iskier/s w całym pudle
-		AshRateMin = 3, AshRateMax = 20,       -- płatków popiołu/s
+		-- 12.11 WYŁĄCZONY (0 = brak popiołu): ciemne płatki nad falą Kacper widział jako „czarne
+		-- miganie” na lawie; było 3 / 20. Iskry zostają.
+		AshRateMin = 0, AshRateMax = 0,        -- płatków popiołu/s
 		EmberSpeedMin = 2.5, EmberSpeedMax = 5,
 		AshSpeedMin = 0.6, AshSpeedMax = 1.4,
 		EmberColor = Color3.fromRGB(255, 105, 40),
@@ -499,7 +510,7 @@ Config.UI = {
 	-- ale 1200 daje ~20% większy render — kalibracja pod feel Kacpra (1440 było za małe).
 	ReferenceHeight = 1200,
 	-- ScreenGui skalowane tą samą regułą (HudScaleController). 18.10: + panel ekwipunku.
-	ScaledGuis = { "HUD", "Inventory", "ShopUI", "Settings" }, -- 21.10: + sklep; 26.10: + ustawienia
+	ScaledGuis = { "HUD", "Inventory", "ShopUI", "Settings", "SkillTree" }, -- 21.10: + sklep; 26.10: + ustawienia; 09.11: + drzewko
 	MinScale = 0.5,         -- safety: nie zmniejszaj HUD poniżej połowy (mikro-okna)
 	MaxScale = 2.0,         -- safety: nie rozdmuchuj powyżej 2× (ultra-tall porty)
 
@@ -776,9 +787,10 @@ Config.RoundTransition = {
 Config.Cash = {
 	-- Każda zebrana paczka cash daje Value$. Kacper zatwierdził 10$/pickup.
 	Value = 10,
-	-- Frakcja spawn pointów które się aktywują na rundę. 1.0 = wszystkie (10 z 10).
-	-- Zmniejsz jeśli rundy będą za bogate.
-	SpawnFraction = 1.0,
+	-- Frakcja spawn pointów które się aktywują na rundę. 1.0 = wszystkie.
+	-- 13.11 (Kacper): 50 markerów w CashSpawns, co rundę losowo 30 (0.6) — kasa za każdym
+	-- razem w innych miejscach. Zmniejsz, jeśli rundy będą za bogate.
+	SpawnFraction = 0.6,
 	-- Promień w stud w którym cash leci do gracza (magnet trigger).
 	MagnetRange = 8,
 	-- Czas trwania client-side animacji łuku pickup w sekundach. Dłuższy = bardziej
@@ -1208,6 +1220,47 @@ Config.FallDamage = {
 	-- nic"). Sonda liczy teraz PRZEBYTĄ DROGĘ, a „jedno lądowanie = jedna kara" wynika
 	-- ze struktury przejścia lot→ziemia, nie z licznika czasu.
 	Debug = false,            -- print przy każdym raniącym upadku (przydatne przy strojeniu liczb)
+
+	-- EFEKT LĄDOWANIA Z OBRAŻENIAMI (FallImpactController, 12.11, decyzje Kacpra: świat + ekran,
+	-- świat widzą wszyscy, siła skalowana obrażeniami). Serwer wysyła `FallImpact` tylko przy
+	-- upadku, który zranił. Siła = MinStrength + (1 − MinStrength) × ułamek obrażeń.
+	Impact = {
+		Distance = 160,       -- stud od kamery: dalej efekt w świecie się nie odpala
+		Pool = 4,             -- gotowe zestawy efektu, używane po kolei
+		MinStrength = 0.35,
+		LowBurstScale = 0.5,  -- GRAPHICS LOW: kurz i odłamki × tyle, bez fali na ziemi
+		-- Kurz: pierścień kłębów rozchodzący się płasko po ziemi (jak fala plusku lawy).
+		-- Kolor z podłogi (promień w dół od miejsca lądowania), przygaszony ku szarości.
+		DustDirections = 10,
+		DustPerDirection = 2,        -- przy pełnej sile
+		DustSpeed = 16,              -- stud/s na starcie; zasięg ≈ DustSpeed / DustDrag
+		DustDrag = 3.5,
+		DustLifetime = 1.1,
+		DustSizeStart = 1.2, DustSizeEnd = 4.5,
+		DustGrayMix = 0.45,          -- ile koloru podłogi ciągnąć ku DustColor
+		DustColor = Color3.fromRGB(150, 140, 128),
+		-- Odłamki: kwadraciki wyskakujące w górę i spadające (cząsteczki nie kolidują, więc czas
+		-- życia ≈ czas lotu do ziemi — nie przelatują przez podłogę).
+		ChunkBurst = 14,             -- przy pełnej sile
+		ChunkSpeedMin = 10, ChunkSpeedMax = 20,
+		ChunkGravity = 70,
+		ChunkLifetime = 0.5,
+		ChunkSize = 0.35,
+		ChunkDarken = 0.35,          -- odłamki ciemniejsze od kurzu
+		-- Fala: płaski pierścień na ziemi rozszerzający się do RingSize × siła.
+		RingSize = 14,
+		RingTime = 0.35,
+		RingColor = Color3.fromRGB(235, 225, 210),
+		-- Ekran poszkodowanego: `StarterGui.FallVignette` (kopia układu EnergyVignette, czerwone
+		-- krawędzie). Krawędzie rozbłyskują do (1 − siła × Peak) przezroczystości i gasną.
+		Vignette = {
+			GuiName = "FallVignette",
+			Color = Color3.fromRGB(190, 18, 18),
+			Peak = 0.85,      -- krycie krawędzi przy pełnej sile
+			Hold = 0.06,      -- s pełnego błysku
+			Fade = 0.75,      -- s wygaszania
+		},
+	},
 }
 
 -- DRABINY (08.10) — niższa prędkość potrzebna do złapania drabiny (LadderController). Zgłoszenie
@@ -1892,8 +1945,12 @@ Config.Shop = {
 		inventory_full = "INVENTORY FULL",
 		invalid_payload = "ERROR",
 		internal_error = "SERVER ERROR",
+		rebirth_required = "REBIRTH REQUIRED",
 	},
 	FailDefault = "PURCHASE FAILED",
+	-- Item z polem `requiresRebirth` (ItemDefinitions), gdy gracz ma za mało rebirthów: napis
+	-- na szarym BUY, %d = wymagany rebirth. Zakup i tak odrzuca ShopService.
+	RebirthLockText = "REBIRTH %d",
 	AutoCameraFill = 0.28,        -- jaką część wysokości ekranu ma zająć item (21.10: 0,45 → dalej)
 	AutoCameraMinDistance = 7,    -- stud — drobne itemy (puszka) nie wchodzą w obiektyw (było 4)
 	AutoCameraPitch = 12,         -- stopni z góry (0 = idealnie na wprost; 23.10: 8 → 12)
@@ -2983,74 +3040,390 @@ Config.Cosmetics = {
 	InteractDistance = 18,
 	RequestsPerSecond = 10,
 	Prices = { HalloweenPumpkin = 500, KevlarVest = 750, SchoolBackpack = 600 },
+	-- Przebieralnia ze sceną (wraca 10.11, v6c: klik w kartę przenosi do niej). Platforma ma
+	-- rzeczywistą pisownię `Decoriations`.
 	SceneName = "ClothesShopScene",
 	PlatformPath = { "Decoriations", "Platform", "platform" },
 	UI = {
-		Width = 1920, Height = 1080, ScreenMargin = 48,
-		PortraitWidth = 800, PortraitHeight = 1200,
-		Columns = 3, Gap = 28, RowHeight = 320, CardPadding = 24,
-		CatalogTop = 180, CatalogBottom = 82,
-		BalanceTop = 88, BalanceSafeTopPixels = 64,
-		LargeCards = { HalloweenPumpkin = true },
-		HoverTime = 0.16, HoverScale = 1.015,
+		-- v6c (10.11, Kacper): katalog = po lewej ramka z samą postacią (kasa nad nią), po prawej
+		-- karty przewijane we własnych granicach; klik w kartę przenosi do przebieralni ze sceną
+		-- (BUY / BACK). Wymiary w px przy wysokości ekranu `Height` (pion: szerokość `PortraitWidth`).
+		Width = 1920, Height = 1080, PortraitWidth = 800,
+		Margin = 48, Top = 180, HeaderY = 66, ColumnGap = 40, DressingWidth = 470, -- HeaderY: góra X i tytułu
+		PortraitDressingShare = 0.45, -- pion: ramka z postacią zajmuje taką część wysokości pod `Top`
+		-- Siatka kart w panelu: tyle kolumn, ile zmieści się kart nie węższych niż `MinCard` (2–4).
+		MinCard = 330, MinColumns = 2, MaxColumns = 4, CardAspect = 1.12, CardGap = 24, CardPadding = 20,
+		ScrollBar = 14, -- `Shelf.Items.ScrollBarThickness` w placu; karty go omijają
+		-- Karty COMING SOON na końcu sklepu (nie w garderobie): miejsce na przyszłe przedmioty.
+		PlaceholderCount = 9,
+		BalanceSafeTopPixels = 64, -- kasa poniżej przycisków Robloxa w lewym górnym rogu
+		-- Tabliczka ceny na karcie (`PriceRow.Plate`): miejsce na ikonkę kasy wystającą z lewego brzegu.
+		PricePlateIconRoom = 44, PricePlatePadding = 20,
+		-- 13.11: większa płyta ceny na karcie (wcześniej 52 px wysokości, napis 36, ikona 64);
+		-- `PlateNameReserve` zostawia miejsce na nią obok nazwy.
+		PlateHeight = 72, PlateTextSize = 50, PlateIconSize = 88, PlateIconRoom = 76, PlateNameReserve = 250,
+		-- Reakcja jak w sklepie broni (09.11); karty są duże, więc rosną słabiej.
+		HoverTime = Config.Shop.Fx.HoverTime, PressTime = Config.Shop.Fx.PressTime,
+		ButtonHoverScale = Config.Shop.Fx.HoverScale, ButtonPressScale = Config.Shop.Fx.PressScale,
+		CardHoverScale = 1.03, CardPressScale = 0.97,
+		-- Połysk BUY (`ActionButton.Surface.Sweep`), tylko gdy gracza stać; drganie BUY przy odmowie.
+		ShineInterval = Config.Shop.Fx.ShineInterval, ShineTime = Config.Shop.Fx.ShineTime,
+		ShineOffset = Config.Shop.Fx.ShineOffset,
+		ShakeDegrees = Config.Shop.Fx.ShakeDegrees, ShakeTime = Config.Shop.Fx.ShakeTime,
 		OpenTime = 0.22, OpenScale = 0.985,
-		BackdropTransparency = 0,
-		-- Catalog background (27.10): studs drift up like heat off the lava, the glow at the
-		-- bottom breathes. Slow on purpose — the cards are what the eye should follow.
-		BackdropDriftSpeed = 10, BackdropGlowPeriod = 5, BackdropGlowLift = 0.03,
-		BackdropGlowPeak = Color3.fromRGB(104, 38, 15),
+		-- „LED” (Kacper 10.11: „gradientowy stroke jak ledy przechodzące”): jasny pas obiega obrys
+		-- karty i ramki postaci. Stopnie na sekundę; wybrana karta szybciej. `LedBand` = szerokość
+		-- jasnego pasa (ułamek gradientu).
+		LedSpeed = 110, LedSelectedSpeed = 320, LedBand = 0.07,
+		-- Ozdoby z ui-resources: gwiazdki migają (okres w s), błysk przelatuje po karcie przy najechaniu.
+		StarsPeriod = 1.6, CardShineTime = 0.45,
+		-- Okrągły półton za przedmiotem (ui-resources „Halftone”, quelly; v6c): akcent rozjaśniony o ten
+		-- ułamek, bo w czystym kolorze rzadkości ginął na karcie tego samego koloru (zrzut z Edit 10.11).
+		HalftoneLighten = 0.3,
+		TagPadding = 36, -- plakietka rzadkości: szerokość = napis + zapas
+		-- Gradient plakietki: akcent u góry → ten ułamek akcentu u dołu. Bez białego połysku (Kacper 11.11:
+		-- „zielony/biały gradient brzydki, unikaj”) — kolor ma przechodzić w głęboki ton tego samego odcienia.
+		TagShade = 0.45,
 		RequestTimeout = 6,
-		CameraFov = 40, CameraDistance = 11, CameraHeight = 1,
-		StandYaw = -90,
+		-- Postać w ramce: kopia w ViewportFrame, obraca się sama po `FittingSpinDelay` s bez dotyku.
+		-- ViewShift: postać wyżej o ułamek swojej wysokości, bo dół ramki zajmuje nazwa i plakietka.
+		ViewFov = 30, ViewMargin = 1.15, ViewShift = 0.0, DragDegrees = 360,
+		-- Przebieralnia ze sceną (kamera na platformie, światło tylko lokalne).
+		CameraFov = 40, StandYaw = -90, BackdropTransparency = 0,
 		FittingFillOffset = Vector3.new(0, 2, -4),
 		FittingFillBrightness = 2, FittingFillRange = 16,
 		FittingFillColor = Color3.fromRGB(255, 242, 226),
-		DragDegrees = 360, FittingHeightFraction = 0.58, FittingFocusOffset = 0.04, FittingCameraLift = 1.0,
+		-- 12.11 (Kacper: „kamera trochę wyżej niż teraz, na wprost”): oko na wysokości środka postaci +
+		-- `FittingEyeOffset` × jej wysokość i patrzy poziomo (wcześniej +1 stud nad punktem i w dół).
+		FittingHeightFraction = 0.58, FittingEyeOffset = 0.25,
+		-- Kamera krąży lekko za myszą jak w sklepie broni (`Config.Shop.CameraParallax`), ale wyraźniej —
+		-- w przymierzalni nie ma przewijania itemów, ruch kamery jest jedyną animacją sceny.
+		FittingParallax = { YawDegrees = 4, PitchDegrees = 2.5, Rate = 5 },
+		FittingSpinSpeed = 20, FittingSpinDelay = 3,
+		-- Bezwładność obrotu po puszczeniu (13.11): tarcie 1/s (większe = szybciej staje), progi °/s.
+		SpinFriction = 2.6, SpinMaxVelocity = 900, SpinStopVelocity = 6, SpinHoldTime = 0.07,
 		CardAmbient = Color3.fromRGB(195, 195, 205),
 		CardLight = Color3.fromRGB(255, 245, 230),
 		CardLightDirection = Vector3.new(-1, -1, -2),
-		-- Cards show the item alone (27.10, item-shop look); the fitting room shows it worn.
+		-- Cards show the item alone (27.10, item-shop look); the frame on the left shows it worn.
 		CardFov = 30, CardDistanceFactor = 1.0,
 		CardFrontView = Vector3.new(0.55, 0.3, -1), CardBackView = Vector3.new(-0.55, 0.3, 1),
 		MannequinColor = Color3.fromRGB(188, 193, 210),
-		-- Large cards sway and spin their rays all the time; the rest only under the cursor.
+		-- Przedmiot na karcie kołysze się pod kursorem i na wybranej karcie; promienie się kręcą.
 		CardSwayDegrees = 22, CardSwaySpeed = 1.3, RaysSpeed = 14, SwayEase = 4,
-		FittingSpinSpeed = 20, FittingSpinDelay = 3,
 		CashCountTime = 0.45,
 		UnlockedPopTime = 0.35, UnlockedHold = 1.4, UnlockedFadeTime = 0.25, UnlockedRaysSpeed = 40,
-		-- The colour of a card says how special the item is (rarity), not which slot it uses.
+		-- Paleta v6 (10.11, Kacper: „lepsze palety”, czarne tło): karta = głęboki kolor rzadkości
+		-- (jasny u góry, prawie czarny u dołu), Accent = jeden jasny kolor tej rzadkości na promienie,
+		-- plakietkę, LED i półton w rogu. Dynia na nocnym fiolecie, bo pomarańcz na pomarańczu ginie.
+		-- Stars = migające gwiazdki z ui-resources (tylko rzadsze).
 		Rarities = {
-			Common = { Label = "COMMON", Text = Color3.fromRGB(210, 215, 225), Rays = Color3.new(1, 1, 1),
-				Fill = ColorSequence.new(Color3.fromRGB(190, 195, 205), Color3.fromRGB(80, 85, 98)) },
-			Rare = { Label = "RARE", Text = Color3.fromRGB(110, 200, 255), Rays = Color3.new(1, 1, 1),
-				Fill = ColorSequence.new(Color3.fromRGB(60, 180, 255), Color3.fromRGB(15, 60, 160)) },
-			Epic = { Label = "EPIC", Text = Color3.fromRGB(215, 150, 255), Rays = Color3.new(1, 1, 1),
-				Fill = ColorSequence.new(Color3.fromRGB(200, 110, 255), Color3.fromRGB(70, 20, 140)) },
-			Legendary = { Label = "LEGENDARY", Text = Color3.fromRGB(255, 215, 80), Rays = Color3.new(1, 1, 1),
-				Fill = ColorSequence.new(Color3.fromRGB(255, 205, 60), Color3.fromRGB(200, 80, 10)) },
-			-- Seasonal, not a step above Legendary: dark night card so the orange item pops.
-			Halloween = { Label = "HALLOWEEN", Text = Color3.fromRGB(255, 170, 70), Rays = Color3.fromRGB(255, 150, 40),
-				Fill = ColorSequence.new(Color3.fromRGB(105, 45, 165), Color3.fromRGB(32, 12, 58)) },
+			Common = { Label = "COMMON", Accent = Color3.fromRGB(196, 204, 220), Stars = false,
+				Fill = ColorSequence.new(Color3.fromRGB(62, 68, 84), Color3.fromRGB(20, 22, 28)) },
+			Rare = { Label = "RARE", Accent = Color3.fromRGB(70, 185, 255), Stars = false,
+				Fill = ColorSequence.new(Color3.fromRGB(20, 100, 215), Color3.fromRGB(6, 18, 52)) },
+			Epic = { Label = "EPIC", Accent = Color3.fromRGB(205, 115, 255), Stars = true,
+				Fill = ColorSequence.new(Color3.fromRGB(125, 40, 215), Color3.fromRGB(28, 8, 58)) },
+			Legendary = { Label = "LEGENDARY", Accent = Color3.fromRGB(255, 210, 60), Stars = true,
+				Fill = ColorSequence.new(Color3.fromRGB(215, 125, 10), Color3.fromRGB(58, 22, 0)) },
+			Halloween = { Label = "HALLOWEEN", Accent = Color3.fromRGB(255, 140, 30), Stars = true,
+				Fill = ColorSequence.new(Color3.fromRGB(95, 30, 145), Color3.fromRGB(20, 5, 32)) },
 		},
-		-- Same gradients as the weapon shop price/BUY, the X button and the yellow HUD counters.
+		-- Karta COMING SOON: szara, LED stoi.
+		Placeholder = { Label = "COMING SOON", Accent = Color3.fromRGB(110, 112, 128), Stars = false,
+			Fill = ColorSequence.new(Color3.fromRGB(40, 41, 50), Color3.fromRGB(14, 14, 18)) },
+		-- Napis pod nazwą zamiast tabliczki (Kacper 10.11).
+		StateColors = { Wearing = Color3.fromRGB(255, 215, 40), Owned = Color3.fromRGB(185, 192, 208) },
+		-- Same gradients as the weapon shop BUY, the X button and the yellow HUD counters.
 		Colors = {
-			Price = ColorSequence.new(Color3.fromRGB(70, 215, 95), Color3.fromRGB(10, 140, 52)),
-			Wearing = ColorSequence.new(Color3.fromRGB(255, 240, 33), Color3.fromRGB(255, 130, 0)),
-			Owned = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 190, 205)),
-			Buy = ColorSequence.new(Color3.fromRGB(70, 215, 95), Color3.fromRGB(10, 140, 52)),
+			-- 11.11: zielone bez bieli — jasna zieleń w głęboką (połysk `Shine` usunięty z placu).
+			-- 12.11 (Kacper: „popraw gradient” BUY i BACK): trzy przystanki, jasny pas tylko u samej góry,
+			-- środek nasycony, dół głęboki — przycisk ma bryłę bez białego połysku.
+			-- 13.11 (Kacper: dalej za jasno, „bez przejścia w biały”): najjaśniejszy przystanek to już
+			-- nasycona zieleń, nie miętowa; góra→dół tylko o ton ciemniej.
+			Buy = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(46, 196, 84)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(28, 152, 62)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 96, 40)),
+			}),
 			Equip = ColorSequence.new(Color3.fromRGB(255, 240, 33), Color3.fromRGB(255, 130, 0)),
 			Unequip = ColorSequence.new(Color3.fromRGB(255, 95, 80), Color3.fromRGB(200, 30, 25)),
 			Disabled = ColorSequence.new(Color3.fromRGB(140, 140, 150), Color3.fromRGB(80, 80, 92)),
+			-- BACK (12.11): ciemny fiolet jak ramka postaci, ten sam układ trzech przystanków co BUY.
+			Back = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(92, 66, 142)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(62, 42, 100)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(34, 22, 58)),
+			}),
+			PlatePrice = ColorSequence.new(Color3.fromRGB(60, 205, 85), Color3.fromRGB(6, 105, 40)),
+			-- Płyta ceny po najechaniu (BUY): jaśniejsza, ale nie biała.
+			PlateHover = ColorSequence.new(Color3.fromRGB(120, 245, 135), Color3.fromRGB(26, 160, 66)),
+			-- Cena w przebieralni (napis): cena / założone / posiadane.
+			Price = ColorSequence.new(Color3.fromRGB(70, 215, 95), Color3.fromRGB(10, 140, 52)),
+			Wearing = ColorSequence.new(Color3.fromRGB(255, 240, 33), Color3.fromRGB(255, 130, 0)),
+			Owned = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 190, 205)),
 		},
 	},
 }
 table.freeze(Config.Cosmetics.Prices)
 for _, rarity in pairs(Config.Cosmetics.UI.Rarities) do table.freeze(rarity) end
 table.freeze(Config.Cosmetics.UI.Rarities)
+table.freeze(Config.Cosmetics.UI.Placeholder)
+table.freeze(Config.Cosmetics.UI.StateColors)
+table.freeze(Config.Cosmetics.UI.FittingParallax)
 table.freeze(Config.Cosmetics.UI.Colors)
-table.freeze(Config.Cosmetics.UI.LargeCards)
 table.freeze(Config.Cosmetics.UI)
 table.freeze(Config.Cosmetics)
+
+-- DRZEWKO UMIEJĘTNOŚCI I REBIRTH U MAGA (09.11, plan i decyzje Kacpra: docs/SKILLS_PLAN.md).
+-- Pola, ceny, wymagania i nagrody rebirthów: SkillDefinitions. Tu: mag, limity, FORCE, kamera
+-- i animacje panelu. Serwer: SkillService + StatsService, klient: SkillTreeController + SkillTreeFx.
+Config.Skills = {
+	-- Mag: Workspace.<TowerModelName> → <MageName>, szukany rekurencyjnie (dziś
+	-- WizardTower.Interior.WizardRoom.TowerMage). Prompt tworzy SkillService, jeśli go nie ma.
+	TowerModelName = "WizardTower",
+	MageName = "TowerMage",
+	PromptName = "SkillTreePrompt",
+	PromptActionText = "Skills",
+	PromptObjectText = "Mage",
+	PromptMaxDistance = 12, -- mniejszy niż InteractDistance, jak w sklepie
+	InteractDistance = 18,  -- serwer: gracz ↔ mag przy zakupie pola i rebirthie (zasada 3)
+	RequestsPerSecond = 10, -- sufit na spam remote'ów, nie cooldown (zasada 4)
+	-- Klient: po tylu sekundach bez odpowiedzi panel przestaje czekać (serwer po cichu
+	-- odrzuca prośby ponad limit, więc odpowiedź może nie przyjść).
+	RequestTimeout = 6,
+
+	-- Atrybuty gracza pisane przez SERWER: bonus ruchu dla MovementController i liczba rebirthów
+	-- do wyświetlania. Limit anty-cheatu i obrażenia serwer liczy ze swojego stanu, nie z nich.
+	SpeedAttribute = "SkillSpeed",     -- ułamek, np. 0.1 = +10% chodu i sprintu
+	StaminaAttribute = "SkillStamina", -- ułamek maksymalnej staminy
+	RebirthsAttribute = "Rebirths",
+	-- Lokalny atrybut „panel otwarty”: chowa przyciski HUD i blokuje pozostałe panele.
+	OpenAttribute = "SkillTreeOpen",
+
+	-- Kasa na stałe za każdy rebirth; dodaje się do GREED. Mnoży nagrodę za przetrwanie i kill,
+	-- NIE pickupy. Bez limitu rebirthów suma rośnie bez końca (100. = +500%) — sufit to ta liczba.
+	RebirthCashBonus = 0.05,
+	RebirthCashBonusMax = math.huge,
+
+	-- FORCE: pchnięcie F wybija dziurę w ścianie mapy (PushService → DestructionService.detonate).
+	-- Kacper 09.11: „sam gruz i pył” — `quiet` wyłącza ogień, huk i wstrząs wybuchu.
+	-- Rozmiar dziury = radius × (1 − 100 / damage), nie mniej niż Destruction.Fracture.MinHoleRadius
+	-- (3,5 studa), więc radius nie może zejść poniżej 3,5. Poziom I ≈ dziura 7 studów, II ≈ 10.
+	Force = {
+		RayHeights = { 0, 1.5 }, -- stud nad środkiem HRP, jak szyby (Push.Glass.RayHeights)
+		Depth = 0.5,             -- środek dziury o tyle za powierzchnią ściany
+		GlassTie = 0.5,          -- szyba wygrywa ze ścianą, gdy jest najwyżej o tyle dalej (okno w murze)
+		Levels = {
+			{ radius = 4.5, damage = 150, impulse = 30, minImpulseT = 0.1, quiet = true },
+			{ radius = 8, damage = 250, impulse = 40, minImpulseT = 0.1, quiet = true },
+		},
+		DustCount = 16, -- cząsteczek pyłu w miejscu uderzenia (skalowane profilem grafiki)
+		SoundId = "",   -- "rbxassetid://…" — uderzenie w mur; ID poda Kacper
+	},
+
+	-- Kamera panelu (tylko u oglądającego): przed magiem, lekko z boku, mag po lewej stronie kadru.
+	Camera = {
+		Distance = 7.5,    -- stud od środka maga (pokój ma ~12 studów przed ladą)
+		Yaw = -18,         -- stopnie wokół maga względem jego „na wprost”
+		Height = 1.4,      -- kamera nad środkiem maga
+		LookHeight = 0.9,  -- punkt celowania nad środkiem maga
+		ShiftRight = 2.6,  -- stud w prawo kamery: mag ląduje w lewej części ekranu, panel po prawej
+		-- FOV zostaje z gry: MovementController pisze go co klatkę także przy kamerze skryptowej.
+		TweenTime = 0.55,
+		Parallax = { YawDegrees = 1.2, PitchDegrees = 0.8, Rate = 5 }, -- jak Shop.CameraParallax
+		-- Postacie graczy bliżej niż tyle od maga znikają z obrazu oglądającego (stałyby w kadrze).
+		HideRadius = 14,
+		HideRescan = 0.5,
+		-- Doświetlenie maga: przy wieży obraz jest przyciemniony (Ambience.Tower).
+		-- 12.11 (Kacper: „jasny fiolet → cieplejszy, ciemniejszy, dalej fioletowy”): ciepła śliwka
+		-- zamiast lawendy 226,205,255 / 1,6.
+		FillBrightness = 1.4,
+		FillRange = 18,
+		FillColor = Color3.fromRGB(190, 110, 165),
+	},
+
+	-- Układ drzewka w `Panel.Tree` (px projektu): korzeń na środku, odnogi promieniście co 60°
+	-- w kolejności SkillDefinitions.branchOrder, zgodnie z zegarem od StartAngle (0 = w prawo,
+	-- −90 = do góry). 10.11, podgląd w Edit: przy −90 / 140 / 255 pola prawie się stykały, a napis
+	-- pod dolną odnogą nie miał miejsca — sześciokąt „na płasko” wykorzystuje szerokość panelu.
+	Layout = {
+		Radius1 = 150,
+		Radius2 = 280,
+		StartAngle = -60,
+		LineThickness = 16,
+	},
+
+	-- Napisy panelu (po angielsku, jak reszta gry).
+	Texts = {
+		Title = "SKILL TREE",
+		Unlock = "UNLOCK",
+		Unlocked = "UNLOCKED!",
+		Owned = "OWNED",
+		NoCash = "NOT ENOUGH $",
+		Locked = "LOCKED",
+		NeedPrevious = "UNLOCK %s FIRST",
+		BranchLocked = "REBIRTH %d",
+		Requirements = { survived = "SURVIVE %d ROUNDS", played = "PLAY %d ROUNDS", kills = "GET %d KILLS" },
+		-- Na szarym przycisku, gdy brakuje wymagania: mam / trzeba.
+		RequirementShort = { survived = "%d/%d ROUNDS", played = "%d/%d ROUNDS", kills = "%d/%d KILLS" },
+		RebirthBadge = "REBIRTH %d",
+		Rebirth = "REBIRTH",
+		RebirthProgress = "REBIRTH %d/%d",
+		ConfirmTitle = "REBIRTH?",
+		ConfirmLose = "YOU LOSE: ALL SKILLS",
+		ConfirmKeep = "YOU KEEP: CASH, ITEMS, COSMETICS",
+		ConfirmGain = "YOU GET: +%d%% CASH FOREVER",
+		ConfirmBranch = "NEW BRANCH: %s",
+		ConfirmItem = "NEW ITEM IN SHOP",
+		RewardTitle = "REBIRTH %d",
+		RewardCash = "+%d%% CASH",
+		FailTexts = {
+			not_enough_cash = "NOT ENOUGH CASH",
+			requirement_not_met = "REQUIREMENT NOT MET",
+			too_far = "GET CLOSER TO THE MAGE",
+			already_owned = "ALREADY UNLOCKED",
+			missing_previous = "UNLOCK THE PREVIOUS SKILL",
+			branch_locked = "REBIRTH REQUIRED",
+			not_complete = "UNLOCK EVERYTHING FIRST",
+			data_not_ready = "TRY AGAIN IN A MOMENT",
+			character_unavailable = "TRY AGAIN IN A MOMENT",
+			mage_unavailable = "MAGE IS AWAY",
+			unknown_node = "ERROR",
+		},
+		FailDefault = "FAILED",
+	},
+
+	Colors = {
+		Circle = Color3.fromRGB(170, 110, 255),      -- magiczny krąg za drzewkiem (fiolet maga)
+		NodeLocked = Color3.fromRGB(78, 74, 86),
+		NodeAvailable = Color3.fromRGB(44, 40, 52),
+		IconLocked = Color3.fromRGB(150, 146, 158),
+		GlowOwned = Color3.fromRGB(255, 215, 90),    -- złota poświata kupionego pola
+		LineLocked = Color3.fromRGB(58, 54, 64),
+		LineAvailable = Color3.fromRGB(120, 115, 125),
+		Missing = Color3.fromRGB(235, 70, 60),       -- mignięcie tego, czego brakuje
+		StatusOk = Color3.fromRGB(120, 220, 120),
+		StatusFail = Color3.fromRGB(235, 90, 80),
+		StatusWait = Color3.fromRGB(210, 210, 215),
+		Unlock = { Color3.fromRGB(70, 215, 95), Color3.fromRGB(10, 140, 52) },        -- jak BUY
+		Disabled = { Color3.fromRGB(120, 115, 125), Color3.fromRGB(70, 66, 76) },
+		Rebirth = { Color3.fromRGB(255, 190, 40), Color3.fromRGB(225, 60, 15) },      -- lawa
+	},
+
+	-- Mikroanimacje panelu (SkillTreeFx, wzór: Shop.Fx). Czasy w sekundach, px = px projektu.
+	Fx = {
+		-- Wjazd z prawej i szybki zjazd. PanelHiddenOffset = o ile px panel jest schowany za krawędzią.
+		PanelHiddenOffset = 980,
+		PanelOpenTime = 0.36,
+		PanelCloseTime = 0.14,
+		-- Kaskada pól od korzenia: start, odstęp na poziom i na odnogę; linie rysują się za polami.
+		CascadeDelay = 0.16,
+		CascadeLevelStagger = 0.11,
+		CascadeBranchStagger = 0.025,
+		NodePopFrom = 0,
+		NodePopTime = 0.3,
+		LineDrawTime = 0.2,
+		-- Spoczynek (tylko przy otwartym panelu).
+		CircleSpinTime = 80,      -- s na pełny obrót kręgu
+		CircleTransparency = 0,   -- obraz kręgu sam jest bardzo blady (alfa do ~10%)
+		RingBreathTime = 1.1,
+		RingTransparency = { 0.1, 0.55 },
+		RingScale = { 1.0, 1.08 },
+		GlowPulseTime = 1.6,
+		GlowTransparency = { 0.35, 0.65 },
+		LavaFlowTime = 2.4,       -- s na jeden przepływ połysku lawy w połączeniu
+		SelectorSpinTime = 2.2,
+		-- Najechanie i klik pola / przycisków.
+		HoverScale = 1.1,
+		HoverTime = 0.14,
+		HoverTilt = 8,            -- stopnie przechyłu ikony
+		PressScale = 0.9,
+		PressTime = 0.07,
+		ButtonHoverScale = 1.06,
+		-- Wybór pola: łuk wskakuje, nazwa wjeżdża, pasek rośnie, licznik odlicza.
+		SelectorPopFrom = 0.6,
+		SelectorPopTime = 0.24,
+		NameSlide = 26,
+		TextTime = 0.22,
+		BarTime = 0.45,
+		CountTime = 0.45,
+		PricePopFrom = 0.8,
+		PricePopTime = 0.26,
+		WaitDotTime = 0.18,       -- krok kropek „...” podczas czekania na serwer
+		-- Zakup.
+		BuySquash = 0.7,
+		BuyPopTime = 0.42,
+		ColorTime = 0.3,
+		LineFillTime = 0.35,
+		RaysPopTime = 0.3,
+		RaysHold = 0.5,
+		RaysFadeTime = 0.3,
+		RaysSpin = 60,            -- stopnie na sekundę
+		LockDropTime = 0.45,
+		LockDrop = 46,            -- px w dół
+		LockSpin = 35,            -- stopnie
+		-- Odmowa.
+		ShakeDegrees = 5,
+		ShakeTime = 0.06,
+		FlashTime = 0.12,
+		FlashRepeats = 2,
+		-- Napis pod UNLOCK.
+		StatusPopFrom = 0.7,
+		StatusPopTime = 0.22,
+		StatusHold = 2.5,
+		-- REBIRTH: przycisk pulsuje, gdy dostępny; błyskawice migają.
+		RebirthPulseInterval = 3.5,
+		RebirthPulseScale = 1.06,
+		RebirthPulseTime = 0.45,
+		LightningFlickerTime = 0.09,
+		LightningTransparency = { 0.05, 0.6 },
+		ConfirmPopFrom = 0.7,
+		ConfirmPopTime = 0.26,
+		ConfirmDim = 0.4,
+		-- Sekwencja po rebirthie: pola gasną od końców do korzenia, krąg przyspiesza, nagroda wyskakuje.
+		ResetStagger = 0.07,
+		ResetFadeTime = 0.22,
+		CircleBurstTime = 1.1,
+		CircleBurstTurns = 1.5,
+		RewardDelay = 0.35,       -- po zgaśnięciu ostatniego pola
+		RewardPopFrom = 0.5,
+		RewardPopTime = 0.35,
+		RewardHold = 2.2,
+		RewardFadeTime = 0.25,
+		BadgePopFrom = 1.5,
+		BadgePopTime = 0.4,
+		-- Błysk przy magu po rebirthie (lokalne cząsteczki, bez kolizji i promieni).
+		MageBurstCount = 45,
+		MageBurstColor = Color3.fromRGB(190, 130, 255),
+		-- Wibracje i dźwięki: te same co w sklepie (`ShopFx.feedback`, Config.Shop.Fx.Feedback) —
+		-- jeden zestaw haptyki dla wszystkich paneli, puste pola dźwięków uzupełnia Kacper tam.
+	},
+	CloseKey = Enum.KeyCode.Q, -- jak sklep: NIE Escape (otwiera menu Robloxa)
+}
+table.freeze(Config.Skills.Force.RayHeights)
+for _, level in ipairs(Config.Skills.Force.Levels) do table.freeze(level) end
+table.freeze(Config.Skills.Force.Levels)
+table.freeze(Config.Skills.Force)
+table.freeze(Config.Skills.Camera.Parallax)
+table.freeze(Config.Skills.Camera)
+table.freeze(Config.Skills.Layout)
+table.freeze(Config.Skills.Texts.Requirements)
+table.freeze(Config.Skills.Texts.RequirementShort)
+table.freeze(Config.Skills.Texts.FailTexts)
+table.freeze(Config.Skills.Texts)
+table.freeze(Config.Skills.Colors)
+table.freeze(Config.Skills.Fx)
+table.freeze(Config.Skills)
+-- Mikro-animacje przycisków HUD (13.11): COSMETICS rośnie jak INVENTORY, SKIP ROUND i SPECTATE mają
+-- własne ruchy ikon (`HudButtonFx`). Czasy w sekundach, przesunięcia w px układu przycisku.
+Config.HudButtonFx = {
+	HoverScale = 1.07, HoverTime = 0.14, PressScale = 0.93, PressTime = 0.07, PopTime = 0.25,
+	SkipHoverNudge = 6, SkipClickNudge = 14, SkipIdleNudge = 8, SkipNudgeTime = 0.16, SkipClickTime = 0.3,
+	SkipIdleEvery = 4.5, -- s: co tyle ikona SKIP szturcha sama
+	EyeRadius = 8, EyeFollowRate = 14, EyeBlinkTime = 0.07, EyeIdleBlinkMin = 3, EyeIdleBlinkMax = 6,
+}
+table.freeze(Config.HudButtonFx)
 table.freeze(Config)
 
 return Config

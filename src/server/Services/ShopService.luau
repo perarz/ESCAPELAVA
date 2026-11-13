@@ -13,6 +13,7 @@
 -- Walidacje (każda failure → ShopResult z reason):
 --   1. itemId to string i istnieje w ItemDefinitions
 --   2. gracz jest przy NPC (Config.Shop.InteractDistance)
+--   2b. item z rebirthu: gracz ma dość rebirthów (ItemDefinitions.requiresRebirth)
 --   3. gracz ma kasę
 --   4. atomowo: give → spend (z undo gdy spend padnie)
 --
@@ -33,6 +34,7 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local CashService = require(script.Parent.CashService)
 local ItemService = require(script.Parent.ItemService)
 local LoadoutService = require(script.Parent.LoadoutService)
+local SkillService = require(script.Parent.SkillService)
 
 local ShopService = {}
 
@@ -173,6 +175,13 @@ local function buy(player: Player, itemId: any): (boolean, string?)
 
 	if not nearShop(player) then
 		return false, "too_far"
+	end
+
+	-- Item z rebirthu (09.11, pole `requiresRebirth`): do kupienia dopiero od tego rebirthu.
+	-- Liczba rebirthów ze stanu serwera; kupione sztuki zostają po kolejnych rebirthach.
+	local needsRebirth = (def :: any).requiresRebirth
+	if type(needsRebirth) == "number" and SkillService.getRebirths(player) < needsRebirth then
+		return false, "rebirth_required"
 	end
 
 	-- Kasa sprawdzona server-side (klient nigdy nie decyduje).

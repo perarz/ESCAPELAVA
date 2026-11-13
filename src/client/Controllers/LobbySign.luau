@@ -20,29 +20,32 @@ local LobbySign = {}
 
 local KEYS = 7
 
--- `palette` zapętlona: ostatni kolor przechodzi w pierwszy; `speed` = cykli palety na sekundę,
--- `span` = cykli na szerokość.
+-- Gradient z zapętlonej palety w chwili `phase` (cykle palety). `palette`: ostatni kolor przechodzi
+-- w pierwszy; `span` = cykli na szerokość; `dim` (domyślnie 1) przyciemnia — tło COSMETICS (09.11)
+-- płynie tą samą paletą co napis nad sprzedawcą, tylko ciemniej.
+function LobbySign.sequence(palette: { Color3 }, span: number, phase: number, dim: number?): ColorSequence
+	local n = #palette
+	local d = dim or 1
+	local keys = table.create(KEYS)
+	for k = 0, KEYS - 1 do
+		local x = k / (KEYS - 1)
+		local u = ((x * span - phase) % 1) * n
+		local i = math.floor(u)
+		local c = palette[i + 1]:Lerp(palette[(i + 1) % n + 1], u - i)
+		keys[k + 1] = ColorSequenceKeypoint.new(x, Color3.new(c.R * d, c.G * d, c.B * d))
+	end
+	return ColorSequence.new(keys)
+end
+
+-- `speed` = cykli palety na sekundę, `span` = cykli na szerokość.
 function LobbySign.start(sign: BillboardGui, grad: UIGradient, palette: { Color3 }, speed: number, span: number)
 	local adornee = sign.Adornee or sign.Parent
 	if not (adornee and adornee:IsA("BasePart")) then return end
-	local n = #palette
-	local function sample(u: number): Color3
-		local x = (u % 1) * n
-		local i = math.floor(x)
-		local a, b = palette[i + 1], palette[(i + 1) % n + 1]
-		return a:Lerp(b, x - i)
-	end
 	RunService.Heartbeat:Connect(function()
 		local cam = Workspace.CurrentCamera
 		if not cam or not sign.Enabled then return end
 		if (cam.CFrame.Position - adornee.Position).Magnitude > sign.MaxDistance + 10 then return end
-		local phase = os.clock() * speed
-		local keys = table.create(KEYS)
-		for k = 0, KEYS - 1 do
-			local x = k / (KEYS - 1)
-			keys[k + 1] = ColorSequenceKeypoint.new(x, sample(x * span - phase))
-		end
-		grad.Color = ColorSequence.new(keys)
+		grad.Color = LobbySign.sequence(palette, span, os.clock() * speed)
 	end)
 end
 

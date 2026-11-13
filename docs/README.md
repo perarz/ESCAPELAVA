@@ -1,6 +1,6 @@
 # ESCAPE LAVA — mapa kontekstu
 
-Aktualizacja: **06.11.2026**. Punkt wznowienia: [STATUS](STATUS.md) → „06.11”. Repo zawiera kod i dokumentację; mapa, modele i większość UI żyją w placu Roblox Studio. Sam `rojo build` nie odtworzy pełnej gry z assetami.
+Aktualizacja: **13.11.2026**. Punkt wznowienia: [STATUS](STATUS.md) → góra pliku („Stan na 13.11”); sekcja „06.11” to stan sprzed terminu premiery, który minął (gra nie jest jeszcze opublikowana — Kacper 13.11). Repo zawiera kod i dokumentację; mapa, modele i większość UI żyją w placu Roblox Studio. Sam `rojo build` nie odtworzy pełnej gry z assetami.
 
 | Potrzeba | Dokument |
 |---|---|
@@ -16,8 +16,8 @@ Aktualizacja: **06.11.2026**. Punkt wznowienia: [STATUS](STATUS.md) → „06.11
 | Audyt z 29.09 i stan paczek | [REVIEW_2026-09-29.md](REVIEW_2026-09-29.md) |
 | Wygląd UI / gesty itemów | [UI_RULES.md](UI_RULES.md) / [ITEM_EQUIP_PLAN.md](ITEM_EQUIP_PLAN.md) |
 | Pomysły na akcesoria | [AKCESORIA_PROMPTY.md](AKCESORIA_PROMPTY.md) — briefy, nie gotowy system kosmetyków |
-| Plan sklepu i garderoby COSMETICS | [COSMETICS_PLAN.md](COSMETICS_PLAN.md) — uzgodnienia 26.10, dostępne modele i otwarte decyzje; etap planowania |
-| Drzewko umiejętności i rebirth u maga | [SKILLS_PLAN.md](SKILLS_PLAN.md) — decyzje 08–09.11, liczby i nagrody do akceptacji, wygląd z mikroanimacjami, architektura i brief dla agenta wykonawczego (miejsca w kodzie, mag w placu, ID zasobów, testy); kodu jeszcze nie ma |
+| Plan sklepu i garderoby COSMETICS | [COSMETICS_PLAN.md](COSMETICS_PLAN.md) — uzgodnienia 26.10 i ich uzasadnienia; **wdrożone**, bieżący stan w STATUS → „COSMETICS — stan bieżący”; zastąpione wersje UI v4–v6e w [archiwum](archive/2026-11-13/COSMETICS_STATUS_v4-v6e.md) |
+| Drzewko umiejętności i rebirth u maga | [SKILLS_PLAN.md](SKILLS_PLAN.md) — decyzje 08–09.11 i ich uzasadnienia, liczby, wygląd z mikroanimacjami, architektura; wdrożone 09–10.11 (stan w STATUS, liczby w `SkillDefinitions` i `Config.Skills`) |
 | Historia / wynik porządków | [HISTORY.md](HISTORY.md) / [CONTEXT_AUDIT_2026-10-23.md](CONTEXT_AUDIT_2026-10-23.md) |
 | Pełny przegląd kodu 25–26.10 | [CODE_REVIEW_2026-10-26.md](CODE_REVIEW_2026-10-26.md) — poprawki, pokrycie, ograniczenia i dalsze usprawnienia |
 

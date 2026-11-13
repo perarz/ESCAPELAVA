@@ -55,6 +55,21 @@ local REPLICATE_INTERVAL = 1 / CFG_HT.ReplicateHz
 local localPlayer = Players.LocalPlayer
 local initialized = false
 
+-- Drzewko umiejętności (09.11): bonusy ruchu przychodzą jako atrybuty gracza pisane przez
+-- serwer (SkillService). Tu tylko je stosujemy; limit prędkości serwer liczy ze swojego stanu,
+-- więc podbicie atrybutu u siebie kończy się karą anty-cheatu, nie szybszym biegiem.
+local CFG_SKILLS = Config.Skills
+
+local function skillBonus(attribute: string): number
+	local value = localPlayer:GetAttribute(attribute)
+	return if type(value) == "number" and value > 0 and value < 10 then value else 0
+end
+
+-- Jedyne miejsce, które zna maksymalną staminę (baza z Config × STAMINA z drzewka).
+local function maxStamina(): number
+	return CFG_STAM.Max * (1 + skillBonus(CFG_SKILLS.StaminaAttribute))
+end
+
 -- Per-character state (reset on każdy CharacterAdded)
 local currentCharacter: Model? = nil
 local currentHumanoid: Humanoid? = nil
@@ -615,7 +630,7 @@ local function updateStaminaBar(dt: number)
 		end
 	end
 
-	local frac = math.clamp(currentStamina / CFG_STAM.Max, 0, 1)
+	local frac = math.clamp(currentStamina / maxStamina(), 0, 1)
 
 	-- Widoczny WYŁĄCZNIE przy sprincie albo gdy stamina się odbudowuje (< max).
 	-- `activeSprintNow` łapie pierwszą klatkę biegu, zanim stamina zdąży spaść.
@@ -742,7 +757,7 @@ local function updateLoop(dt: number)
 	-- puszczać i wciskać klawisza drugi raz.
 	local energy, endsIn = readEnergy()
 	if energy and not energyNow then
-		currentStamina = CFG_STAM.Max
+		currentStamina = maxStamina()
 		if exhausted then
 			exhausted = false
 			if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or touchSprintHeld then
@@ -757,6 +772,11 @@ local function updateLoop(dt: number)
 	activeSprintNow = activeSprint
 
 	-- Stamina drain / regen
+	-- Maksimum może spaść w trakcie gry (rebirth zdejmuje STAMINA) — nadmiar znika od razu.
+	local staminaCap = maxStamina()
+	if currentStamina > staminaCap then
+		currentStamina = staminaCap
+	end
 	if activeSprint then
 		if not energyNow then
 			currentStamina = math.max(0, currentStamina - CFG_STAM.DrainRate * dt)
@@ -773,7 +793,7 @@ local function updateLoop(dt: number)
 		-- WAŻNE: regen działa też podczas ragdoll'u (CLAUDE.md zasada 11) — gracz leży,
 		-- odzyskuje siłę. Inaczej ragdoll = double-kara (zostałeś rzucony + nie regeneuje).
 		if os.clock() - lastSprintActiveTime >= CFG_STAM.RegenDelay then
-			currentStamina = math.min(CFG_STAM.Max, currentStamina + CFG_STAM.RegenRate * dt)
+			currentStamina = math.min(staminaCap, currentStamina + CFG_STAM.RegenRate * dt)
 		end
 		-- Re-enable sprint po wyczerpaniu (musi naładować do MinToResume).
 		if exhausted and currentStamina >= CFG_STAM.MinToResume then
@@ -784,8 +804,11 @@ local function updateLoop(dt: number)
 	-- WalkSpeed lerp (framerate-independent). alpha = dt/lerpTime z clampem.
 	-- Snap do target gdy bardzo blisko (uniknięcie infinitesimal residuum).
 	-- Energy drink: szybszy chód i sprint (01.11; limit sprintu zna AntiCheatService).
-	local walk = CFG.WalkSpeed + (if energyNow then CFG_ENERGY.WalkBonus else 0)
-	local sprint = CFG.SprintSpeed + (if energyNow then CFG_ENERGY.SprintBonus else 0)
+	-- Drzewko (09.11): SPEED mnoży bazę, napój dodaje swoje na wierzch (sumują się —
+	-- AntiCheatService liczy limit tym samym wzorem).
+	local skillSpeed = 1 + skillBonus(CFG_SKILLS.SpeedAttribute)
+	local walk = CFG.WalkSpeed * skillSpeed + (if energyNow then CFG_ENERGY.WalkBonus else 0)
+	local sprint = CFG.SprintSpeed * skillSpeed + (if energyNow then CFG_ENERGY.SprintBonus else 0)
 	local targetSpeed = (if activeSprint then sprint else walk) * speedFactor()
 		* (if aimProfile then aimProfile.WalkFactor else 1)
 	local alpha = math.clamp(dt / CFG.SpeedLerpTime, 0, 1)
@@ -1109,7 +1132,7 @@ local function onCharacterAdded(character: Model)
 	currentHumanoid = if humanoid and humanoid:IsA("Humanoid") then humanoid else nil
 
 	-- Fresh respawn = pełna stamina, czysty stan sprintu, FOV do bazy, camera effects reset.
-	currentStamina = CFG_STAM.Max
+	currentStamina = maxStamina()
 	isSprintingHeld = false
 	exhausted = false
 	energyNow = false

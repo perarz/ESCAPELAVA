@@ -130,6 +130,15 @@ function Wave:surfaceY(x: number, z: number): number?
 	return part.CFrame:PointToWorldSpace(Vector3.new(localPoint.X,y,localPoint.Z)).Y
 end
 
+-- Najwyższy możliwy punkt widocznej fali (grzbiet) albo nil, gdy fala nie jest pokazana.
+-- 12.11: cząsteczki „nad taflą” muszą startować NAD tym — urodzone niżej siedzą pod grzbietem
+-- i wychodzą tylko w dolinach (Kacper: „w najniższych punktach tafli czarne przemiguje”).
+function Wave:topY(): number?
+	local part = self.part
+	if not part or not self.hidden then return nil end
+	return part.Position.Y + self.cfg.Amplitude
+end
+
 function Wave:update(dt: number, allowed: boolean)
 	if self.dead then return end
 	if not self.source.Parent or self.source.Size ~= self.size then self:Destroy(); return end
@@ -144,7 +153,10 @@ function Wave:update(dt: number, allowed: boolean)
 	local p,source = self.part,self.source
 	local baseY = source:GetAttribute("LavaVisualBaseY")
 	if typeof(baseY) ~= "number" then baseY = source.Position.Y + source.Size.Y/2 end
-	p.CFrame = source.CFrame.Rotation + Vector3.new(source.Position.X,baseY,source.Position.Z)
+	-- 12.11 (Kacper, decyzja „fala nad lawą”): dołki fali na wysokości prawdziwej lawy, grzbiety
+	-- wyżej. Wcześniej fala była wyśrodkowana na tafli i dołki schodziły ~1 stud POD nią — gdy lawa
+	-- mijała ulicę (8,8), czarny asfalt migał w dołkach („czarne w najniższych punktach”).
+	p.CFrame = source.CFrame.Rotation + Vector3.new(source.Position.X,baseY + self.cfg.Amplitude,source.Position.Z)
 	p.Material = source.Material
 	p.MaterialVariant = source.MaterialVariant
 	p.Color = source.Color

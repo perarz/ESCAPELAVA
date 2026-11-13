@@ -243,6 +243,17 @@ function PlayerService.getAliveList(): { Player }
 	return list
 end
 
+-- Kto dostał spawn na mapę w tej rundzie (bez pomijających i dołączających) — kopia tylko do
+-- odczytu, dla statystyki „rozegrane rundy” (StatsService przez RewardsService, 09.11). Ważna
+-- do powrotu do lobby; kto wyszedł z gry w trakcie rundy, już na niej nie jest.
+function PlayerService.getRoundPlayers(): { Player }
+	local list: { Player } = {}
+	for p in pairs(roundPlayers) do
+		table.insert(list, p)
+	end
+	return list
+end
+
 local function disconnectDied(player: Player)
 	local conn = diedConns[player]
 	if conn then

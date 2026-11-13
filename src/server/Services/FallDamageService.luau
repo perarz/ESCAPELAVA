@@ -49,6 +49,7 @@ local GameLoopService = require(script.Parent.GameLoopService)
 local PlayerService = require(script.Parent.PlayerService)
 local RagdollService = require(script.Parent.RagdollService)
 local LavaService = require(script.Parent.LavaService)
+local SkillService = require(script.Parent.SkillService)
 
 local FallDamageService = {}
 
@@ -147,7 +148,7 @@ local function ragdollThreshold(): number
 	return CFG.SafeHeight * CFG.RagdollHeightMultiplier
 end
 
-local function applyFall(player: Player, hum: Humanoid, hrp: BasePart, drop: number, alreadyRagdolled: boolean)
+local function applyFall(player: Player, hum: Humanoid, hrp: BasePart, drop: number, groundY: number, alreadyRagdolled: boolean)
 	-- Termin wstawania ustawiamy PRZED progiem obrażeń: gracz wywrócony w locie mógł
 	-- wylądować wyżej, niż zapowiadała prognoza (zdryfował na półkę), i wtedy upadek jest
 	-- nieszkodliwy, ale ragdoll już trwa. Bez tego leżałby do bezpiecznika 8 s.
@@ -159,12 +160,22 @@ local function applyFall(player: Player, hum: Humanoid, hrp: BasePart, drop: num
 
 	local span = math.max(1, CFG.LethalHeight - CFG.SafeHeight)
 	local t = math.clamp((drop - CFG.SafeHeight) / span, 0, 1)
+	-- TOUGHNESS (drzewko, 09.11) zmniejsza tylko upadek PONIŻEJ śmiertelnego. Przy t = 1
+	-- nic się nie zmienia: ze śmiertelnej wysokości dalej się ginie (decyzja z planu).
+	if t < 1 then
+		t *= 1 - SkillService.getBonus(player, "tough")
+	end
 	hum:TakeDamage(hum.MaxHealth * t)
 
 	-- Feedback reużywa `BombHit` zamiast nowego Remote'a: klient ma na nim wstrząs ekranu
 	-- i szarpnięcie FOV skalowane siłą, a DebrisService (przygniecenie gruzem) robi
 	-- dokładnie to samo. Jeden kontrakt mniej do utrzymania.
 	Remotes.BombHit:FireClient(player, t)
+	-- Widoczny efekt lądowania (12.11): kurz i odłamki u wszystkich w pobliżu, czerwone
+	-- krawędzie ekranu u poszkodowanego. Tylko upadki, które zraniły, więc najwyżej kilka
+	-- sygnałów na rundę na gracza; cull odległością robi klient.
+	local pos = hrp.Position
+	Remotes.FallImpact:FireAllClients(player, t, Vector3.new(pos.X, groundY, pos.Z))
 
 	-- Ragdoll przy samym lądowaniu tylko wtedy, gdy nie poleciał już w locie (upadek tuż
 	-- nad progiem) i tylko gdy gracz PRZEŻYŁ: martwym zajmuje się PlayerService.onDeath,
@@ -274,7 +285,7 @@ local function tick(dt: number)
 			track.ragdollFired = false
 
 			if qualifies then
-				applyFall(player, hum, hrp, drop, wasRagdolled)
+				applyFall(player, hum, hrp, drop, groundY :: number, wasRagdolled)
 			end
 		else
 			if not track.airborne then

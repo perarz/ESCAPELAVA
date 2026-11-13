@@ -16,6 +16,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local CashService = require(script.Parent.CashService)
+local SkillService = require(script.Parent.SkillService)
+local StatsService = require(script.Parent.StatsService)
 
 local KillService = {}
 
@@ -52,9 +54,12 @@ function KillService.processDeath(victim: Player, hum: Humanoid)
 
 	local weapon = hum:GetAttribute("KillWeapon")
 	local weaponStr = type(weapon) == "string" and weapon or "unknown"
-	local reward = Config.Rewards.Kill
+	-- Drzewko (09.11): GREED i rebirthy mnożą nagrodę; komunikat pokazuje kwotę po mnożniku.
+	local reward = math.round(Config.Rewards.Kill * SkillService.cashMultiplier(attacker))
 
 	CashService.add(attacker, reward, "kill_" .. weaponStr)
+	-- Statystyka zaliczona w tym samym miejscu co nagroda — jedno źródło prawdy o zabójstwie.
+	StatsService.add(attacker, "kills", 1)
 	-- Tylko do zabójcy: komunikat „YOU KILLED” widzi on sam (killfeed dla wszystkich usunięty 10.10).
 	Remotes.PlayerKilled:FireClient(attacker, attacker, victim, weaponStr, reward)
 end

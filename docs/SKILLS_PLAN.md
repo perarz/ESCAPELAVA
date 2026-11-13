@@ -1,6 +1,15 @@
 # Drzewko umiejętności i rebirth u maga — plan
 
-Stan: **PLAN 08–09.11.2026, czeka na akceptację liczb przez Kacpra.** Wygląd, mikroanimacje i wgrane zasoby opisane niżej. Kodu ani panelu jeszcze nie ma; następny krok to podgląd panelu w Studio do oceny (zlecony 09.11). **Agent, który to wdraża: zacznij od sekcji „Brief dla agenta wykonawczego” na końcu pliku.** Implementacja rusza dopiero po skończeniu pracy drugiego agenta, bo dotyka tych samych plików (`Config`, `Remotes`, `MovementController`, `PlayerService`, pliki `init`).
+Stan: **WDROŻONE 09–10.11.2026, NIEPRZETESTOWANE.** Kod i panel są; bieżący stan, co sprawdzone i co otwarte: [STATUS](STATUS.md). Ten plik zostaje jako zapis decyzji i uzasadnień. Tabele liczb niżej Kacper zaakceptował 09.11 — źródłem prawdy są teraz `SkillDefinitions` i `Config.Skills`.
+
+**Rozstrzygnięte przy wdrożeniu (Kacper, 09.11):**
+- liczby drzewka i nagrody rebirthów 0–4: zaakceptowane bez zmian, razem z trzema punktami „do potwierdzenia” (śmiertelny upadek zabija, napój i szybkość się sumują, GREED nie działa na pickupy);
+- rebirthy 5–10: na razie samo +5% kasy; itemy albo trzeci poziom dopisze się w `SkillDefinitions`;
+- liczba rebirthów: kolumna `Rebirths` w tabeli graczy (Tab), bez znaczka przy nicku;
+- FORCE: „sam gruz i pył”, bez ognia, huku i wstrząsu;
+- TOUGHNESS a przygniecenie gruzem: pytanie bez przedmiotu, przygniecenia nie ma od 29.09.
+
+**Zmiany względem planu:** wibracje i dźwięki idą przez `ShopFx.feedback` (jeden zestaw dla wszystkich paneli) zamiast osobnych pól w `Config.Skills.Fx`; układ pól to sześciokąt „na płasko” (pierwsza odnoga w prawo-górę), bo przy odnodze prosto w dół napis „REBIRTH n” nie miał miejsca; kamera panelu nie zmienia FOV (pisze go co klatkę `MovementController`); `RoundWon` idzie do każdego ocalałego osobno z jego kwotą.
 
 **Cel (Kacper):** dalszy rozwój, żeby gra się nie nudziła i było po co grać. Drzewko daje stałe ulepszenia, a rebirth zaczyna je od nowa w zamian za nowe odnogi, itemy i więcej kasy.
 

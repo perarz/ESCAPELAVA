@@ -248,6 +248,31 @@ local function ambientShake(center: Vector3)
 	MovementController.screenShake(t * FX.ShakeMax, FX.ShakeDuration)
 end
 
+-- Obłok pyłu w miejscu uderzenia w mur (FORCE, 09.11) — we wszystkie strony, bez ognia.
+local function wallDust(center: Vector3)
+	local anchor = makeAnchor(center, 2.5)
+	local dust = Instance.new("ParticleEmitter")
+	dust.Texture = SMOKE_TEXTURE
+	dust.Color = ColorSequence.new(Color3.fromRGB(175, 165, 148), Color3.fromRGB(120, 112, 100))
+	dust.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.5),
+		NumberSequenceKeypoint.new(1, 5.5),
+	})
+	dust.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.45),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	dust.Lifetime = NumberRange.new(0.8, 1.5)
+	dust.Rate = 0
+	dust.SpreadAngle = Vector2.new(180, 180)
+	dust.Speed = NumberRange.new(3, 9)
+	dust.Acceleration = Vector3.new(0, -3, 0)
+	dust.Rotation = NumberRange.new(0, 360)
+	dust.RotSpeed = NumberRange.new(-40, 40)
+	dust.Parent = anchor
+	dust:Emit(scaled(Config.Skills.Force.DustCount))
+end
+
 -- Payload BlastFX to jedna tabela od v3 (2026-09-23) — kontrakt w Remotes.luau.
 local function onBlastFX(blast: any)
 	-- Walidacja — server jest zaufany, ale typy potrafi popsuć half-sync rojo.
@@ -263,6 +288,16 @@ local function onBlastFX(blast: any)
 	local camera = Workspace.CurrentCamera
 	local farDistance = math.min(250, Config.Graphics.Profile.FXDistance + 60)
 	local far = camera and (camera.CFrame.Position - center).Magnitude > farDistance
+
+	-- Dziura bez wybuchu (09.11, FORCE z drzewka — Kacper: „sam gruz i pył”): obłok pyłu
+	-- w miejscu uderzenia i ewentualny dźwięk. Kawałki dziury rysuje DebrisFXController.
+	if blast.quiet == true then
+		if not far then
+			wallDust(center)
+		end
+		playSoundAt(Config.Skills.Force.SoundId, center, 0.9, 120)
+		return
+	end
 
 	local anchor = makeAnchor(center, 3)
 	fireballCore(center, radius)

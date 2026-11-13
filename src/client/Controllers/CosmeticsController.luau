@@ -1,11 +1,18 @@
 --!strict
--- Studio owns the GUI templates. This controller owns their state and a disposable
--- dressing-room copy; it never teleports or resizes the actual player.
+-- CosmeticsController — sklep i garderoba COSMETICS.
+-- v6c (10.11, Kacper): katalog = po lewej ramka z samą postacią w obecnym stroju (`Body.Dressing`,
+-- kopia w ViewportFrame), kasa nad nią; po prawej karty (`Body.Shelf`) przewijane we własnych
+-- granicach. Klik w kartę przenosi do przebieralni ze sceną (`Body.Fitting` + kamera na platformie
+-- `ClothesShopScene`): przymierzenie, BUY / EQUIP, BACK wraca do katalogu.
+-- Studio owns the GUI templates (StarterGui.Cosmetics); this controller owns state, layout and
+-- disposable local copies (card viewports, the frame model, the fitting-room model). It never
+-- teleports or resizes the actual player.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local TextService = game:GetService("TextService")
 local RunService = game:GetService("RunService")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Definitions = require(ReplicatedStorage.Shared.Modules.CosmeticDefinitions)
@@ -13,74 +20,121 @@ local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local State = require(script.Parent.CosmeticsState)
 local Preview = require(script.Parent.CosmeticsPreview)
 local Shop = require(script.Parent.ShopController)
+local ShopFx = require(script.Parent.ShopFx)
 local LobbySign = require(script.Parent.LobbySign)
 local RoundSkip = require(script.Parent.RoundSkipState)
+local HudButtonFx = require(script.Parent.HudButtonFx)
 
 local Controller = {}
 local player = Players.LocalPlayer
 local CFG = Config.Cosmetics.UI
+local WHITE = Color3.new(1, 1, 1)
+
+-- Elementy z placu (kontrakt: STUDIO_CONTRACT → COSMETICS).
 local gui: ScreenGui? = nil
 local backdrop: TextButton? = nil
-local backdropStuds: ImageLabel? = nil
-local backdropTone: UIGradient? = nil
-local toneBase: ColorSequence? = nil
-local drift = 0
 local root: Frame? = nil
-local catalog: Frame? = nil
-local fitting: Frame? = nil
+local body: Frame? = nil
+local fitScale: UIScale? = nil
+local dressing: Frame? = nil
+local frame: Frame? = nil
+local view: ViewportFrame? = nil
+local frameLed: UIGradient? = nil
+local shelf: Frame? = nil
 local scroll: ScrollingFrame? = nil
 local template: Frame? = nil
-local button: GuiButton? = nil
 local title: TextLabel? = nil
-local balance: TextLabel? = nil
+local titleShadow: TextLabel? = nil
+local titleFlow: UIGradient? = nil
+local closeButton: GuiButton? = nil
 local wallet: Frame? = nil
+local balance: TextLabel? = nil
 local status: TextLabel? = nil
 local empty: TextLabel? = nil
+local unlocked: Frame? = nil
+local button: GuiButton? = nil -- HUD.SideButtons.CosmeticsButton
+local hudGui: ScreenGui? = nil
+-- Przebieralnia (Body.Fitting).
+local fitting: Frame? = nil
 local productName: TextLabel? = nil
-local productPrice: TextLabel? = nil
+local rarityTag: Frame? = nil
 local priceRow: Frame? = nil
+local productPrice: TextLabel? = nil
 local pricePosition = UDim2.new()
 local priceShadowPosition = UDim2.new()
-local rarityTag: Frame? = nil
 local needMore: TextLabel? = nil
-local unlocked: Frame? = nil
-local unlockToken = 0
 local actionButton: TextButton? = nil
-local scale: UIScale? = nil
-local dragInput: InputObject? = nil
-local dragX = 0
-local hudGui: ScreenGui? = nil
-local savedHudEnabled = false
+local sweep: UIGradient? = nil
+
+-- Stan ekranu.
 local opened = false
 local lobby = false
-local mode = "shop"
-local selected: string? = nil
-local tryingOn = false
+local mode = "shop" -- "shop" (sprzedawca) | "wardrobe" (przycisk w HUD: tylko posiadane)
+local selected: string? = nil -- przedmiot w przebieralni; nil = katalog
+local tryingOn = false -- false po UNEQUIP: przebieralnia pokazuje strój bez wybranego przedmiotu
 local cash = 0
 local shownCash = 0
 local count: { from: number, to: number, started: number }? = nil
-local animation: RBXScriptConnection? = nil
-local lastDrag = 0
 local pending: { action: string, id: string, token: number }? = nil
 local requestToken = 0
+local savedHudEnabled = false
+local controls: any = nil
+local ownedControls = false
+local animation: RBXScriptConnection? = nil
+local openToken = 0 -- zmienia się przy otwarciu i zamknięciu; stara pętla połysku wie, że ma skończyć
+local canShine = false
+local unlockToken = 0
+
+-- Postać w ramce katalogu (kopia w ViewportFrame).
+local outfitModel: Model? = nil
+local outfitAngle = 0
+local outfitCenter = Vector3.zero
+local outfitSize = Vector3.one
+-- Postać w przebieralni (kopia na platformie sceny) i kamera.
 local preview: Model? = nil
-local fittingFill: Attachment? = nil
 local previewBase: CFrame? = nil
 local previewAngle = 0
+local fittingFill: Attachment? = nil
 local camera: Camera? = nil
 local savedCameraType: Enum.CameraType? = nil
 local savedCameraFov: number? = nil
-local controls: any = nil
-local ownedControls = false
-local cameraTween: Tween? = nil
+local cameraTweens: { Tween } = {}
+-- Kadr bez krążenia za myszą i odległość do punktu, wokół którego kamera krąży (jak sklep broni:
+-- tween przesuwa te wartości, a na kamerę przenosi je `animate` — dwaj piszący by się szarpali).
+local camBase = Instance.new("CFrameValue")
+local camOrbit = Instance.new("NumberValue")
+local mouseOffset = Vector2.zero
+-- Przeciąganie: obraca model ramki (katalog) albo model przebieralni.
+local lastDrag = 0
+local dragInput: InputObject? = nil
+local dragX = 0
+-- Bezwładność obrotu (13.11): po puszczeniu postać kręci się jeszcze chwilę i wytraca prędkość,
+-- zamiast stawać w miejscu. Prędkość (°/s) liczona z ostatnich ruchów palca/myszy.
+local spinVelocity = 0
+local lastMove = 0
+
+-- Jedno miejsce, które obraca model (przebieralnia albo ramka katalogu) o `degrees`.
+local function turn(degrees: number)
+	if selected and preview and previewBase then
+		previewAngle = (previewAngle + degrees) % 360
+		preview:PivotTo(previewBase * CFrame.Angles(0, math.rad(previewAngle), 0))
+	elseif outfitModel then
+		outfitAngle = (outfitAngle + degrees) % 360
+		outfitModel:PivotTo(CFrame.Angles(0, math.rad(outfitAngle), 0))
+	end
+end
+
+-- Układ (px przy wysokości ekranu `CFG.Height`; liczy `fit`).
+local layoutWidth, layoutHeight = CFG.Width, CFG.Height
+local shelfWidth = CFG.Width
+
+-- Karty: jedna tabela na kartę, czyszczona przy każdym `rebuild`.
+type CardFx = { id: string?, card: GuiButton, viewport: ViewportFrame?, base: CFrame?, center: Vector3,
+	available: boolean, hovered: boolean, amp: number, phase: number,
+	led: UIGradient?, stars: ImageLabel?, shine: ImageLabel? }
 local tiles: { Frame } = {}
--- Per-card motion: large cards always sway, the rest ease in under the cursor.
-type CardFx = { viewport: ViewportFrame, base: CFrame?, center: Vector3, rays: GuiObject?,
-	available: boolean, always: boolean, hovered: boolean, amp: number, phase: number }
 local cardFx: { CardFx } = {}
-local layoutWidth = CFG.Width
-local layoutColumns = CFG.Columns
-local layoutRowHeight = CFG.RowHeight
+
 local refresh: () -> ()
 local rebuild: () -> ()
 local close: () -> ()
@@ -107,17 +161,109 @@ local function setTint(object: Instance?, colors: ColorSequence)
 	if tint and tint:IsA("UIGradient") then tint.Color = colors end
 end
 
+local function darker(c: Color3, k: number): Color3
+	return Color3.new(c.R * k, c.G * k, c.B * k)
+end
+
+-- „LED”: obrys w kolorze rzadkości z wąskim białym pasem; `animate` obraca gradient, więc pas
+-- obiega ramkę. Bez pasa (`still`) — karta COMING SOON.
+local function ledColors(accent: Color3, still: boolean?): ColorSequence
+	if still then return ColorSequence.new(accent) end
+	local w = CFG.LedBand
+	return ColorSequence.new({
+		ColorSequenceKeypoint.new(0, accent), ColorSequenceKeypoint.new(0.5 - w, accent),
+		ColorSequenceKeypoint.new(0.5, WHITE), ColorSequenceKeypoint.new(0.5 + w, accent),
+		ColorSequenceKeypoint.new(1, accent),
+	})
+end
+
+local function ledOf(parent: Instance?): UIGradient?
+	local led = parent and parent:FindFirstChild("Led")
+	local stroke = led and led:FindFirstChild("Stroke")
+	local flow = stroke and stroke:FindFirstChild("Flow")
+	return if flow and flow:IsA("UIGradient") then flow else nil
+end
+
+-- Karta: sunburst z ui-resources (ImageLabel, 09.11); UNLOCKED!: belki z ramek.
 local function setRays(rays: Instance?, color: Color3)
 	if not rays then return end
+	if rays:IsA("ImageLabel") then rays.ImageColor3 = color; return end
 	for _, ray in ipairs(rays:GetChildren()) do
 		if ray:IsA("Frame") then ray.BackgroundColor3 = color end
 	end
 end
 
--- One price presentation for cards and the fitting room: amount, OWNED or WEARING.
-local function showPrice(row: Instance, def: Definitions.Definition)
-	local price = row:FindFirstChild("Price", true)
-	if not price or not price:IsA("TextLabel") then return end
+-- Plakietka rzadkości: ta sama na karcie i w przebieralni. Szerokość z napisu, nie stała —
+-- „EPIC” w ramce na „HALLOWEEN” wyglądał na pusty pasek.
+local function showTag(tag: Instance?, label: string, accent: Color3)
+	if not tag or not tag:IsA("GuiObject") then return end
+	local text = tag:FindFirstChild("Label")
+	if text and text:IsA("TextLabel") then
+		text.Text = label
+		local bounds = TextService:GetTextSize(label, text.TextSize, Enum.Font.FredokaOne, Vector2.new(2000, 200))
+		tag.Size = UDim2.fromOffset(bounds.X + CFG.TagPadding, tag.Size.Y.Offset)
+	end
+	setTint(tag:FindFirstChild("Fill"), ColorSequence.new(accent, darker(accent, CFG.TagShade)))
+end
+
+-- Karta: cena na tabliczce (jeszcze nie kupione) albo napis OWNED / WEARING pod nazwą (Kacper 10.11).
+-- Szerokość tabliczki z napisu, nie `AutomaticSize` (pętla rozmiaru, UI_RULES).
+local function showCardState(card: Instance, def: Definitions.Definition)
+	local wearing = State.equipped(def.category) == def.id
+	local owned = State.owns(def.id)
+	local stateLabel = card:FindFirstChild("State")
+	if stateLabel and stateLabel:IsA("TextLabel") then
+		stateLabel.Visible = owned
+		stateLabel.Text = if wearing then "WEARING" else "OWNED"
+		stateLabel.TextColor3 = if wearing then CFG.StateColors.Wearing else CFG.StateColors.Owned
+	end
+	local row = card:FindFirstChild("PriceRow")
+	if not row or not row:IsA("GuiObject") then return end
+	row.Visible = not owned
+	local price = row:FindFirstChild("Price")
+	if owned or not price or not price:IsA("TextLabel") then return end
+	-- 13.11 (Kacper): płyta ceny jest większa; w spoczynku pokazuje cenę, po najechaniu zmienia się
+	-- w BUY i klik kupuje od razu (bez przymierzania). Dotyk nie ma najechania: „BUY 750$”.
+	local priceValue = Definitions.getPrice(def.id)
+	local priceText = tostring(priceValue or "—") .. "$"
+	local touch = not UserInputService.MouseEnabled
+	local hovered = touch or row:GetAttribute("Hover") == true
+	local affordable = priceValue == nil or cash >= priceValue
+	local text, colors = priceText, CFG.Colors.PlatePrice
+	if pending and pending.id == def.id then
+		text = "..."
+	elseif hovered and not affordable then
+		colors = CFG.Colors.Disabled -- najechanie bez pieniędzy: cena zostaje, płyta szarzeje
+	elseif hovered and State.isReady() then
+		text, colors = if touch then "BUY " .. priceText else "BUY", CFG.Colors.PlateHover
+	end
+	price.Text = text
+	price.TextSize = CFG.PlateTextSize
+	setTint(row:FindFirstChild("Plate"), colors)
+	row.AnchorPoint = Vector2.new(1, 1)
+	local icon = row:FindFirstChild("CashIcon")
+	if icon and icon:IsA("GuiObject") then
+		icon.AnchorPoint = Vector2.new(0, 0.5)
+		icon.Position = UDim2.new(0, 4, 0.5, 0)
+		icon.Size = UDim2.fromOffset(CFG.PlateIconSize, CFG.PlateIconSize)
+	end
+	local width = TextService:GetTextSize(price.Text, price.TextSize, Enum.Font.FredokaOne, Vector2.new(2000, 200)).X
+	row.Size = UDim2.fromOffset(CFG.PlateIconRoom + width + CFG.PricePlatePadding, CFG.PlateHeight)
+	price.Position = UDim2.fromOffset(CFG.PlateIconRoom, 0)
+	price.Size = UDim2.new(0, width, 1, 0)
+	local shadow = row:FindFirstChild("PriceShadow")
+	if shadow and shadow:IsA("TextLabel") then
+		shadow.Text = price.Text
+		shadow.TextSize = CFG.PlateTextSize
+		shadow.Position = UDim2.fromOffset(CFG.PlateIconRoom - 3, 3)
+		shadow.Size = price.Size
+	end
+end
+
+-- Przebieralnia: cena napisem z ikoną, OWNED / WEARING w tym samym miejscu.
+local function showFittingPrice(def: Definitions.Definition)
+	local row, price = priceRow, productPrice
+	if not row or not price then return end
 	local wearing = State.equipped(def.category) == def.id
 	local owned = State.owns(def.id)
 	price.Text = if wearing then "WEARING" elseif owned then "OWNED"
@@ -125,24 +271,173 @@ local function showPrice(row: Instance, def: Definitions.Definition)
 	setTint(price, if wearing then CFG.Colors.Wearing elseif owned then CFG.Colors.Owned else CFG.Colors.Price)
 	local icon = row:FindFirstChild("CashIcon")
 	if icon and icon:IsA("GuiObject") then icon.Visible = not owned end
-end
-
--- The catalog studs belong to the opaque backdrop; the fitting room shows the scene.
-local function showBackdrop(visible: boolean)
-	if not backdrop then return end
-	backdrop.BackgroundTransparency = if visible then CFG.BackdropTransparency else 1
-	for _, child in ipairs(backdrop:GetChildren()) do
-		if child:IsA("GuiObject") then child.Visible = visible end
-	end
+	-- Without the cash icon (OWNED/WEARING) the word starts where the icon was.
+	local shift = if owned then -pricePosition.X.Offset else 0
+	price.Position = pricePosition + UDim2.fromOffset(shift, 0)
+	local shadow = row:FindFirstChild("PriceShadow")
+	if shadow and shadow:IsA("GuiObject") then shadow.Position = priceShadowPosition + UDim2.fromOffset(shift, 0) end
 end
 
 local function updateButton()
-	if button then button.Visible = lobby and not Shop.isOpen() and not opened end
+	-- Drzewko u maga (10.11, Kacper): przycisk COSMETICS znika na czas panelu.
+	if button then
+		button.Visible = lobby and not Shop.isOpen() and not opened
+			and player:GetAttribute(Config.Skills.OpenAttribute) ~= true
+	end
 end
+
+-- Reakcja jak w sklepie broni (ShopFx, 09.11): jedna skala `Hover` liczona z `hovered` + `pressed`.
+-- `MouseEnter` z palca ignorujemy (na dotyku `MouseLeave` nie przychodzi i przycisk zostawałby
+-- powiększony), a `pressed` zdejmuje globalny `InputEnded`, bo puszczenie poza przyciskiem nie daje
+-- `MouseButton1Up`. Karty mają osobną listę, czyszczoną przy każdym `rebuild`.
+type Reactive = { scale: UIScale, hovered: boolean, pressed: boolean, hover: number, press: number }
+local buttons: { Reactive } = {}
+local cardButtons: { Reactive } = {}
+local HOVER_INFO = TweenInfo.new(CFG.HoverTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local PRESS_INFO = TweenInfo.new(CFG.PressTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+local function settle(b: Reactive)
+	local target = if b.pressed then b.press elseif b.hovered then b.hover else 1
+	TweenService:Create(b.scale, if b.pressed then PRESS_INFO else HOVER_INFO, { Scale = target }):Play()
+end
+
+local function react(btn: GuiButton, hoverScale: number, pressScale: number, list: { Reactive })
+	local scale = btn:FindFirstChild("Hover")
+	if not scale or not scale:IsA("UIScale") then return end
+	local b: Reactive = { scale = scale, hovered = false, pressed = false, hover = hoverScale, press = pressScale }
+	table.insert(list, b)
+	btn.MouseEnter:Connect(function()
+		if UserInputService:GetLastInputType() == Enum.UserInputType.Touch then return end
+		b.hovered = true
+		settle(b)
+	end)
+	btn.MouseLeave:Connect(function()
+		b.hovered, b.pressed = false, false
+		settle(b)
+	end)
+	btn.MouseButton1Down:Connect(function()
+		b.pressed = true
+		settle(b)
+	end)
+end
+
+local function releaseAll()
+	for _, list in ipairs({ buttons, cardButtons }) do
+		for _, b in ipairs(list) do
+			if b.pressed then b.pressed = false; settle(b) end
+		end
+	end
+end
+
+-- Schowany przycisk (katalog przy przejściu do przebieralni, całe GUI przy zamknięciu) nie dostaje
+-- `MouseLeave` — bez tego po powrocie karta albo X stałyby powiększone.
+local function resetReactive()
+	for _, list in ipairs({ buttons, cardButtons }) do
+		for _, b in ipairs(list) do
+			b.hovered, b.pressed = false, false
+			b.scale.Scale = 1
+		end
+	end
+	for _, fx in ipairs(cardFx) do fx.hovered = false end
+end
+
+-- Odmowa zakupu / klik w COMING SOON: drga jak w sklepie broni.
+local function shake(obj: GuiObject?)
+	if not obj then return end
+	obj.Rotation = 0
+	local info = TweenInfo.new(CFG.ShakeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 3, true)
+	TweenService:Create(obj, info, { Rotation = CFG.ShakeDegrees }):Play()
+end
+
+-- Połysk przelatuje po BUY co `ShineInterval`, tylko gdy przedmiot jest do kupienia i gracza na niego stać.
+local function shineLoop(token: number)
+	local info = TweenInfo.new(CFG.ShineTime, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+	while token == openToken do
+		task.wait(CFG.ShineInterval)
+		local gradient = sweep
+		if token == openToken and canShine and gradient then
+			gradient.Offset = Vector2.new(-CFG.ShineOffset, 0)
+			TweenService:Create(gradient, info, { Offset = Vector2.new(CFG.ShineOffset, 0) }):Play()
+		end
+	end
+end
+
+-- Błysk z ui-resources przelatuje po karcie, kiedy najedziesz na nią myszką.
+local function flash(image: ImageLabel?)
+	if not image then return end
+	image.Position = UDim2.fromScale(-0.3, 0.25)
+	image.Visible = true
+	local tween = TweenService:Create(image, TweenInfo.new(CFG.CardShineTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Position = UDim2.fromScale(1.3, 0.75) })
+	tween.Completed:Connect(function() image.Visible = false end)
+	tween:Play()
+end
+
+-- ============================================================================
+-- Postać w ramce katalogu (lokalna kopia w ViewportFrame, obecny strój)
+-- ============================================================================
+
+local function destroyOutfit()
+	if outfitModel then
+		local world = outfitModel.Parent
+		outfitModel:Destroy()
+		if world and world:IsA("WorldModel") then world:Destroy() end
+		outfitModel = nil
+	end
+end
+
+-- Kadr liczony raz z postaci przodem do kamery; obrót postaci go nie zmienia, więc nic nie skacze.
+local function frameCamera()
+	local vp = view
+	if not vp or not outfitModel then return end
+	local cam = vp.CurrentCamera
+	if not cam then
+		cam = Instance.new("Camera")
+		cam.Parent = vp
+		vp.CurrentCamera = cam
+	end
+	local viewCamera = cam :: Camera
+	viewCamera.FieldOfView = CFG.ViewFov
+	local half = math.tan(math.rad(CFG.ViewFov / 2))
+	-- Tuż po włączeniu GUI rozmiar bywa jeszcze 0 — wtedy proporcje z układu, a po przeliczeniu
+	-- kadr poprawi sygnał `AbsoluteSize` (init).
+	local aspect = if vp.AbsoluteSize.Y >= 1 then vp.AbsoluteSize.X / vp.AbsoluteSize.Y else 0.6
+	local radius = math.max(outfitSize.X, outfitSize.Z) / 2
+	local shift = outfitSize.Y * CFG.ViewShift
+	local distance = math.max((outfitSize.Y / 2 + shift) / half, radius / (half * math.max(aspect, 0.1))) * CFG.ViewMargin
+	local focus = outfitCenter - Vector3.new(0, shift, 0)
+	-- Model stoi przodem do −Z (PivotTo(identity)), więc kamera patrzy od −Z.
+	viewCamera.CFrame = CFrame.lookAt(focus + Vector3.new(0, 0, -distance), focus)
+end
+
+local function buildOutfit()
+	destroyOutfit()
+	local vp = view
+	if not vp then return end
+	local model = Preview.character(false)
+	if not model then return end
+	model:PivotTo(CFrame.identity)
+	pcall(Preview.outfit, model, State.outfit(), nil)
+	local box, size = model:GetBoundingBox()
+	outfitCenter, outfitSize = box.Position, size
+	local world = Instance.new("WorldModel")
+	model.Parent = world
+	world.Parent = vp
+	outfitModel = model
+	outfitAngle = 0
+	spinVelocity = 0
+	frameCamera()
+end
+
+-- ============================================================================
+-- Przebieralnia ze sceną (lokalna kopia na platformie + kamera Scriptable)
+-- ============================================================================
 
 local function restoreCamera()
 	dragInput = nil
-	if cameraTween then cameraTween:Cancel(); cameraTween = nil end
+	spinVelocity = 0
+	for _, tween in ipairs(cameraTweens) do tween:Cancel() end
+	table.clear(cameraTweens)
 	if preview then preview:Destroy(); preview = nil end
 	if fittingFill then fittingFill:Destroy(); fittingFill = nil end
 	previewBase = nil
@@ -154,23 +449,6 @@ local function restoreCamera()
 		if hum then camera.CameraSubject = hum end
 	end
 	camera, savedCameraType, savedCameraFov = nil, nil, nil
-end
-
-close = function()
-	if not opened then return end
-	opened = false
-	if animation then animation:Disconnect(); animation = nil end
-	count, shownCash = nil, cash
-	unlockToken += 1
-	if unlocked then unlocked.Visible = false end
-	if hudGui then hudGui.Enabled = savedHudEnabled end
-	selected = nil
-	if gui then gui.Enabled = false end
-	restoreCamera()
-	if ownedControls and controls then controls:Enable() end
-	ownedControls = false
-	player:SetAttribute("CosmeticsOpen", false)
-	updateButton()
 end
 
 local function platform(): BasePart?
@@ -207,6 +485,7 @@ local function dress(id: string): boolean
 	end
 	if preview then preview:Destroy() end
 	preview, previewBase, previewAngle = model, base, 0
+	spinVelocity = 0
 	lastDrag = os.clock()
 	-- Mount parts were anchored by Preview; this model cannot affect rays or physics.
 	-- Anchor to the stationary platform, outside the rotating preview model.
@@ -230,55 +509,200 @@ local function dress(id: string): boolean
 	end
 	cam.CameraType = Enum.CameraType.Scriptable
 	local box, bounds = model:GetBoundingBox()
-	local focus = box.Position + Vector3.new(0, bounds.Y * CFG.FittingFocusOffset, 0)
+	-- Oko wyżej niż środek postaci i patrzy poziomo, na wprost (Kacper 12.11).
+	local eye = box.Position + Vector3.new(0, bounds.Y * CFG.FittingEyeOffset, 0)
 	local aspect = cam.ViewportSize.X / math.max(1, cam.ViewportSize.Y)
 	local distance = math.max(bounds.Y / CFG.FittingHeightFraction, math.max(bounds.X, bounds.Z) / math.max(aspect, 0.1)) / (2 * math.tan(math.rad(CFG.CameraFov / 2)))
 	-- Optional authored marker overrides the automatic front view without code changes.
 	local scene = workspace:FindFirstChild(Config.Cosmetics.SceneName)
 	local marker = scene and scene:FindFirstChild("CosmeticsCamera", true)
 	local target = if marker and marker:IsA("BasePart") then marker.CFrame
-		else CFrame.lookAt(focus + base.LookVector * distance + Vector3.new(0, CFG.FittingCameraLift, 0), focus)
-	if cameraTween then cameraTween:Cancel() end
+		else CFrame.lookAt(eye + base.LookVector * distance, eye)
+	for _, tween in ipairs(cameraTweens) do tween:Cancel() end
+	table.clear(cameraTweens)
 	cam.FieldOfView = CFG.CameraFov
-	cameraTween = TweenService:Create(cam, TweenInfo.new(CFG.OpenTime), { CFrame = target })
-	cameraTween:Play()
+	-- Wjazd z obecnego kadru; dalej kamerę pisze `animate` (krążenie za myszą wokół postaci).
+	if not selected then camBase.Value = cam.CFrame end
+	camOrbit.Value = (target.Position - box.Position).Magnitude
+	local info = TweenInfo.new(CFG.OpenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	cameraTweens = { TweenService:Create(camBase, info, { Value = target }) }
+	cameraTweens[1]:Play()
+	mouseOffset = Vector2.zero
 	return true
+end
+
+-- Katalog i przebieralnia to dwa widoki tego samego GUI; tło katalogu zasłania scenę.
+local function showCatalog(visible: boolean)
+	for _, object in ipairs({ dressing, shelf, title, titleShadow, closeButton } :: { GuiObject? }) do
+		if object then object.Visible = visible end
+	end
+	if fitting then fitting.Visible = not visible end
+	if backdrop then
+		backdrop.BackgroundTransparency = if visible then CFG.BackdropTransparency else 1
+		for _, child in ipairs(backdrop:GetChildren()) do
+			if child:IsA("GuiObject") then child.Visible = visible end
+		end
+	end
 end
 
 local function choose(id: string)
 	if not opened or not lobby then return end
 	if not Definitions.getTemplate(id) then say("THIS COSMETIC IS COMING SOON"); return end
 	if not dress(id) then return end
-	selected = id
-	tryingOn = true
-	if catalog then catalog.Visible = false end
-	if fitting then fitting.Visible = true end
-	showBackdrop(false)
+	selected, tryingOn = id, true
+	resetReactive()
+	showCatalog(false)
 	say("")
 	refresh()
 end
 
 local function back()
-	selected = nil
+	selected, tryingOn = nil, false
+	resetReactive()
 	restoreCamera()
-	if catalog then catalog.Visible = true end
-	if fitting then fitting.Visible = false end
-	showBackdrop(true)
+	showCatalog(true)
 	say("")
 	refresh()
 end
 
-local function hover(btn: GuiButton)
-	local pop = btn:FindFirstChild("Hover")
-	if not pop or not pop:IsA("UIScale") then return end
-	local tween: Tween? = nil
-	local function animate(value: number)
-		if tween then tween:Cancel() end
-		tween = TweenService:Create(pop, TweenInfo.new(CFG.HoverTime), { Scale = value })
-		tween:Play()
+-- Zakup prosto z płyty ceny na karcie (13.11): bez przymierzania, serwer waliduje jak zawsze.
+local function quickBuy(id: string, plate: GuiObject?)
+	if pending or not opened or not lobby or not State.isReady() or State.owns(id) then return end
+	if not Definitions.getTemplate(id) then say("THIS COSMETIC IS COMING SOON"); return end
+	local price = Definitions.getPrice(id)
+	if price and cash < price then
+		shake(plate)
+		ShopFx.feedback("Fail")
+		say(("NEED %d$ MORE"):format(price - cash))
+		return
 	end
-	btn.MouseEnter:Connect(function() animate(CFG.HoverScale) end)
-	btn.MouseLeave:Connect(function() animate(1) end)
+	ShopFx.feedback("Press")
+	requestToken += 1
+	local token = requestToken
+	pending = { action = "buy", id = id, token = token }
+	Remotes.BuyCosmetic:FireServer(id)
+	refresh()
+	task.delay(CFG.RequestTimeout, function()
+		if pending and pending.token == token then
+			pending = nil
+			if opened then say("NO RESPONSE — PLEASE TRY AGAIN"); refresh() end
+		end
+	end)
+end
+
+-- ============================================================================
+-- Karty
+-- ============================================================================
+
+local function hookCard(fx: CardFx, onClick: () -> ())
+	local card = fx.card
+	card.MouseEnter:Connect(function()
+		fx.hovered = true
+		if UserInputService:GetLastInputType() ~= Enum.UserInputType.Touch then flash(fx.shine) end
+	end)
+	card.MouseLeave:Connect(function() fx.hovered = false end)
+	card.Activated:Connect(onClick)
+	react(card, CFG.CardHoverScale, CFG.CardPressScale, cardButtons)
+end
+
+local function paintCard(card: Instance, look: any)
+	local accent: Color3 = look.Accent
+	local fill = card:FindFirstChild("Fill")
+	local fillGradient = fill and fill:FindFirstChild("Gradient")
+	if fillGradient and fillGradient:IsA("UIGradient") then fillGradient.Color = look.Fill end
+	local art = card:FindFirstChild("Art")
+	setRays(art and art:FindFirstChild("Rays"), accent)
+	-- Okrągły półton za przedmiotem (ui-resources, v6c) — akcent rozjaśniony, inaczej ginie na karcie.
+	local halftone = card:FindFirstChild("RoundHalftone")
+	if halftone and halftone:IsA("ImageLabel") then halftone.ImageColor3 = accent:Lerp(WHITE, CFG.HalftoneLighten) end
+	showTag(card:FindFirstChild("RarityTag"), look.Label, accent)
+end
+
+local function setupCard(tile: Frame, def: Definitions.Definition): CardFx
+	local card = tile:FindFirstChild("Card") :: TextButton
+	local rarity = rarityOf(def)
+	paintCard(card, rarity)
+	local stars = card:FindFirstChild("Stars")
+	local starImage = if stars and stars:IsA("ImageLabel") then stars else nil
+	if starImage then
+		starImage.Visible = rarity.Stars
+		starImage.ImageColor3 = rarity.Accent:Lerp(WHITE, 0.55)
+	end
+	local nameLabel = card:FindFirstChild("ItemName") :: TextLabel
+	nameLabel.Text = def.name:upper()
+	for _, name in ipairs({ "Mystery", "Lock" }) do
+		local o = card:FindFirstChild(name)
+		if o and o:IsA("GuiObject") then o.Visible = false end
+	end
+	local viewport = card:FindFirstChild("Preview") :: ViewportFrame
+	local available, center = Preview.card(viewport, def.id)
+	local unavailable = card:FindFirstChild("Unavailable")
+	if unavailable and unavailable:IsA("GuiObject") then unavailable.Visible = not available end
+	local led = ledOf(card)
+	if led then led.Color = ledColors(rarity.Accent) end
+	local shine = card:FindFirstChild("ShineFx")
+	local fx: CardFx = { id = def.id, card = card, viewport = viewport,
+		base = viewport.CurrentCamera and viewport.CurrentCamera.CFrame, center = center,
+		available = available, hovered = false, amp = 0, phase = 0, led = led, stars = starImage,
+		shine = if shine and shine:IsA("ImageLabel") then shine else nil }
+	local id = def.id
+	hookCard(fx, function() ShopFx.feedback("Press"); choose(id) end)
+	-- Płyta ceny jest osobnym przyciskiem: najechanie zmienia ją w BUY, klik kupuje od razu.
+	local plate = card:FindFirstChild("PriceRow")
+	if plate and plate:IsA("GuiObject") then
+		local hit = Instance.new("TextButton")
+		hit.Name = "BuyHit"
+		hit.BackgroundTransparency = 1
+		hit.Text = ""
+		hit.AutoButtonColor = false
+		hit.Size = UDim2.fromScale(1, 1)
+		hit.ZIndex = 30
+		hit.Parent = plate
+		hit.MouseEnter:Connect(function()
+			if UserInputService:GetLastInputType() == Enum.UserInputType.Touch then return end
+			plate:SetAttribute("Hover", true)
+			showCardState(card, def)
+		end)
+		hit.MouseLeave:Connect(function()
+			plate:SetAttribute("Hover", false)
+			showCardState(card, def)
+		end)
+		hit.Activated:Connect(function() quickBuy(id, plate) end)
+	end
+	-- Nazwa kończy się przed większą płytą ceny.
+	for _, name in ipairs({ "ItemName", "ItemNameShadow" }) do
+		local label = card:FindFirstChild(name)
+		if label and label:IsA("GuiObject") then label.Size = UDim2.new(1, -CFG.PlateNameReserve, 0, label.Size.Y.Offset) end
+	end
+	showCardState(card, def)
+	return fx
+end
+
+-- COMING SOON (Kacper 10.11: „dodaj więcej itemów, placeholder na razie”): wygląda jak karta,
+-- nie da się jej kupić ani przymierzyć. Liczba w `PlaceholderCount`.
+local function setupPlaceholder(tile: Frame): CardFx
+	local card = tile:FindFirstChild("Card") :: TextButton
+	paintCard(card, CFG.Placeholder)
+	for _, name in ipairs({ "Preview", "Unavailable", "Stars", "PriceRow", "State" }) do
+		local o = card:FindFirstChild(name)
+		if o and o:IsA("GuiObject") then o.Visible = false end
+	end
+	for _, name in ipairs({ "Mystery", "Lock" }) do
+		local o = card:FindFirstChild(name)
+		if o and o:IsA("GuiObject") then o.Visible = true end
+	end
+	local nameLabel = card:FindFirstChild("ItemName") :: TextLabel
+	nameLabel.Text = "???"
+	local led = ledOf(card)
+	if led then led.Color = ledColors(CFG.Placeholder.Accent, true) end
+	local fx: CardFx = { id = nil, card = card, viewport = nil, base = nil, center = Vector3.zero,
+		available = false, hovered = false, amp = 0, phase = 0, led = nil, stars = nil, shine = nil }
+	hookCard(fx, function()
+		shake(card)
+		ShopFx.feedback("Fail")
+		say("COMING SOON")
+	end)
+	return fx
 end
 
 rebuild = function()
@@ -286,109 +710,57 @@ rebuild = function()
 	for _, tile in ipairs(tiles) do tile:Destroy() end
 	table.clear(tiles)
 	table.clear(cardFx)
-	local occupied: { [number]: { [number]: boolean } } = {}
-	local columns, gap = layoutColumns, CFG.Gap
-	local padding = CFG.CardPadding
-	local width = layoutWidth - CFG.ScreenMargin * 2 - padding * 2
-	local cell = (width - gap * (columns - 1)) / columns
-	local lastRow = 0
+	table.clear(cardButtons)
+	local gap, pad = CFG.CardGap, CFG.CardPadding
+	-- Szerokość `Items` = panel bez wcięcia (6 px z każdej strony) i paska przewijania.
+	local inner = shelfWidth - 12 - CFG.ScrollBar - pad * 2
+	local columns = math.clamp(math.floor((inner + gap) / (CFG.MinCard + gap)), CFG.MinColumns, CFG.MaxColumns)
+	local cellW = (inner - gap * (columns - 1)) / columns
+	local cellH = cellW * CFG.CardAspect
+	local entries: { string | false } = {}
 	for _, id in ipairs(Definitions.shopOrder) do
-		local def = Definitions.get(id)
-		if not def or (mode == "wardrobe" and not State.owns(id)) then continue end
-		local span = if CFG.LargeCards[id] then 2 else 1
-		span = math.min(span, columns)
-		local row, col = 1, 1
-		while true do
-			local fits = col + span - 1 <= columns
-			for y = row, row + span - 1 do
-				for x = col, col + span - 1 do
-					if occupied[y] and occupied[y][x] then fits = false end
-				end
-			end
-			if fits then break end
-			col += 1
-			if col > columns then row += 1; col = 1 end
-		end
-		for y = row, row + span - 1 do
-			occupied[y] = occupied[y] or {}
-			for x = col, col + span - 1 do occupied[y][x] = true end
-		end
-		lastRow = math.max(lastRow, row + span - 1)
+		if Definitions.get(id) and (mode == "shop" or State.owns(id)) then table.insert(entries, id) end
+	end
+	local realCount = #entries
+	if mode == "shop" then
+		for _ = 1, CFG.PlaceholderCount do table.insert(entries, false) end
+	end
+	for i, entry in ipairs(entries) do
+		local row, col = (i - 1) // columns, (i - 1) % columns
 		local tile = template:Clone()
-		tile.Name, tile.Visible = id, true
-		tile.Position = UDim2.fromOffset(padding+(col-1)*(cell+gap), padding+(row-1)*(layoutRowHeight+gap))
-		tile.Size = UDim2.fromOffset(cell*span+gap*(span-1), layoutRowHeight*span+gap*(span-1))
-		local card = tile:FindFirstChild("Card") :: TextButton
-		local rarity = rarityOf(def)
-		local fill = card:FindFirstChild("Fill") :: Frame
-		local gradient = fill:FindFirstChild("Gradient")
-		if gradient and gradient:IsA("UIGradient") then gradient.Color = rarity.Fill end
-		local art = card:FindFirstChild("Art")
-		local rays = art and art:FindFirstChild("Rays")
-		setRays(rays, rarity.Rays)
-		local rarityLabel = card:FindFirstChild("Rarity")
-		if rarityLabel and rarityLabel:IsA("TextLabel") then
-			rarityLabel.Text = rarity.Label
-			rarityLabel.TextColor3 = rarity.Text
-		end
-		local nameLabel = card:FindFirstChild("ItemName") :: TextLabel
-		nameLabel.Text = def.name:upper()
-		local viewport = card:FindFirstChild("Preview") :: ViewportFrame
-		local available, center = Preview.card(viewport, id)
-		local unavailable = card:FindFirstChild("Unavailable") :: TextLabel
-		unavailable.Visible = not available
-		local fx: CardFx = { viewport = viewport, base = viewport.CurrentCamera and viewport.CurrentCamera.CFrame,
-			center = center, rays = if rays and rays:IsA("GuiObject") then rays else nil, available = available,
-			always = span > 1, hovered = false, amp = if span > 1 then 1 else 0, phase = 0 }
-		table.insert(cardFx, fx)
-		card.MouseEnter:Connect(function() fx.hovered = true end)
-		card.MouseLeave:Connect(function() fx.hovered = false end)
-		card.Activated:Connect(function() choose(id) end)
-		hover(card)
+		tile.Name = if entry then entry else "ComingSoon" .. (i - realCount)
+		tile.Visible = true
+		tile.Position = UDim2.fromOffset(pad + col * (cellW + gap), pad + row * (cellH + gap))
+		tile.Size = UDim2.fromOffset(cellW, cellH)
+		local def = if entry then Definitions.get(entry) else nil
+		table.insert(cardFx, if def then setupCard(tile, def) else setupPlaceholder(tile))
 		tile.Parent = scroll
 		table.insert(tiles, tile)
 	end
-	scroll.CanvasSize = UDim2.fromOffset(0, math.max(0,lastRow*(layoutRowHeight+gap)-gap+padding*2))
-	if empty then empty.Visible = #tiles == 0 end
+	local rows = math.ceil(#entries / columns)
+	scroll.CanvasSize = UDim2.fromOffset(0, if rows > 0 then pad * 2 + rows * (cellH + gap) - gap else 0)
+	if empty then empty.Visible = realCount == 0 end
 end
 
 refresh = function()
-	local body = root and root:FindFirstChild("Body")
-	if body then
-		for _, name in ipairs({ "Header", "Title", "TitleShadow", "CloseButton" }) do
-			local element = body:FindFirstChild(name)
-			if element and element:IsA("GuiObject") then element.Visible = selected == nil end
-		end
-	end
 	if balance then balance.Text = tostring(shownCash) .. "$" end
 	if title then title.Text = if mode == "shop" then "COSMETICS" else "WARDROBE" end
 	for _, tile in ipairs(tiles) do
 		local def = Definitions.get(tile.Name)
 		local card = tile:FindFirstChild("Card")
-		local row = card and card:FindFirstChild("PriceRow")
-		if row and def then showPrice(row, def) end
+		if card and def then showCardState(card, def) end
 	end
 	local def = if selected then Definitions.get(selected) else nil
+	canShine = false
 	if not def then return end
 	local rarity = rarityOf(def)
 	if productName then productName.Text = def.name:upper() end
-	if rarityTag then
-		local label = rarityTag:FindFirstChild("Label")
-		if label and label:IsA("TextLabel") then label.Text = rarity.Label end
-		setTint(rarityTag:FindFirstChild("Fill"), rarity.Fill)
-	end
-	if priceRow and productPrice then
-		showPrice(priceRow, def)
-		-- Without the cash icon (OWNED/WEARING) the word starts where the icon was.
-		local icon = priceRow:FindFirstChild("CashIcon")
-		local shift = if icon and icon:IsA("GuiObject") and not icon.Visible then -pricePosition.X.Offset else 0
-		productPrice.Position = pricePosition + UDim2.fromOffset(shift, 0)
-		local shadow = priceRow:FindFirstChild("PriceShadow")
-		if shadow and shadow:IsA("GuiObject") then shadow.Position = priceShadowPosition + UDim2.fromOffset(shift, 0) end
-	end
+	showTag(rarityTag, rarity.Label, rarity.Accent)
+	showFittingPrice(def)
 	-- Turn "can't afford" into a goal: how much is missing and how many survived rounds pay it.
 	local price = Definitions.getPrice(def.id)
-	local missing = if price and not State.owns(def.id) then price - cash else 0
+	local owned = State.owns(def.id)
+	local missing = if price and not owned then price - cash else 0
 	if needMore then
 		needMore.Visible = missing > 0
 		if missing > 0 then
@@ -396,19 +768,32 @@ refresh = function()
 			needMore.Text = ("NEED %d$ MORE — SURVIVE %d ROUND%s"):format(missing, rounds, if rounds == 1 then "" else "S")
 		end
 	end
+	canShine = State.isReady() and pending == nil and missing <= 0 and not owned
 	if actionButton then
 		local active = State.equipped(def.category) == def.id
 		local ready = State.isReady() and pending == nil
 		actionButton.Text = if pending then "..." elseif not State.isReady() then "LOADING..."
-			elseif active then "UNEQUIP" elseif State.owns(def.id) then "EQUIP" else "BUY"
+			elseif active then "UNEQUIP" elseif owned then "EQUIP" else "BUY"
 		actionButton.Active = ready
 		local surface = actionButton:FindFirstChild("Surface")
 		local gradient = surface and surface:FindFirstChildOfClass("UIGradient")
 		if gradient then
 			gradient.Color = if not ready or missing > 0 then CFG.Colors.Disabled
-				elseif active then CFG.Colors.Unequip elseif State.owns(def.id) then CFG.Colors.Equip else CFG.Colors.Buy
+				elseif active then CFG.Colors.Unequip elseif owned then CFG.Colors.Equip else CFG.Colors.Buy
 		end
 	end
+end
+
+-- Gdzie jest kursor względem środka ekranu (-1…1). Na dotyku i padzie kursora nie ma, więc kamera
+-- wraca na środek zamiast krążyć wokół ostatniego palca (jak `ShopController`).
+local function mouseTarget(cam: Camera): Vector2
+	local last = UserInputService:GetLastInputType()
+	if not UserInputService.MouseEnabled or last == Enum.UserInputType.Touch or last.Name:sub(1, 7) == "Gamepad" then
+		return Vector2.zero
+	end
+	local at = UserInputService:GetMouseLocation()
+	local size = cam.ViewportSize
+	return Vector2.new(math.clamp(at.X / size.X * 2 - 1, -1, 1), math.clamp(at.Y / size.Y * 2 - 1, -1, 1))
 end
 
 local function animate(dt: number)
@@ -419,41 +804,61 @@ local function animate(dt: number)
 		if t >= 1 then count = nil end
 		if balance then balance.Text = tostring(shownCash) .. "$" end
 	end
-	if catalog and catalog.Visible then
-		local studs = backdropStuds
-		local tile = if studs then studs.TileSize.X.Offset else 0
-		if studs and tile > 0 then
-			-- Wraps after one tile; Studs is one tile larger than the screen, so no edge shows.
-			drift = (drift + dt * CFG.BackdropDriftSpeed) % tile
-			studs.Position = UDim2.fromOffset(-drift, -drift)
+	-- Bezwładność obrotu: trzymany, ale nieruszany palec zeruje prędkość (postać ma stać);
+	-- puszczony po ruchu — kręci się dalej i wytraca prędkość wykładniczo.
+	if dragInput then
+		if now - lastMove > CFG.SpinHoldTime then spinVelocity = 0 end
+	elseif spinVelocity ~= 0 then
+		if math.abs(spinVelocity) < CFG.SpinStopVelocity then
+			spinVelocity = 0
+		else
+			turn(spinVelocity * dt)
+			spinVelocity *= math.exp(-CFG.SpinFriction * dt)
+			lastDrag = now -- samoobrót wraca dopiero po `FittingSpinDelay` od zatrzymania
 		end
-		local tone, base = backdropTone, toneBase
-		if tone and base then
-			local glow = (1 - math.cos(now * 2 * math.pi / CFG.BackdropGlowPeriod)) / 2
-			local keys = table.clone(base.Keypoints)
-			local last = keys[#keys]
-			keys[#keys] = ColorSequenceKeypoint.new(last.Time, last.Value:Lerp(CFG.BackdropGlowPeak, glow))
-			tone.Color = ColorSequence.new(keys)
-			tone.Offset = Vector2.new(0, -glow * CFG.BackdropGlowLift)
+	end
+	if not selected then
+		if titleFlow then
+			titleFlow.Color = LobbySign.sequence(Config.Cosmetics.SignFlowColors, Config.Cosmetics.SignFlowSpan, now * Config.Cosmetics.SignFlowSpeed)
 		end
+		if frameLed then frameLed.Rotation = (frameLed.Rotation + dt * CFG.LedSpeed) % 360 end
+		local twinkle = 0.15 + 0.6 * (1 - math.cos(now * 2 * math.pi / CFG.StarsPeriod)) / 2
 		for _, fx in ipairs(cardFx) do
-			local target = if fx.always or fx.hovered then 1 else 0
+			if fx.led then fx.led.Rotation = (fx.led.Rotation + dt * CFG.LedSpeed) % 360 end
+			if fx.stars and fx.stars.Visible then fx.stars.ImageTransparency = twinkle end
+			local target = if fx.hovered then 1 else 0
 			fx.amp += (target - fx.amp) * math.min(1, dt * CFG.SwayEase)
 			if fx.amp < 0.001 then continue end
 			fx.phase += dt * CFG.CardSwaySpeed
-			if fx.rays then fx.rays.Rotation = (fx.rays.Rotation + dt * CFG.RaysSpeed * fx.amp) % 360 end
 			-- Sway, not a full turn: the front of a hat or vest is what sells it.
-			local cam = fx.viewport.CurrentCamera
+			local vp = fx.viewport
+			local cam = vp and vp.CurrentCamera
 			if fx.available and cam and fx.base then
 				local yaw = math.rad(math.sin(fx.phase) * CFG.CardSwayDegrees * fx.amp)
 				cam.CFrame = CFrame.lookAt(fx.center + CFrame.Angles(0, yaw, 0) * (fx.base.Position - fx.center), fx.center)
 			end
 		end
-	end
-	-- Idle turntable in the fitting room (shows the backpack's back) until the player drags.
-	if preview and previewBase and not dragInput and now - lastDrag > CFG.FittingSpinDelay then
-		previewAngle = (previewAngle + dt * CFG.FittingSpinSpeed) % 360
-		preview:PivotTo(previewBase * CFrame.Angles(0, math.rad(previewAngle), 0))
+		-- Postać w ramce kręci się sama, dopóki gracz jej nie przeciąga.
+		if outfitModel and not dragInput and now - lastDrag > CFG.FittingSpinDelay then
+			outfitAngle = (outfitAngle + dt * CFG.FittingSpinSpeed) % 360
+			outfitModel:PivotTo(CFrame.Angles(0, math.rad(outfitAngle), 0))
+		end
+	else
+		-- Przebieralnia: kamera krąży lekko za myszą wokół postaci (jak sklep broni, 12.11).
+		local cam = camera
+		if cam then
+			local parallax = CFG.FittingParallax
+			mouseOffset = mouseOffset:Lerp(mouseTarget(cam), 1 - math.exp(-parallax.Rate * dt))
+			local pitch = math.rad(parallax.PitchDegrees) * mouseOffset.Y
+			local yaw = math.rad(parallax.YawDegrees) * mouseOffset.X
+			cam.CFrame = camBase.Value * CFrame.new(0, 0, -camOrbit.Value) * CFrame.Angles(pitch, yaw, 0)
+				* CFrame.new(0, 0, camOrbit.Value)
+		end
+		if preview and previewBase and not dragInput and now - lastDrag > CFG.FittingSpinDelay then
+			-- Idle turntable in the fitting room (shows the backpack's back) until the player drags.
+			previewAngle = (previewAngle + dt * CFG.FittingSpinSpeed) % 360
+			preview:PivotTo(previewBase * CFrame.Angles(0, math.rad(previewAngle), 0))
+		end
 	end
 	local rays = unlocked and unlocked.Visible and unlocked:FindFirstChild("Rays")
 	if rays and rays:IsA("GuiObject") then rays.Rotation = (rays.Rotation + dt * CFG.UnlockedRaysSpeed) % 360 end
@@ -469,10 +874,10 @@ local function celebrate(def: Definitions.Definition)
 	local name = popup:FindFirstChild("ItemName")
 	if name and name:IsA("TextLabel") then
 		name.Text = def.name:upper()
-		name.TextColor3 = rarity.Text
+		name.TextColor3 = rarity.Accent
 	end
 	local rays = popup:FindFirstChild("Rays")
-	setRays(rays, rarity.Text)
+	setRays(rays, rarity.Accent)
 	-- Rays flash and fade, so the item now worn by the character stays visible.
 	for _, ray in ipairs(if rays then rays:GetChildren() else {}) do
 		if ray:IsA("Frame") then
@@ -497,8 +902,30 @@ local function celebrate(def: Definitions.Definition)
 	end)
 end
 
+close = function()
+	if not opened then return end
+	opened = false
+	openToken += 1
+	canShine = false
+	releaseAll()
+	if animation then animation:Disconnect(); animation = nil end
+	count, shownCash = nil, cash
+	unlockToken += 1
+	if unlocked then unlocked.Visible = false end
+	if hudGui then hudGui.Enabled = savedHudEnabled end
+	selected, tryingOn = nil, false
+	restoreCamera()
+	destroyOutfit()
+	if gui then gui.Enabled = false end
+	if ownedControls and controls then controls:Enable() end
+	ownedControls = false
+	player:SetAttribute("CosmeticsOpen", false)
+	updateButton()
+end
+
 local function open(which: string)
-	if opened or not lobby or Shop.isOpen() or not gui then return end
+	if opened or not lobby or Shop.isOpen() or not gui or not dressing or not shelf or not fitting then return end
+	if player:GetAttribute(Config.Skills.OpenAttribute) == true then return end -- drzewko u maga (09.11)
 	if not controls then
 		local ps = player:FindFirstChild("PlayerScripts")
 		local pm = ps and ps:FindFirstChild("PlayerModule")
@@ -508,23 +935,24 @@ local function open(which: string)
 		end
 	end
 	-- require(PlayerModule) may yield: revalidate the lobby before acquiring the UI.
-	if not lobby or Shop.isOpen() then return end
+	if opened or not lobby or Shop.isOpen() then return end
 	opened, mode = true, which
+	selected, tryingOn = nil, false
+	resetReactive()
 	if hudGui then savedHudEnabled = hudGui.Enabled; hudGui.Enabled = false end
 	player:SetAttribute("CosmeticsOpen", true)
 	if controls then controls:Disable(); ownedControls = true end
 	gui.Enabled = true
-	if catalog then catalog.Visible = true end
-	if fitting then fitting.Visible = false end
-	showBackdrop(true)
+	showCatalog(true)
 	if scroll then scroll.CanvasPosition = Vector2.zero end
 	if not animation then animation = RunService.RenderStepped:Connect(animate) end
-	selected = nil
 	rebuild()
+	buildOutfit()
 	refresh()
+	openToken += 1
+	task.spawn(shineLoop, openToken)
 	say(if State.isReady() then "" else "LOADING YOUR WARDROBE...")
 	updateButton()
-	local body = root and root:FindFirstChild("Body")
 	local pop = body and body:FindFirstChild("Pop")
 	if pop and pop:IsA("UIScale") then
 		pop.Scale = CFG.OpenScale
@@ -553,6 +981,81 @@ local function act()
 	end)
 end
 
+-- Układ katalogu liczony z ekranu: poziomo ramka po lewej, karty po prawej; pionowo ramka na
+-- górze, karty pod nią. `Root.Fit` skaluje całość do wysokości (pion: szerokości) ekranu.
+-- Przebieralnia ma własny układ z placu (pełny ekran).
+local function fit()
+	if not (fitScale and gui and root and dressing and shelf) then return end
+	local abs = gui.AbsoluteSize
+	local portrait = abs.X < abs.Y
+	local factor = math.max(0.1, if portrait then abs.X / CFG.PortraitWidth else abs.Y / CFG.Height)
+	layoutWidth, layoutHeight = abs.X / factor, abs.Y / factor
+	root.Size = UDim2.fromOffset(layoutWidth, layoutHeight)
+	fitScale.Scale = factor
+	local margin, top, gap = CFG.Margin, CFG.Top, CFG.ColumnGap
+	local below = layoutHeight - top - margin
+	local titleX: number
+	if portrait then
+		local dressH = math.floor(below * CFG.PortraitDressingShare)
+		dressing.Position = UDim2.fromOffset(margin, top)
+		dressing.Size = UDim2.fromOffset(layoutWidth - margin * 2, dressH)
+		shelf.Position = UDim2.fromOffset(margin, top + dressH + gap)
+		shelfWidth = layoutWidth - margin * 2
+		shelf.Size = UDim2.fromOffset(shelfWidth, below - dressH - gap)
+		titleX = layoutWidth / 2
+	else
+		dressing.Position = UDim2.fromOffset(margin, top)
+		dressing.Size = UDim2.fromOffset(CFG.DressingWidth, below)
+		local shelfX = margin + CFG.DressingWidth + gap
+		shelfWidth = layoutWidth - shelfX - margin
+		shelf.Position = UDim2.fromOffset(shelfX, top)
+		shelf.Size = UDim2.fromOffset(shelfWidth, below)
+		titleX = shelfX + shelfWidth / 2
+	end
+	if wallet then
+		wallet.Position = UDim2.fromOffset(margin, math.max(24, CFG.BalanceSafeTopPixels / factor))
+	end
+	-- Tytuł i X nad panelem, nie na jego krawędzi.
+	if closeButton then
+		closeButton.Position = UDim2.fromOffset(layoutWidth - margin - closeButton.Size.X.Offset, CFG.HeaderY)
+	end
+	if title then
+		title.TextSize = if portrait then 54 else 76
+		title.Position = UDim2.fromOffset(titleX, CFG.HeaderY - 6)
+		if titleShadow then
+			titleShadow.TextSize = title.TextSize
+			titleShadow.Position = title.Position + UDim2.fromOffset(-3, 3)
+		end
+	end
+	if opened then rebuild(); refresh(); frameCamera() end
+end
+
+-- Przeciąganie myszą / palcem obraca postać w ramce (katalog) albo na platformie (przebieralnia).
+local function rotateBy(dx: number, width: number)
+	local degrees = dx / math.max(1, width) * CFG.DragDegrees
+	local now = os.clock()
+	-- Wygładzona prędkość chwilowa; ucięta, żeby jeden skok myszy nie wystrzelił postaci.
+	local dt = math.max(now - lastMove, 1 / 240)
+	local instant = math.clamp(degrees / dt, -CFG.SpinMaxVelocity, CFG.SpinMaxVelocity)
+	spinVelocity = spinVelocity + (instant - spinVelocity) * 0.4
+	lastMove = now
+	lastDrag = now
+	turn(degrees)
+end
+
+local function dragFrom(area: GuiObject)
+	area.InputBegan:Connect(function(input)
+		if dragInput or not (preview or outfitModel) then return end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+			dragX = input.Position.X
+			spinVelocity = 0 -- złapanie postaci zatrzymuje wybieg
+			lastMove = os.clock()
+			lastDrag = os.clock()
+		end
+	end)
+end
+
 local initialized = false
 function Controller.init()
 	if initialized then return end
@@ -560,6 +1063,7 @@ function Controller.init()
 	State.onChanged(function()
 		if not opened then return end
 		if mode == "wardrobe" then rebuild() end
+		if outfitModel then Preview.outfit(outfitModel, State.outfit(), nil) end
 		if preview and selected then Preview.outfit(preview, State.outfit(), if tryingOn then selected else nil) end
 		refresh()
 	end)
@@ -594,7 +1098,8 @@ function Controller.init()
 		if pending and pending.action == action and pending.id == id then pending = nil end
 		if not opened then return end
 		local bought = if success and action == "buy" then Definitions.get(id) else nil
-		if bought then celebrate(bought) end
+		if bought then celebrate(bought); ShopFx.feedback("Buy") end
+		if not success then shake(actionButton); ShopFx.feedback("Fail") end
 		say(if bought then "" elseif success then "OUTFIT SAVED"
 			else (reason and (messages :: any)[reason]) or "COULD NOT COMPLETE — TRY AGAIN")
 		-- Unequip should show the outfit without the selected item until it is selected again.
@@ -607,11 +1112,12 @@ function Controller.init()
 	player.CharacterRemoving:Connect(close)
 	player.CharacterAdded:Connect(close)
 	Shop.onOpenChanged(function(isOpen: boolean) if isOpen then close() end; updateButton() end)
+	player:GetAttributeChangedSignal(Config.Skills.OpenAttribute):Connect(updateButton)
 	-- COSMETICS sign above the seller: HUD-button colours flow through the letters, same as
 	-- SHOP (LobbySign, 03.11).
 	task.spawn(function()
-		local lobby = workspace:WaitForChild("Lobby", 30)
-		local sign = lobby and lobby:FindFirstChild(Config.Cosmetics.SignName, true)
+		local lobbyFolder = workspace:WaitForChild("Lobby", 30)
+		local sign = lobbyFolder and lobbyFolder:FindFirstChild(Config.Cosmetics.SignName, true)
 		local label = sign and sign:FindFirstChild("Label")
 		local grad = label and label:FindFirstChildOfClass("UIGradient")
 		if not (sign and sign:IsA("BillboardGui") and grad) then
@@ -640,94 +1146,94 @@ function Controller.init()
 		for _, object in ipairs(gui:GetDescendants()) do
 			if object:IsA("TextButton") and object:GetAttribute("SeparateLabel") then
 				local label = object:FindFirstChild("Label") :: TextLabel
-				local function syncLabel() label.Text = object.Text end
+				local labelShadow = object:FindFirstChild("LabelShadow")
+				local function syncLabel()
+					label.Text = object.Text
+					if labelShadow and labelShadow:IsA("TextLabel") then labelShadow.Text = object.Text end
+				end
 				syncLabel()
 				object:GetPropertyChangedSignal("Text"):Connect(syncLabel)
 			end
 		end
 		backdrop = gui:FindFirstChild("Backdrop") :: TextButton
-		local studs = backdrop:FindFirstChild("Studs")
-		if studs and studs:IsA("ImageLabel") then
-			backdropStuds = studs
-			local tile = studs.TileSize.X.Offset
-			studs.Size = UDim2.new(1, tile, 1, tile)
-		end
-		local tone = backdrop:FindFirstChild("Tone")
-		if tone and tone:IsA("UIGradient") then backdropTone, toneBase = tone, tone.Color end
 		root = gui:FindFirstChild("Root") :: Frame
-		local body = root:FindFirstChild("Body") :: Frame
-		catalog = body:FindFirstChild("Catalog") :: Frame
-		fitting = body:FindFirstChild("Fitting") :: Frame
-		scroll = catalog:FindFirstChild("Items") :: ScrollingFrame
+		local b = (root :: Frame):FindFirstChild("Body") :: Frame
+		body = b
+		local dressingFrame = b:FindFirstChild("Dressing")
+		local shelfFrame = b:FindFirstChild("Shelf")
+		local fittingFrame = b:FindFirstChild("Fitting")
+		if not (dressingFrame and dressingFrame:IsA("Frame") and shelfFrame and shelfFrame:IsA("Frame")
+			and fittingFrame and fittingFrame:IsA("Frame")) then
+			-- Plac sprzed v6c (bez Dressing/Shelf/Fitting): sklep się nie otworzy, zamiast rzucać błędami.
+			warn("[Cosmetics] StarterGui.Cosmetics needs Body.Dressing, Body.Shelf and Body.Fitting (shop_v6c) — shop disabled")
+			return
+		end
+		dressing, shelf, fitting = dressingFrame, shelfFrame, fittingFrame
+		frame = dressingFrame:FindFirstChild("Frame") :: Frame
+		view = (frame :: Frame):FindFirstChild("View") :: ViewportFrame
+		frameLed = ledOf(frame)
+		if frameLed then frameLed.Color = ledColors(Config.Cosmetics.SignFlowColors[1]) end
+		scroll = shelfFrame:FindFirstChild("Items") :: ScrollingFrame
+		empty = shelfFrame:FindFirstChild("Empty") :: TextLabel
 		template = gui:FindFirstChild("CardTemplate") :: Frame
-		title = body:FindFirstChild("Title") :: TextLabel
-		wallet = body:FindFirstChild("Cash") :: Frame
-		balance = wallet.Body:FindFirstChild("CashLabel") :: TextLabel
-		status = body:FindFirstChild("Status") :: TextLabel
-		empty = catalog:FindFirstChild("Empty") :: TextLabel
-		productName = fitting:FindFirstChild("ItemName") :: TextLabel
-		rarityTag = fitting:FindFirstChild("RarityTag") :: Frame
-		local row = fitting:FindFirstChild("PriceRow") :: Frame
+		title = b:FindFirstChild("Title") :: TextLabel
+		titleShadow = b:FindFirstChild("TitleShadow") :: TextLabel
+		titleFlow = title and title:FindFirstChildOfClass("UIGradient")
+		closeButton = b:FindFirstChild("CloseButton") :: GuiButton
+		wallet = b:FindFirstChild("Cash") :: Frame
+		balance = (wallet :: any).Body:FindFirstChild("CashLabel") :: TextLabel
+		status = b:FindFirstChild("Status") :: TextLabel
+		unlocked = b:FindFirstChild("Unlocked") :: Frame
+		productName = fittingFrame:FindFirstChild("ItemName") :: TextLabel
+		rarityTag = fittingFrame:FindFirstChild("RarityTag") :: Frame
+		local row = fittingFrame:FindFirstChild("PriceRow") :: Frame
 		priceRow = row
 		local fittingPrice = row:FindFirstChild("Price") :: TextLabel
 		productPrice = fittingPrice
 		pricePosition = fittingPrice.Position
 		local fittingPriceShadow = row:FindFirstChild("PriceShadow")
 		if fittingPriceShadow and fittingPriceShadow:IsA("GuiObject") then priceShadowPosition = fittingPriceShadow.Position end
-		needMore = fitting:FindFirstChild("NeedMore") :: TextLabel
-		unlocked = body:FindFirstChild("Unlocked") :: Frame
-		actionButton = fitting:FindFirstChild("ActionButton") :: TextButton
-		scale = root:FindFirstChild("Fit") :: UIScale
-		local function fit()
-			if not (scale and gui and root) then return end
-			local portrait = gui.AbsoluteSize.X < gui.AbsoluteSize.Y
-			local factor = if portrait then gui.AbsoluteSize.X / CFG.PortraitWidth else gui.AbsoluteSize.Y / CFG.Height
-			factor = math.max(0.1, factor)
-			layoutWidth = gui.AbsoluteSize.X / factor
-			layoutColumns = if portrait then 2 else CFG.Columns
-			local height = gui.AbsoluteSize.Y / factor
-			layoutRowHeight = if portrait then CFG.RowHeight else math.max(CFG.RowHeight, (height-CFG.CatalogTop-CFG.CatalogBottom-CFG.Gap-CFG.CardPadding*2)/2)
-			root.Size = UDim2.fromOffset(layoutWidth, height)
-			scale.Scale = factor
-			if wallet then
-				wallet.Position = UDim2.fromOffset(CFG.ScreenMargin, math.max(CFG.BalanceTop, CFG.BalanceSafeTopPixels / factor))
-			end
-			if title then
-				title.TextSize = if portrait then 54 else 76
-				title.Size = UDim2.fromOffset(layoutWidth * 0.5,96)
-				local shadow = title.Parent:FindFirstChild("TitleShadow")
-				if shadow and shadow:IsA("TextLabel") then shadow.TextSize = title.TextSize; shadow.Size = title.Size end
-			end
-			if opened then rebuild(); refresh() end
-		end
+		needMore = fittingFrame:FindFirstChild("NeedMore") :: TextLabel
+		actionButton = fittingFrame:FindFirstChild("ActionButton") :: TextButton
+		fitScale = (root :: Frame):FindFirstChild("Fit") :: UIScale
 		fit()
 		gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-		local closeButton = body:FindFirstChild("CloseButton") :: GuiButton
-		local backButton = fitting:FindFirstChild("BackButton") :: GuiButton
-		closeButton.Activated:Connect(close)
-		hover(closeButton)
-		backButton.Activated:Connect(back)
-		hover(backButton)
-		actionButton.Activated:Connect(act)
-		hover(actionButton)
-		local rotateArea = fitting:FindFirstChild("RotateArea") :: GuiObject
-		rotateArea.InputBegan:Connect(function(input)
-			if not selected or not preview or dragInput then return end
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				dragInput = input
-				dragX = input.Position.X
-				lastDrag = os.clock()
-			end
+		;(view :: ViewportFrame):GetPropertyChangedSignal("AbsoluteSize"):Connect(frameCamera)
+		local x = closeButton :: GuiButton
+		local backButton = fittingFrame:FindFirstChild("BackButton") :: GuiButton
+		local backSurface = backButton:FindFirstChild("Surface")
+		local backGradient = backSurface and backSurface:FindFirstChildOfClass("UIGradient")
+		if backGradient then backGradient.Color = CFG.Colors.Back end -- 12.11: gradient z Config, nie z placu
+		local buy = actionButton :: TextButton
+		x.Activated:Connect(function() ShopFx.feedback("Press"); close() end)
+		backButton.Activated:Connect(function() ShopFx.feedback("Press"); back() end)
+		buy.Activated:Connect(function() ShopFx.feedback("Press"); act() end)
+		for _, btn in ipairs({ x, backButton, buy } :: { GuiButton }) do
+			react(btn, CFG.ButtonHoverScale, CFG.ButtonPressScale, buttons)
+		end
+		local surface = buy:FindFirstChild("Surface")
+		local sweepFrame = surface and surface:FindFirstChild("Sweep")
+		local sweepGradient = sweepFrame and sweepFrame:FindFirstChildOfClass("UIGradient")
+		if sweepGradient then
+			sweep = sweepGradient
+			sweepGradient.Offset = Vector2.new(-CFG.ShineOffset, 0)
+			-- 13.11: połysk przechodzący po BUY jest jasną zielenią, nie czystą bielą.
+			sweepGradient.Color = ColorSequence.new(Color3.fromRGB(150, 255, 175))
+		end
+		UserInputService.InputEnded:Connect(function(input)
+			local t = input.UserInputType
+			if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then releaseAll() end
 		end)
+		local rotateArea = fittingFrame:FindFirstChild("RotateArea") :: GuiObject
+		dragFrom(frame :: Frame)
+		dragFrom(rotateArea)
 		UserInputService.InputChanged:Connect(function(input)
-			if not dragInput or not preview or not previewBase then return end
+			if not dragInput then return end
 			local mouse = dragInput.UserInputType == Enum.UserInputType.MouseButton1
 			if (mouse and input.UserInputType == Enum.UserInputType.MouseMovement) or input == dragInput then
 				local dx = input.Position.X - dragX
 				dragX = input.Position.X
-				previewAngle = (previewAngle + dx / math.max(1, rotateArea.AbsoluteSize.X) * CFG.DragDegrees) % 360
-				lastDrag = os.clock()
-				preview:PivotTo(previewBase * CFrame.Angles(0, math.rad(previewAngle), 0))
+				rotateBy(dx, if selected then rotateArea.AbsoluteSize.X else (frame :: Frame).AbsoluteSize.X)
 			end
 		end)
 		UserInputService.InputEnded:Connect(function(input)
@@ -738,7 +1244,11 @@ function Controller.init()
 		hudGui = hud :: ScreenGui
 		local side = hud:WaitForChild("SideButtons")
 		local btn = side:WaitForChild("CosmeticsButton", 30)
-		if btn and btn:IsA("GuiButton") then button = btn; btn.Activated:Connect(function() open("wardrobe") end) end
+		if btn and btn:IsA("GuiButton") then
+			button = btn
+			HudButtonFx.hook(btn) -- hover rośnie jak INVENTORY (13.11)
+			btn.Activated:Connect(function() open("wardrobe") end)
+		end
 		updateButton()
 		refresh()
 	end)

@@ -1,6 +1,6 @@
 # UI_RULES.md — zasady robienia UI w ESCAPE LAVA
 
-Aktualizacja kontekstu: **06.11.2026**. Bieżący kontrakt w STUDIO_CONTRACT; zapisane wyniki w TESTY.
+Aktualizacja kontekstu: **13.11.2026**. Bieżący kontrakt w STUDIO_CONTRACT; zapisane wyniki w TESTY.
 
 Reguły dla KAŻDEGO nowego elementu UI (HUD, panele, komunikaty, efekty). Zebrane z decyzji
 Kacpra i pułapek z 10-11.10. Opisy konkretnych, już zbudowanych elementów (nazwy, rozmiary,
@@ -50,7 +50,7 @@ id obrazków) są w `docs/STUDIO_CONTRACT.md` → „UI z Figmy” — tu tylko 
    podczas gry”). Bez czarnych obrysów na drobnych cząsteczkach (wyglądają jak czarne odłamki).
 9. **Rzeczy drugorzędne: małe, lekkie i przy tym, czego dotyczą** (06.11). Kacper dwa razy kazał
    zmniejszać: kropki sklepu („bardziej lean, poza ramką, mniejsze”) i pomijanie rundy (z dużego
-   przycisku pod COSMETICS na mini ramkę pod licznikiem). Duży przycisk zostaje dla głównej akcji.
+   przycisku pod COSMETICS na mini ramkę pod licznikiem; od 09.11 to kwadratowy SKIP ROUND po lewej od hotbara). Duży przycisk zostaje dla głównej akcji.
 10. **Panel „ożywiać”, nie przerabiać** (06.11): przy „lepsze UI” najpierw animacje i motyw gry z
    istniejących paneli. Pas lawy w sklepie to klon z ekwipunku, nie nowy styl.
 

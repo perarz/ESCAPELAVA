@@ -21,6 +21,8 @@ local ItemService = require(script.Services.ItemService)
 local LoadoutService = require(script.Services.LoadoutService)
 local SettingsService = require(script.Services.SettingsService)
 local CosmeticsService = require(script.Services.CosmeticsService)
+local StatsService = require(script.Services.StatsService)
+local SkillService = require(script.Services.SkillService)
 local ShopService = require(script.Services.ShopService)
 local DebrisService = require(script.Services.DebrisService)
 local PropService = require(script.Services.PropService)
@@ -61,6 +63,10 @@ LoadoutService.init()
 RoundSkipService.init()
 SettingsService.init()
 CosmeticsService.init() -- restores purchased accessories after AppearanceService finishes the base look
+-- Drzewko (09.11): oba PRZED pierwszym „loaded” (subskrypcje) i przed serwisami, które pytają
+-- o bonusy (lawa, wybuchy, anty-cheat, nagrody). Stats pierwszy — SkillService go słucha.
+StatsService.init()
+SkillService.init()
 -- Debris → Structural → Destruction → Collapse → Bomb. DESTRUCTION_PLAN.md (v3 + „v4”).
 -- Debris pierwszy (rejestr gruzu, collision group, pętla usypiania). Structural (v4) buduje
 -- budynki z `Config.Structure.Buildings` przy starcie i na początku każdego lobby — przed
@@ -129,6 +135,7 @@ local function sendInitialState(player: Player)
 	LoadoutService.replicateTo(player)
 	SettingsService.replicateTo(player)
 	CosmeticsService.replicateTo(player)
+	SkillService.replicateTo(player)
 end
 
 Remotes.ClientReady.OnServerEvent:Connect(function(player: Player)

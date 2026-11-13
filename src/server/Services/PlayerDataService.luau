@@ -80,6 +80,14 @@ local function defaultData(): any
 		wins = 0,                -- wygrane rundy (przeżycie do końca) — leaderstats Tab
 		inventory = {},          -- { [itemId] = count }  (np. { bomb = 3 })
 		cosmetics = { owned = {}, equipped = {} }, -- permanent IDs; separate from consumable inventory
+		-- Drzewko umiejętności (09.11): kupione pola i liczba rebirthów — właściciel SkillService.
+		skills = { nodes = {}, rebirths = 0 },
+		-- Statystyki (09.11): `total` od początku gry, `cycle` od ostatniego rebirthu (wymagania
+		-- pól drzewka) — właściciel StatsService.
+		stats = {
+			total = { kills = 0, survived = 0, played = 0 },
+			cycle = { kills = 0, survived = 0, played = 0 },
+		},
 		-- appearance — wygląd postaci { skin, shirt, pants, sleeves, legs }, same ID
 		-- z palet (NIE Color3: DataStore przyjmuje wyłącznie typy JSON-owalne).
 		-- Celowo BRAK w defaultach: nieobecne pole = „jeszcze nie losowano", i to jest
@@ -110,6 +118,17 @@ local function migrateSchema(data: any)
 	-- CosmeticsService validates IDs/categories; unknown owned IDs are retained for future catalogs.
 	if type(data.cosmetics) ~= "table" then
 		data.cosmetics = { owned = {}, equipped = {} }
+	end
+	-- Drzewko i statystyki (09.11): dopisanie pól, ta sama przestrzeń DataStore. Zawartość
+	-- czyszczą właściciele przy wczytaniu (SkillService, StatsService).
+	if type(data.skills) ~= "table" then
+		data.skills = { nodes = {}, rebirths = 0 }
+	end
+	if type(data.stats) ~= "table" then
+		data.stats = {
+			total = { kills = 0, survived = 0, played = 0 },
+			cycle = { kills = 0, survived = 0, played = 0 },
+		}
 	end
 end
 

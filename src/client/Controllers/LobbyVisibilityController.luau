@@ -43,9 +43,14 @@ local lastCheck = -math.huge
 local areaMin: Vector2? = nil
 local areaMax: Vector2? = nil
 
--- Wartości sprzed schowania. Słabe klucze: zniszczony obiekt nie trzyma się w pamięci.
-local savedLTM: { [Instance]: number } = setmetatable({}, { __mode = "k" }) :: any
-local savedEnabled: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+-- Wartości sprzed schowania. ZWYKŁE tabele, nie słabe (10.11, Kacper: „po rundzie wracam do lobby
+-- i mapy lobby nie ma”): słaba tabela z Instance jako kluczem gubi wpisy (UI_RULES, pułapki silnika),
+-- a lobby jest chowane przez całą rundę. Zgubiony wpis = `showOne` nie wiedział, że część była
+-- schowana, i zostawiał jej `LocalTransparencyModifier = 1` — lobby zostawało niewidoczne aż do
+-- ponownego wejścia do gry. Wpis znika razem z odkryciem (`showOne`) albo ze zniszczeniem obiektu
+-- (`DescendantRemoving` → `showOne`), więc tabele nie rosną.
+local savedLTM: { [Instance]: number } = {}
+local savedEnabled: { [Instance]: boolean } = {}
 
 local roots: { [Instance]: { RBXScriptConnection } } = {}
 local hiddenChars: { [Model]: { RBXScriptConnection } } = {}

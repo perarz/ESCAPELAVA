@@ -1,5 +1,82 @@
 # CO PRZETESTOWAĆ
 
+## Kasa i spawny — 13.11 (MCP — Cmd+S wymagany) — NIEPRZETESTOWANE
+
+Liczba kasy na rundę: `Config.Cash.SpawnFraction` (0.6 = 30 z 50).
+
+- [ ] Start rundy → w logu serwera `[Cash] snapshot: 50 spawn points` i `spawned 30 (skipped 0 nad lawą)`.
+- [ ] Kasa widać w różnych miejscach: na ulicach, na dachach, w środku budynków (hotel, szkoła, budowa, SandBuilding na piętrze). Żadna nie siedzi w ścianie, w meblu ani w powietrzu.
+- [ ] Druga runda → kasa w częściowo innych miejscach niż w pierwszej.
+- [ ] Kasa w środku budynku nie zbiera się przez ścianę z ulicy (magnes ma 8 studów — jeśli się zbiera, zgłoś miejsce).
+- [ ] Kilka rund z rzędu → raz na jakiś czas spawn w holu hotelu (parter): postać stoi na dywanie, nie w nim; da się wyjść z hotelu na ulicę i wejść wyżej, zanim przyjdzie lawa.
+- [ ] Nowe spawny na obrzeżach (chodniki przy murach mapy) → postać stoi na ziemi, nic nad głową, nie w latarni ani w aucie.
+- [ ] (Z kilkoma graczami) każdy startuje w innym miejscu.
+
+## Upadek i mag — 12.11 (FallVignette przez MCP — Cmd+S wymagany) — NIEPRZETESTOWANE
+
+Liczby: `Config.Skills.Camera.Fill*` (mag), `Config.FallDamage.Impact` (efekt upadku).
+
+- [ ] E przy magu → światło na magu ciepłe, śliwkowo-fioletowe i ciemniejsze niż dotąd jasna lawenda. Mag dalej czytelny na tle pokoju.
+- [ ] W rundzie zeskocz z wysokości ~35 studów (lekkie obrażenia) → pod stopami mały pierścień kurzu w kolorze podłogi, kilka odłamków, cienka fala; czerwone krawędzie ekranu błyskają słabo i gasną w niecałą sekundę.
+- [ ] Zeskocz z ~65 studów (prawie śmierć) → kurz wyraźnie większy, więcej odłamków, większa fala, krawędzie mocno czerwone.
+- [ ] Zeskok do 25 studów (bez obrażeń) → brak efektu.
+- [ ] Drugi gracz patrzy, jak spadasz → widzi kurz i odłamki u twoich stóp; jego ekran NIE robi się czerwony.
+- [ ] Odłamki nie przelatują widocznie przez podłogę; nic z efektu nie da się nadepnąć ani nie zasłania celownika mostu/drabiny.
+- [ ] GRAPHICS LOW → efekt mniejszy, bez fali; brak spadku FPS.
+- [ ] Śmiertelny upadek (75+) → efekt i czerwony błysk, potem zwykła śmierć; po odrodzeniu krawędzie czyste.
+- [ ] Odliczanie 3-2-1: każda cyfra wskakuje z odbiciem od razu, bez pustej przerwy między cyframi. Dół każdej cyfry lekko ciemniejszy w jej kolorze.
+- [ ] Miganie lawy: cała runda, także po zalaniu ulicy → lawa płaska z teksturą, lekko unosi się i opada całą taflą, NIC nie miga. Brak bąbli, iskier, poświaty i popiołu (wyłączone 12.11). Rozbryzg przy wpadnięciu do lawy dalej jest.
+
+## Drzewko umiejętności i rebirth — 10.11 (panel przez MCP — Cmd+S wymagany) — NIEPRZETESTOWANE
+
+Zanim odpalisz Play: Rojo połączone w Studio (Connect) — cztery pliki z 10.11 muszą dojechać. Panel obejrzany tylko na zrzucie z Edit z tymczasowymi polami; kadru kamery, animacji i dziury od FORCE nie da się zobaczyć bez gry. Kadr: `Config.Skills.Camera`, układ pól: `Config.Skills.Layout`, ceny i wymagania: `SkillDefinitions`.
+
+Podstawy:
+- [ ] Wejdź do wieży, podejdź do maga: jest podpowiedź E „Skills”. Naciśnij → kamera płynnie podjeżdża do maga (mag po lewej, widać go nad ladą, nie zasłania go twoja postać), po prawej wjeżdża panel SKILL TREE. Pola wskakują od środka, linie rysują się za nimi.
+- [ ] Przyciski INVENTORY, COSMETICS, SKIP i zębatka: nie da się nimi nic otworzyć na panelu (INVENTORY i SKIP znikają). Q albo X → panel zjeżdża, kamera i sterowanie wracają, przyciski też.
+- [ ] Na start świeci się tylko środkowe pole (różdżka) i jest pierścień wokół niego; SPEED i STAMINA mają kłódki, cztery pozostałe odnogi są szare z napisem REBIRTH 1…4.
+- [ ] Kliknij START → nazwa, opis, 150$, zielony UNLOCK. Kliknij UNLOCK → kasa −150, pole robi się fioletowe z poświatą, promienie i gwiazdki, kłódki SPEED I i STAMINA I spadają, napis UNLOCKED!. Chód i sprint wyraźnie szybsze (+5%).
+- [ ] Kliknij pole z kłódką (np. SPEED II przed SPEED I) → szary przycisk LOCKED i podpowiedź, co kupić najpierw. Klik w szary przycisk → drgnięcie, kasa bez zmian.
+- [ ] SPEED II bez 10 przetrwanych rund → „SURVIVE 10 ROUNDS”, pasek i licznik x/10, przycisk szary „x/10 ROUNDS”. Klik → przycisk drga, wymaganie miga na czerwono.
+- [ ] Za mało kasy → przycisk NOT ENOUGH $, po kliknięciu cena miga na czerwono.
+- [ ] Po rundzie liczniki rosną: przetrwana runda +1 do SURVIVE i do PLAY, przegrana tylko do PLAY, kill +1 do KILLS. Pomijanie rundy (SKIP) nie liczy się do niczego.
+- [ ] Wyjdź z gry i wejdź ponownie → drzewko, liczniki i kasa takie same.
+
+Efekty:
+- [ ] Sprint przez całą rundę z kupionym START + SPEED I + SPEED II (+10%): nic cię nie cofa ani nie zabija (anty-cheat). To samo z energy drinkiem naraz.
+- [ ] STAMINA I: pasek staminy starcza wyraźnie dłużej (+15%), po odrodzeniu jest pełny.
+- [ ] Kup pole w trakcie rundy jako pomijający (SKIP) → działa, bonus od razu.
+- [ ] Tab: obok Cash i Wins jest kolumna Rebirths.
+
+Rebirth (najszybciej z kasą testową ze Studio; wymagania rund trzeba naprawdę rozegrać):
+- [ ] Przed kompletem przycisk na dole jest szary: „REBIRTH x/5”. Klik → drgnięcie i UNLOCK EVERYTHING FIRST.
+- [ ] Po wykupieniu 5 pól (START, SPEED I–II, STAMINA I–II) przycisk robi się lawowy „REBIRTH”, pulsuje, miga wokół niego niebieska ramka z błyskawic.
+- [ ] Klik → okno REBIRTH? z trzema liniami (co tracisz, co zostaje, co dostajesz) i „NEW BRANCH: LAVA SKIN”. CANCEL zamyka okno bez zmian.
+- [ ] REBIRTH w oknie → pola gasną od końców do środka, lawa cofa się z linii, krąg przyspiesza, błysk przy magu, wyskakuje „REBIRTH 1 / +5% CASH / NEW BRANCH: LAVA SKIN”. Licznik w nagłówku: REBIRTH 1. Drzewko puste, odnoga LAVA SKIN odsłonięta (bez napisu REBIRTH 1).
+- [ ] Kasa, itemy w ekwipunku i kosmetyki bez zmian. Chód i stamina wróciły do zwykłych. Liczniki rund i killi w wymaganiach liczą od zera.
+- [ ] Następna przetrwana runda: 105$ zamiast 100 (komunikat YOU SURVIVED pokazuje 105), kill 26$ zamiast 25.
+- [ ] LAVA SKIN I i II: w lawie wytrzymujesz dłużej (ok. 7 s → 7,8 s → 8,75 s).
+- [ ] Po 2. rebirthcie TOUGHNESS: bomba i niższy upadek bolą mniej; skok ze śmiertelnej wysokości dalej zabija.
+- [ ] Po 3. GREED: z GREED II i 3 rebirthami przetrwanie daje 135$ (100 × 1,35).
+- [ ] Po 4. FORCE I: w rundzie F w ścianę przed sobą → dziura na ok. 7 studów, sypie się gruz i pył, BEZ ognia, huku i wstrząsu. Ściana wraca po rundzie. FORCE II: większa dziura, pchnięty gracz leci dalej.
+- [ ] FORCE: F w lobby, w wieży i w barierę na skraju mapy nic nie niszczy. F w szybę dalej ją tłucze, F w gracza dalej go pcha, F w beczkę dalej ją odpala (wygrywa to, co bliżej).
+
+Kolejność paneli:
+- [ ] Otwórz szybko po sobie sklep, kosmetyki i drzewko → nigdy dwa panele naraz, kamera zawsze wraca do postaci.
+- [ ] Miej otwarte drzewko, gdy startuje runda (bez SKIP) → panel się zamyka, kamera idzie za postacią na mapę.
+- [ ] **Telefon:** panel mieści się na ekranie, pola da się trafić palcem, dotknięte pole nie zostaje powiększone.
+
+## COSMETICS — aktualny test (13.11, MCP + kod, Cmd+S wymagany) — NIEPRZETESTOWANE
+
+Zastępuje listy v4–v6e (w [archiwum](archive/2026-11-13/COSMETICS_TESTY_v4-v6e.md)). Opis stanu: STATUS → „COSMETICS — stan bieżący”.
+- [ ] **HUD:** najedź na COSMETICS — przycisk rośnie jak INVENTORY, klik odbija go; SKIP ROUND: ikona przesuwa się przy hover i „strzela” po kliknięciu; SPECTATE: źrenica patrzy za kursorem, klik = mrugnięcie (wyszarzony „NO PLAYERS” nie reaguje).
+- [ ] **Sklep, płyta ceny:** płyta na karcie jest większa i nie zasłania nazwy; hover zmienia ją w BUY; klik przy karcie, na którą Cię stać, kupuje i zakłada od razu (efekt zakupu, kasa spada, karta OWNED); bez gotówki płyta szarzeje i klik pokazuje „NEED x$ MORE”; klik w resztę karty otwiera przymierzalnię.
+- [ ] **Przebieralnia, scena:** pracownia krawca — brak napisów, lustro za postacią, 3 manekiny R6 (dynia / kamizelka / plecak), podest okrągły z mosiężnym pierścieniem; światło: postać nie jest przepalona, tło ma głębię, lampa nad podestem nie wchodzi w kadr; kamera lekko krąży za myszą.
+- [ ] **Obrót z bezwładnością:** szybko pociągnij postać i puść — kręci się jeszcze chwilę i zwalnia; wolny ruch zostawia ją prawie w miejscu; złapanie w trakcie wybiegu zatrzymuje; po 3 s bez dotyku wraca samoobrót. Sprawdź i w ramce katalogu, i w przebieralni.
+- [ ] **BUY / BACK:** gradienty ciemniejsze, bez przejścia w biały; połysk na BUY jasnozielony.
+- [ ] **Zapis:** kupiony strój wraca po wyjściu i wejściu do gry oraz po respawnie.
+- [ ] **Telefon:** płyta ceny pokazuje „BUY 500$” od razu (bez najechania), obrót palcem z wybiegiem.
+
 ## Lobby niewidoczne z mapy — 09.11
 
 - [ ] Napisy SHOP / COSMETICS: szybko machaj kamerą w lobby (także zza budynków i latarni) — napis nie miga. Widać go z całego lobby (SHOP najwyżej znika w najdalszym rogu przy maksymalnym oddaleniu kamery), z mapy żadnego.
@@ -76,18 +153,18 @@ Testy agenta wykonane za jawną zgodą Kacpra. Test kontrolowany uruchamiał kod
 
 ## ⏭️ Pomijanie rundy (06.11, ramka przez MCP — Cmd+S wymagany) — ogólne działanie potwierdzone przez Kacpra
 Kacper 06.11: „skip już działa”; bez wskazania konkretnych przypadków z listy. Przegląd kodu i zgodność 14 modułów ze Studio w Edit potwierdzone; to nie dodatkowy test Play. Poniższe pola pozostają otwarte do szczegółowego potwierdzenia. **Do rundy z pomijającym potrzeba dwóch graczy**: Studio → Test → Clients and Servers → 2 Players albo kolega. Sam na serwerze sprawdzisz tylko dwa pierwsze punkty.
-- [ ] Sam: mała szara ramka SKIP pod licznikiem, klik → płynnie szersza, czerwona ramka DON'T SKIP, klik ponownie → szara SKIP, reaguje od razu, także przy szybkim klikaniu. Napis mieści się w ramce, ramka nie nachodzi na licznik
-- [ ] Sam, po kliknięciu SKIP: koniec lobby (albo K) → runda NIE startuje, ekran się nie ściemnia, lobby odlicza od nowa. Log: `[GameLoop] nikt nie chce grać`. Klik DON'T SKIP → następna runda rusza normalnie
+- [ ] Sam: przycisk SKIP ROUND po lewej od hotbara (od 09.11 zamiast ramki pod licznikiem), klik → JOIN ROUND (czerwony), klik ponownie → SKIP ROUND, reaguje od razu, także przy szybkim klikaniu. Napis mieści się w przycisku
+- [ ] Sam, po kliknięciu SKIP: koniec lobby (albo K) → runda NIE startuje, ekran się nie ściemnia, lobby odlicza od nowa. Log: `[GameLoop] nikt nie chce grać`. Klik JOIN ROUND → następna runda rusza normalnie
 - [ ] Dwóch, A pomija, B gra: B leci na mapę, A zostaje dokładnie tam, gdzie stał, postać się nie przeładowuje, nie ma zasłony ani 3-2-1, licznik pokazuje STARTING, a potem czas rundy
 - [ ] A w trakcie rundy: otwiera sklep i kupuje, sklep się nie zamyka przy zmianie stanu; bez kasy nic się nie psuje. Ekwipunek otwiera się i zmiana loadoutu zostaje po odświeżeniu. COSMETICS z HUD i ze straganu działają, zakup przechodzi
 - [ ] A zostawia sklep otwarty do końca rundy: bez zasłony i bez teleportu, zakup dalej działa w nowym lobby
-- [ ] B ginie albo przeżywa: tylko B dostaje nagrodę i wraca do lobby jak dotąd; A nie dostaje kasy. B w trakcie rundy nie widzi prompta straganu kosmetyków ani przycisku ekwipunku; jako żywy na mapie nie widzi napisu SKIP
+- [ ] B ginie albo przeżywa: tylko B dostaje nagrodę i wraca do lobby jak dotąd; A nie dostaje kasy. B w trakcie rundy nie widzi prompta straganu kosmetyków ani przycisku ekwipunku; jako żywy na mapie nie widzi przycisku SKIP ROUND
 - [ ] A ginie w lobby w trakcie rundy (reset): odradza się w lobby po chwili. A ginie tuż przed końcem odliczania: też się odradza i nie leci na mapę
-- [ ] A klika DON'T SKIP w trakcie rundy: tę rundę dalej stoi, a następną gra. B po śmierci klika SKIP: następną rundę pomija
+- [ ] A klika JOIN ROUND w trakcie rundy: tę rundę dalej stoi, a następną gra. B po śmierci klika SKIP ROUND: następną rundę pomija
 - [ ] Obaj pomijają: lobby odlicza od nowa i nikomu nie zamyka sklepu ani nie teleportuje. Jeden wyłącza → runda startuje dla niego
-- [ ] Wyjście z gry z napisem DON'T SKIP i powrót: napis znów mówi SKIP, gracz gra
+- [ ] Wyjście z gry z napisem JOIN ROUND i powrót: napis znów mówi SKIP ROUND, gracz gra
 - [ ] Zwykła runda bez nikogo pomijającego wygląda dokładnie jak wcześniej, także prompt straganu kosmetyków znika na czas rundy
-- [ ] Telefon: ramkę da się trafić palcem, napis jest czytelny, po dotknięciu nie zostaje powiększona
+- [ ] Telefon: przycisk da się trafić palcem, napis jest czytelny, po dotknięciu nie zostaje powiększony
 
 ## 🪖 Tło sklepu: arsenał (05.11, MCP — Cmd+S wymagany) — NIEPRZETESTOWANE
 Wszystkie 6 kadrów obejrzane na zrzutach z Edit, ale nie w grze. Kadry RPG i C4 oglądane z jaśniejszą tablicą (przed przyciemnieniem), a Blueprint bez oświetlenia sklepu.
@@ -209,26 +286,6 @@ Kod zsynchronizowany i parsuje się (odczyt Edit), przyciski postawione przez MC
 - [ ] **Loadout palcem** (zgłoszenie 02.11: „przeciągam item na slota, klinuje się i zostaje tam”; poprawka 02.11): w lobby otwórz Inventory, przeciągnij kartę na slot i puść → karta wskakuje do slotu i znika, slot pokazuje item. Powtórz 5× na różne sloty, też szybkim ruchem. Przeciągnij i puść obok slotów → karta wraca na miejsce. Przeciągnij zajęty slot poza sloty → item wyjęty. Lista kart nie przewija się pod przeciąganą kartą; zwykłe przewijanie listy palcem dalej działa. Drugi palec w trakcie przeciągania nic nie psuje. Jeśli karta znowu zawiśnie — napisz, gdzie dokładnie (pod palcem, na slocie) i czy znika po zamknięciu panelu.
 - [ ] Ten sam loadout myszą na PC: przeciąganie, upuszczanie na slot i obok działa jak dotąd.
 - [ ] Znane wcześniej: `v0.8` w prawym dolnym rogu leży pod skokiem na telefonie (patrz „sklep v4”).
-
-## COSMETICS — sklep v4 (27.10 wieczór), do sprawdzenia przez Kacpra
-
-Wygląd obejrzany na zrzutach z Edit (katalog, przymierzalnia, UNLOCKED!). Kod zsynchronizowany i parsuje się. **Play nie był uruchamiany.** Przed testem Cmd+S.
-
-- [ ] (27.10 późno) Tło katalogu: studsy powoli płyną po skosie w górę, lawowa poświata u dołu spokojnie jaśnieje i przygasa (~5 s). Nic nie skacze przy zawijaniu wzoru, krawędź ekranu nigdy nie jest pusta. W przymierzalni tła nie ma (widać scenę).
-- [ ] (27.10 późno) Zębatka ustawień w prawym górnym rogu: nie wchodzi pod listę graczy ani pod przyciski Robloxa, klik otwiera i zamyka ustawienia, hover działa. W lewym pasku zostały INVENTORY i COSMETICS.
-- [ ] (27.10 późno) Prawy dolny róg: półprzezroczysty napis „v0.8”, nie zasłania przycisku skoku na telefonie.
-- [ ] (27.10 późno) Inventory: żółty nagłówek ma ostre górne rogi, czarny obrys idzie prosto do rogu; kreska pod nagłówkiem tej samej grubości co obrys; dół panelu bez zmian.
-
-- [ ] Otwórz sklep przy NPC → ciemne studsy z lawową poświatą u dołu, złoty napis COSMETICS w jednej linii z kasą i X. Karty: dynia na ciemnym fiolecie z pomarańczowymi promieniami (HALLOWEEN), kamizelka fioletowa (EPIC), plecak niebieski (RARE). Ceny jako `500$` z ikoną kasy.
-- [ ] Przymierzalnia, kamizelka założona → głowa siedzi na tułowiu bez szpary, także gdy postać się obraca. Sprawdź też plecak (ten sam podgląd).
-- [ ] Duża karta dyni sama się lekko kołysze, a promienie się kręcą. Najedź myszą na kamizelkę lub plecak → zaczynają się kołysać, zjedź → płynnie wracają. Nic nie miga ani nie skacze.
-- [ ] Kliknij produkt → przymierzalnia bez granatowego paska: rzadkość, duża nazwa i cena na scenie po lewej, duży BUY po prawej, BACK w prawym górnym rogu. Po ~3 s postać sama się powoli obraca. Przeciągnij → obrót zatrzymuje się na 3 s.
-- [ ] Za mało kasy → szary BUY i napis `NEED X$ MORE — SURVIVE N ROUNDS` z poprawną liczbą (100$ za rundę). Kliknięcie → komunikat NOT ENOUGH CASH, kasa bez zmian.
-- [ ] Wystarczy kasy → zielony BUY. Kliknij → kasa w rogu odlicza w dół, na środku wskakuje UNLOCKED! z nazwą w kolorze rzadkości, przedmiot jest od razu na postaci (także po zamknięciu sklepu), przycisk zmienia się na czerwony UNEQUIP, cena na WEARING.
-- [ ] UNEQUIP → przycisk żółty EQUIP, cena OWNED, przedmiot znika z postaci. EQUIP → wraca.
-- [ ] Garderoba (przycisk COSMETICS): tylko posiadane, z napisami OWNED/WEARING zamiast ceny.
-- [ ] Wyjście w trakcie UNLOCKED! (BACK/X/start rundy) → przy kolejnym otwarciu popup nie wisi na ekranie.
-- [ ] Telefon / wąskie okno: nazwy się nie nakładają na ceny, BUY i BACK dostępne, napis NEED… mieści się.
 
 ## COSMETICS — 26.10, do sprawdzenia przez Kacpra
 

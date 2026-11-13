@@ -12,7 +12,7 @@
 -- Model:
 --   * Co CheckIntervalSec próbkujemy pozycję poziomą (Y ignorujemy — spadanie i skoki
 --     to nie jest prędkość biegu, a lawa i tak załatwia spadających).
---   * Prędkość > SprintSpeed + SpeedTolerance (+ SprintBonus w oknie energy drinka) = jeden
+--   * Prędkość > SprintSpeed × (1 + bonus z drzewka) + SpeedTolerance (+ SprintBonus w oknie energy drinka) = jeden
 --     "strike". Strikes pod rząd = kara.
 --     Pojedynczy przekroczony pomiar to prawie zawsze fizyka (gruz, zbieg ze skarpy),
 --     a nie cheat — cheater przekracza limit w każdej próbce.
@@ -35,6 +35,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local GameLoopService = require(script.Parent.GameLoopService)
 local PlayerService = require(script.Parent.PlayerService)
+local SkillService = require(script.Parent.SkillService)
 
 local AntiCheatService = {}
 
@@ -55,7 +56,11 @@ local initialized = false
 -- `dt` sekund, więc okno liczy się jeszcze `dt` po końcu napoju — inaczej szybki bieg sprzed
 -- końca dawałby strike w pierwszej próbce po nim.
 local function maxAllowedSpeed(player: Player, dt: number): number
-	local limit = Config.Movement.SprintSpeed + Config.AntiCheat.SpeedTolerance
+	-- Drzewko (09.11): bonus szybkości mnoży sprint u klienta, więc limit rośnie tak samo.
+	-- Czytany ze stanu SERWERA (SkillService), nie z atrybutu — gracz z kupionym +10% nie
+	-- dostaje kary, a podmiana atrybutu u klienta limitu nie rusza.
+	local limit = Config.Movement.SprintSpeed * (1 + SkillService.getBonus(player, "speed"))
+		+ Config.AntiCheat.SpeedTolerance
 	local energy = Config.EnergyDrink
 	local s = player:GetAttribute(energy.StartAttribute)
 	local e = player:GetAttribute(energy.EndAttribute)

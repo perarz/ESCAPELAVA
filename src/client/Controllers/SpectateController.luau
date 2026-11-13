@@ -9,6 +9,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Shop = require(script.Parent.ShopController)
+local HudButtonFx = require(script.Parent.HudButtonFx)
 
 local Controller = {}
 local CFG = Config.Spectate
@@ -39,6 +40,7 @@ end
 
 local function otherCameraOwner(): boolean
 	return Shop.isOpen() or player:GetAttribute("CosmeticsOpen") == true
+		or player:GetAttribute(Config.Skills.OpenAttribute) == true
 end
 
 local function eligible(): boolean
@@ -205,6 +207,7 @@ function Controller.init()
 	end)
 	Shop.onOpenChanged(refresh)
 	player:GetAttributeChangedSignal("CosmeticsOpen"):Connect(refresh)
+	player:GetAttributeChangedSignal(Config.Skills.OpenAttribute):Connect(refresh)
 	Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
 		if active then applyTarget() end
 	end)
@@ -249,6 +252,7 @@ function Controller.init()
 		return
 	end
 	gui, openButton, controlsFrame, targetLabel = root, open, panel, label
+	HudButtonFx.spectate(open)
 	open.Activated:Connect(start)
 	previous.Activated:Connect(function() cycle(-1) end)
 	nextButton.Activated:Connect(function() cycle(1) end)
