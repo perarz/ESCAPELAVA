@@ -1,8 +1,99 @@
 # STATUS — ESCAPE LAVA
 
-Aktualizacja **13.11.2026**. Ostatni pełny audyt 23.10: kod repo, lokalna historia Git, checklisty i odczyt Studio w Edit, bez Play, pomiaru FPS i publikacji ([audyt kontekstu](CONTEXT_AUDIT_2026-10-23.md)). Sekcje niżej idą od najnowszej; starszy wpis nie unieważnia nowszego. Wpisy o kolejnych wersjach UI COSMETICS (v4–v6e) wyniesione do [archiwum](archive/2026-11-13/COSMETICS_STATUS_v4-v6e.md); bieżący opis: „COSMETICS — stan bieżący (13.11)”.
+Aktualizacja **24.11.2026**. Ostatni pełny audyt 23.10: kod repo, lokalna historia Git, checklisty i odczyt Studio w Edit, bez Play, pomiaru FPS i publikacji ([audyt kontekstu](CONTEXT_AUDIT_2026-10-23.md)). Sekcje niżej idą od najnowszej; starszy wpis nie unieważnia nowszego. Wpisy o kolejnych wersjach UI COSMETICS (v4–v6e) wyniesione do [archiwum](archive/2026-11-13/COSMETICS_STATUS_v4-v6e.md); bieżący opis: „COSMETICS — stan bieżący (13.11)”.
 
 **Stan na 13.11:** gra nie jest jeszcze opublikowana (potwierdził Kacper); wszystkie zmiany z 06.11 wzwyż są NIEPRZETESTOWANE w Play, a plac (UI, mapa, sceny) przez MCP wymaga zapisu Cmd+S. Kod zgadza się ze Studio (odczyt `.Source` + parsowanie 13.11). Studio: `ESCAPE LAVA`, placeId 107369017875577, `rojo serve` chodzi.
+
+## 24.11 (później) — pociąg, niska grawitacja, hak EPIC, sprawdzone częściowo w Play przez agenta, Cmd+S wymagany
+
+Kacper: „dodaj pociąg, hak lepsza rzadkość, niska grawitacja”. Decyzje (AskUserQuestion): hak EPIC; pociąg 60% HP i wyrzut, dach dla pasażerów; zburzone tory = nie przyjeżdża; grawitacja: wysokie skoki, upadki nie ranią; oba w każdej rundzie; kozły na końcach torów usunąć i zrobić czarne tunele, w które pociąg wjeżdża i znika.
+
+- **Pociąg:** napis „TRAIN INCOMING! GET OFF THE TRACKS! 5”, wyjazd z losowego tunelu, 60 stud/s, lokomotywa i 3 wagony, ~9 s przez miasto (przez oba budynki na torach). Tory są 46 studów nad ulicą, więc uderzony zwykle i tak ginie od upadku.
+- **Niska grawitacja:** 10 s, skok 7 → 21 studów, napis odlicza do końca, jeszcze 1,5 s po niej upadki nie ranią. Tylko uczestnicy rundy.
+- **Hak:** fioletowy ze snopem, 13% → 8% na mapie, w puli skrzyń (3 z 5; nadal zawsze RPG albo drabina).
+- **Plan rundy (80 s) zmieniony:** zrzut 9–12 · nalot 18–20 · pociąg 32–34 · zrzut 40–42 · (50%) nalot 46–49 · grawitacja 60–62.
+- **Kod:** nowe `TrainPath`, `TrainService`, `TrainController`, `LowGravityService`, `LowGravityController`; `FallDamageService` i `BridgeController` po jednej zmianie; klawisze dev w `Config.Dev.EventKeys` (L zrzut, J nalot, T pociąg, N grawitacja). Pliki zgodne ze Studio (suma) i się parsują.
+- **Plac (zgoda Kacpra):** `Map.Locked.TrainTunnels`, `ReplicatedStorage.Train`; kozły usunięte, kopia w `ServerStorage.RailwayEnds_Backup_2411`.
+- **Play agenta (dwie krótkie sesje, obserwacja):** jazda na dachu 4 s przez oba tunele — postać nie przesunęła się względem wagonu; pociąg zniknął po 8,8 s; uderzenie na podkładzie 100 → 40 HP w chwili dojazdu czoła, potem śmierć od upadku z torów; skok w niskiej grawitacji 20,6 studa, upadek z ~58 studów bez obrażeń, po końcu wszystko wróciło. **Po Play poprawione i już niesprawdzane:** siła odrzutu (była za słaba) i jednostronny dach. **Nie sprawdzone w Play:** zburzone tory (odczyt w Edit: 0/145 braków na całych, 140/145 bez jednej szyny).
+
+## 24.11 — wydarzenia w rundzie: zrzut zaopatrzenia i nalot rakietowy, sprawdzone podstawowo w Play przez agenta, Cmd+S wymagany
+
+Kacper: „żeby coś się działo w rundzie: zrzuty z rzadszym lootem i 1–2 razy na rundę nalot rakietowy z alarmem, bez podania budynku”. Decyzje (AskUserQuestion): loot wysypuje się dookoła skrzyni; dachy, 2 na rundę; nalot mocny; cel losowy, częściej budynki z graczami.
+
+- **Zrzut:** skrzynia na spadochronie opada 8 s na losowy dach nad lawą, słup światła pokazuje gdzie. E otwiera od razu, dookoła lądują 3 różne itemy z puli RPG / C4 / bomba / drabina (zawsze RPG albo drabina). Dach pod skrzynią zniszczony → spada niżej, w lawie przepada.
+- **Nalot:** syrena i napis „AIR RAID! MISSILES HIT A BUILDING IN 8”, rakiety widać ~2 s przed uderzeniem, 5–10 sztuk co 0,35 s w jeden budynek. Rani każdego w zasięgu (50% w epicentrum), zabójstwo nikomu się nie liczy. Cel wybrany w chwili alarmu i znany tylko serwerowi.
+- **Kiedy:** ułamki rundy w `Config.RoundEvents.Schedule` (aktualny plan: wpis wyżej).
+- **Kod:** nowe `RoundEventService`, `SupplyDropService`, `AirstrikeService`, `RoundEventController`, `SupplyDropController`, `AirstrikeController`; `ItemPickupService.spawnAt`, łuk wysypu w `ItemPickupController`, `BombService` rani bez sprawcy przy `hurtsWithoutAttacker`; klawisze dev **L** (zrzut) i **J** (nalot). Pliki zgodne ze Studio (suma) i się parsują.
+- **Pomiar celowania (Edit, odczyt, nietknięta mapa):** przy lawie Y 3 / 40 / 70 / 85 wszystkie rakiety trafiają w wybrany budynek, koszt < 1 ms; w cel wchodzą kolejno 10 / 5 / 4 / 2 budynki.
+- **Plac:** `ReplicatedStorage.SupplyCrate` i `StrikeMissile`, 23 markery `Map.Locked.SupplyDropSpawns` i `HUD.EventMessage` postawione przez MCP (zgoda Kacpra 24.11). Niczego istniejącego nie zmieniono; cofnięcie: Ctrl+Z.
+- **Play agenta (jedna sesja za zgodą, obserwacja):** skrzynia opadła w 8 s, po otwarciu 3 itemy (drabina, C4, RPG) na dachu 4,5 studa od niej; zrzut z planu rundy też się odbył. Nalot: odliczanie 8 → 1 → „TAKE COVER!”, pierwsze uderzenie 0,08 s po zerze, 10 wybuchów w SandBuilding w ~3,3 s, serwer 5–20 ms na rakietę, kolaps częściowy (budżet najwyżej 67/100). Gracz obok trafienia 100 → 63 HP, bez komunikatu zabójstwa. Runda skończyła się z rakietami w powietrzu: w lobby zero wybuchów, 3 budynki odbudowane. Po Play poprawione: syrena wczytuje się z góry (wcześniej pierwszy alarm ładował ją ~0,5 s). Wyglądu i dźwięku nie oceniałem.
+- Syrena: „Air Raid Siren Old Fashioned 2” (Pro Sound Effects, darmowa, `rbxassetid://9113073796`) — propozycja, nieodsłuchana. Świst rakiety i dźwięki skrzyni puste.
+- Pomysły na kolejne wydarzenia: [ROADMAP](ROADMAP.md) → „Wydarzenia w rundzie”. Testy: [TESTY](TESTY.md) → „Wydarzenia w rundzie”.
+
+## 15.11 (noc, jeszcze później) — pasek lawy po prawej w rundzie, Cmd+S wymagany
+
+**v3 (Kacper: „góra lawy kwadratowa, max 90% paska — limit gry”):** lawa na pasku ma kwadratową górę (zaokrąglony tylko spód, `Track.LavaBase` przez MCP — Cmd+S); poziom lawy na końcu rundy (~Y 122, liczony z `Config.Lava`) = 90% paska, ulica 25%, start lawy 15%. Play agenta: wymiary zgodne, zrzut `artifacts/lava-meter/4_square_top_v3.jpg`.
+
+**v2 (Kacper: „buja się przy chodzeniu, lawa też; przy małej lawie rozjeżdża się z ramką”):** znacznik liczony ze stóp (korzeń postaci) zamiast głowy, z wygładzaniem i martwą strefą; lawa pokazuje najwyższy dotychczasowy poziom (bez falowania); skala: start lawy = 15% paska, ulica = 25%, dach = 100%. Ostrzeżenie od stóp: 4 studa. Play agenta: w miejscu znacznik 0 ruchu, lawa stała 15,8%, gracz na ulicy na 24,8%.
+
+Kacper: „po prawej podczas rundy pasek z poziomem lawy i gdzie jesteś”. Decyzje: tylko ty, znacznik = głowa awatara, ostrzeżenie blisko lawy.
+- Pionowy pasek: lawa rośnie od dołu (od poziomu ze startu rundy do najwyższego dachu), okrągła miniatura głowy pokazuje twoją wysokość; lawa bliżej niż 8 studów pod głową → czerwona obwódka i puls.
+- Kod: `LavaMeterController`, `Config.LavaMeter`; UI `HUD.LavaMeter` przez MCP; podpowiedź detonatora C4 przesunięta w lewo. Kod zgodny ze Studio i parsuje się. Play agenta: pasek tylko w rundzie, lawa rośnie, ostrzeżenie działa. Testy: [TESTY](TESTY.md) → „Pasek lawy”.
+
+## 15.11 (noc, później) — drzewko: pasek postępu rebirthu i rozpiska nagród, Cmd+S wymagany
+
+Kacper: „REBIRTH 3/5 brzmi, jakbym miał 3 rebirthy” + „pokaż, co daje rebirth, ładnie, z ikonkami”. Decyzje: pasek postępu pod napisem; rozpiska po najechaniu na REBIRTH.
+- Przycisk zawsze „REBIRTH”, pod nim pasek kupionych pól z „3/5” (do rebirthu trzeba kupić wszystkie odblokowane).
+- Najechanie: w miejscu szczegółów „REBIRTH N GIVES” — ikona kasy +5% (z sumą), ikona i kolor nowej odnogi, nowy item (jeśli jest), „YOU KEEP CASH, ITEMS, COSMETICS”.
+- Kod: `SkillTreeController` (`rewardRows`), `SkillTreeFx` (`setRebirth` z paskiem, `setRebirthInfo`, `showRebirthInfo`), teksty i liczby w `Config.Skills`. UI przez MCP: `RebirthButton.Progress`, `Panel.RebirthInfo`. Po restarcie Studio wtyczka Rojo była rozłączona — po Connect kod zgodny ze Studio (suma) i się parsuje. Play agenta: zrzuty w `artifacts/skilltree/`. Testy: [TESTY](TESTY.md) → „Rebirth: pasek postępu”.
+
+## 15.11 (noc) — własny prompt E wszędzie, snop do sufitu, Cmd+S wymagany
+
+Kacper: „nie przez sufit” + „custom proximity prompt przy podnoszeniu”. Decyzje: klawisz E jak przy C4, nazwa w kolorze rzadkości, od razu (bez przytrzymania), styl wszędzie (itemy, sklep, przebieralnia, mag).
+- **Prompt:** `PromptController` + szablon `StarterGui.PromptTemplate` (MCP): nazwa nad klawiszem E i akcja obok, skalowany jak HUD; klawisz wciska się przy naciśnięciu; na telefonie dotknięcie promptu. Kolor nazwy itemu = rzadkość (`TitleColor` z `ItemPickupFx`).
+- **Snop** kończy się pod pierwszym stropem nad itemem.
+Kod zgodny ze Studio i parsuje się. Play agenta: oba prompty działają, E podnosi item, snopy pod stropem. Testy: [TESTY](TESTY.md) → „Własny prompt E”.
+
+## 15.11 (wieczór, później) — aura itemów wg rzadkości, sam kod
+
+Kacper: „VFX do itemów, outline, aura zależnie od rzadkości”. Decyzje: aura + światło dla wszystkich, obrys, snop światła tylko przy najlepszych; rzadkość wg szansy (COMMON napój/bandaż/hak, RARE bomba/C4, EPIC RPG, LEGENDARY drabina), kolory jak w COSMETICS; rzadsze = mocniejszy efekt.
+- Nowy helper `ItemPickupFx` + podpięcie w `ItemPickupController`, liczby w `Config.ItemPickup.FX`. Obrys tylko na 12 najbliższych w 70 studach i nie przez ściany (limit silnika 31 obrysów). GRAPHICS LOW: połowa drobinek.
+- Kod zgodny ze Studio i parsuje się; Play agenta: efekty na wszystkich itemach, snopy tylko RPG/drabina, obrysy tylko z bliska, bez błędów. Wyglądu nie oglądałem — [TESTY](TESTY.md) → „Aura itemów”.
+
+## 15.11 (wieczór) — więcej itemów i kasy, większa szansa na broń, rozmiary itemów, Cmd+S wymagany
+
+Kacper: „więcej pieniędzy na mapie i itemów — z 3 itemy na budynek, nieco większa szansa na bomby/RPG/C4, popraw rozmiary (bandaż i energy drink za duże, RPG za mały)”.
+- **Itemy:** 43 spoty w 9 budynkach (było 20), w rundzie po 3 losowe z każdego budynku = **27 itemów** (było 10). Spoty mają atrybut `Building`; `Config.ItemPickup.PerBuilding`. CyanOffice dostał 5 spotów mimo braku wyjścia z pięter (hak/wybuch); OrangeKebab pominięty (parter z ulicy).
+- **Szanse:** bomba, RPG i C4 ×2 (`WeightBoost`): napój 26%, bomba 19%, C4 14%, bandaż 13%, hak 13%, RPG 11%, drabina 3%.
+- **Rozmiary:** osobno dla itemu (`Config.ItemPickup.Sizes`, najdłuższy bok): bandaż 1,5, napój 1,6, C4 2,2, bomba 2,4, hak 2,4, drabina 3,2, RPG 4,6 (było wszystko 2,6, RPG 3,0).
+- **Kasa:** wszystkie 50 miejsc w każdej rundzie (`Config.Cash.SpawnFraction` 0,6 → 1,0).
+Kod zgodny ze Studio i parsuje się; Play agenta: 27 itemów po 3 na budynek, 50 paczek kasy, bez błędów. Testy: [TESTY](TESTY.md) → „Więcej itemów i kasy”. Cofnięcie markerów: Ctrl+Z („ItemSpawns v2”).
+
+## 15.11 (później) — skalowanie UI: Edit = Play, pasek zdrowia w kasie, panele na telefonie, Cmd+S wymagany
+
+Kacper: „czy całe UI jest responsywne; w Edit kasa inna niż w Play”. Przegląd: kolory kasy w Edit i Play identyczne (różni się tylko rozmiar). Naprawione (decyzja „napraw wszystkie”):
+- **Edit = Play:** w placu były stare, wymieszane skale podglądu (0,66 / brak / 1,0). Nowy `HUD_PREVIEW.luau` (Command Bar, Edit) ustawia ten sam wzór co gra; odpalony raz (okno 577 px → 0,5).
+- **Pasek zdrowia → `HUD.Cash.HealthBar`:** skaluje się z kasą, zawsze tuż nad nią (wcześniej na 1920×1080 nachodził na kasę o ~59 px). Puls `Pop` → `Pulse` (kasa szuka `Pop` w całej ramce).
+- **Paski odnowienia → `HUD.Hotbar.CooldownBars`:** stoją nad hotbarem na każdym ekranie (na telefonie wchodziły na niego).
+- **Telefon:** INVENTORY i drzewko u maga dopasowują się do wysokości ekranu (`FitHeight`, `Config.UI.FitHeightFraction` 0,94).
+Kod zgodny ze Studio, parsuje się; Play agenta przy oknie Studio bez błędów. Telefonu nie sprawdzono — [TESTY](TESTY.md) → „Skalowanie UI”. Cofnięcie UI: Ctrl+Z („UI scale fixes”, „HUD preview scale”).
+
+## 15.11 — własny pasek zdrowia zamiast domyślnego Robloxa, sprawdzony podstawowo w Play przez agenta, Cmd+S wymagany
+
+Kacper: „usunąć default roblox health bar i dać nasz custom”. Decyzje (AskUserQuestion): lewy dół nad kasą, pasek + liczba „72 / 100”, widoczny tylko w rundzie, efekty: ghost spadek, kolor od HP, potrząśnięcie, puls przy niskim HP.
+
+- **Gra:** w rundzie nad kasą pasek w stylu HUD (czarny obrys, FredokaOne). Trafienie → liczba spada, jasny kawałek straconego HP chwilę stoi i zjeżdża, pasek drga (mocniej przy dużym trafieniu). Kolor zielony → żółty → czerwony, poniżej 25% pulsuje. Po śmierci pokazuje 0 jeszcze ~1 s. Domyślny pasek Robloxa wyłączony.
+- **Kod:** `HealthBarController`, `Config.HealthBar`, wyłączenie `CoreGuiType.Health` w `init.client`. Zgodne ze Studio (suma) i parsują się. **Plac:** `HUD.HealthBar` przez MCP (kontrakt: STUDIO_CONTRACT). Cofnięcie: Ctrl+Z (krok „HealthBar v1”).
+- **Play agenta (obserwacja):** patrz [TESTY](TESTY.md) → „Pasek zdrowia”. Wyglądu nie oglądałem zrzutem (zrzuty Studio tylko za zgodą).
+
+## 13.11 (noc) — itemy porozrzucane po mapie, sprawdzone podstawowo w Play przez agenta, Cmd+S wymagany
+
+Kacper: itemy na mapie do zebrania, droższe rzadsze, ~20 spotów głównie na piętrach budynków, nie aż tak łatwo dostępne. Decyzje (AskUserQuestion): item spoza slotów idzie **tylko do inventory** (slotów w rundzie nie zmieniamy), podniesienie na **E**, co rundę **losowo ~10 z 20**, spoty stawia agent.
+
+- **Gra:** w rundzie leży 10 itemów (bomba, drabina, hak, napój, RPG, C4, bandaż), każdy kręci się nad podłogą. E → +1 do inventory na stałe. Jeśli item jest w twoich slotach, możesz go użyć od razu. Szansa: napój 34%, bandaż i hak po 17%, bomba 12%, C4 9%, RPG 7%, drabina 4% (z cen, `Config.ItemPickup.RarityExponent`). Zalany lawą albo bez podłogi po wybuchu — znika.
+- **Spoty (plac):** 20 w `Map.Locked.ItemSpawns` na piętrach 8 budynków, każdy niedaleko okna/otworu (hak, drabina, wybicie szyby), w SandBuilding schodami. CyanOffice pominięty — piętra bez wyjścia. Opis: STUDIO_CONTRACT. Cofnięcie: Ctrl+Z (kroki „ItemSpawns v1”, „ItemSpawn10 off rail”, „PickupMessage v1”).
+- **Kod:** `ItemPickupService`, `ItemPickupController`, remote `ItemPickedUp`, `Config.ItemPickup`, UI `HUD.PickupMessage` (kopia układu KillMessage). Zgodne ze Studio (suma) i się parsują.
+- **Play agenta (obserwacja, nie werdykt):** 10 itemów na starcie rundy, prompt na każdym, podniesienie napoju zadziałało (serwer `give`, komunikat widoczny). Napój dopisał się do studyjnych danych testowych. Testy: [TESTY](TESTY.md) → „Itemy na mapie”.
 
 ## 13.11 (wieczór) — HUD: COSMETICS rośnie jak INVENTORY, mikro animacje SKIP ROUND i SPECTATE, NIEPRZETESTOWANE
 

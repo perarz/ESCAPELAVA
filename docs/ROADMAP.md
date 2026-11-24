@@ -91,6 +91,28 @@ Bez zmian (już działa dotykiem): bomba, hak, napój i rzut C4 = dotknięcie ek
 
 Do sprawdzenia przez Kacpra: TESTY → „Telefon”.
 
+## WYDARZENIA W RUNDZIE — 24.11
+
+**Decyzje Kacpra (24.11), w kodzie, sprawdzone podstawowo w Play przez agenta, czeka na test Kacpra:**
+- **Zrzut zaopatrzenia:** 2 na rundę, losowy dach nad lawą, spadochron i słup światła. E otwiera od razu, 3 rzadkie itemy wysypują się dookoła i każdy może któryś złapać. Zasada slotów bez zmian (item spoza slotów idzie do inventory).
+- **Nalot rakietowy:** 1–2 na rundę, syrena i napis 8 s wcześniej bez podania budynku. „Mocno”: 5–10 rakiet wg wielkości budynku, mocniejszych od RPG. Cel losowy, budynki z graczami mają większą szansę. Rani każdego, zabójstwo nikomu się nie liczy.
+- Cel losowany w chwili alarmu, nie przy starcie rakiet: ucieczka w czasie syreny ma się opłacać.
+- **Pociąg (24.11):** w każdej rundzie, ~33. sekunda. 60% HP i wyrzut, na dachu można jechać; zburzone tory = nie przyjeżdża; wyjeżdża z czarnego tunelu i znika w drugim (kozły oporowe usunięte).
+- **Niska grawitacja (24.11):** w każdej rundzie, ~60. sekunda, 10 s: skok ~3× wyższy, upadki nie ranią; bomby, gruz serwera i lawa bez zmian.
+- **Hak = EPIC (24.11):** szansa na mapie 13% → 8%, w puli skrzyń zrzutu, cena 40$ bez zmian.
+
+**Pomysły agenta na kolejne (24.11) — NIEZATWIERDZONE, do wyboru.** Bez rzeczy z listy „poza v1.0” (blackout, king zone, bounty, trzęsienia, gejzery…) i bez powrotu kul ognia / wiatru. Planista jest gotowy: nowe wydarzenie to osobny serwis i wpis w `Config.RoundEvents`.
+
+| Pomysł | Co daje | Nakład |
+|---|---|---|
+| **Deszcz kasy** — przez 8 s nad jednym dachem sypie się kasa | tłok w jednym miejscu, pchanie i wybuchy | mały (gotowa kasa z mapy) |
+| **Wyprzedaż amunicji** — 10 s nieskończonych bomb dla każdego | chaos i niszczenie na zawołanie | mały |
+| **Auta-bomby** — losowe auta zaczynają pikać i wybuchają po 6 s | ożywia ulice w pierwszej połowie rundy | mały (wybuch aut już jest) |
+| **Drony-kamikadze** — 4 drony lecą powoli do najbliższych graczy, można je zestrzelić albo wciągnąć w ścianę | zagrożenie, przed którym się walczy, a nie tylko ucieka | średni |
+| **Helikopter ratunkowy** — ostatnie 15 s: drabinka nad losowym dachem, 3 miejsca, kto dotrze, przeżywa z bonusem | rozwiązuje końcówkę, w której lawa zalewa najwyższe dachy | duży |
+
+Rekomendacja kolejności: helikopter jako finał rundy (końcówka i tak wymaga decyzji), deszcz kasy przy okazji. **Uwaga na gęstość:** od 24.11 w rundzie 80 s jest 5–6 wydarzeń, kolejne raczej zamiast, nie obok.
+
 ## Dalsze kierunki — do wyboru Kacpra
 
 1. Przebieralnia i sklep kosmetyczny — **wdrożone (26.10–13.11), czeka na testy Play**: ustalenia w [COSMETICS_PLAN](COSMETICS_PLAN.md), bieżący stan w STATUS → „COSMETICS — stan bieżący”. Dalej: kolejne kosmetyki (face, nowe głowy) i ewentualny sklep skinów. Wejście przez istniejącego ClothesShop.NPC i przycisk garderoby. To nowy system posiadania/zakładania i assetów, nie samo drugie okno sklepu.

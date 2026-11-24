@@ -135,9 +135,35 @@ local function detailOf(node: SkillDefinitions.Node): SkillTreeFx.Detail
 	return detail
 end
 
+-- Co da najbliższy rebirth, jako wiersze z ikonami (rozpiska po najechaniu na REBIRTH).
+-- Te same źródła co okno potwierdzenia: procent z Config, odnogi z SkillDefinitions, itemy
+-- z `requiresRebirth` w ItemDefinitions.
+local function rewardRows(nextRebirth: number): { { icon: string, color: Color3, text: string } }
+	local percent = math.round(CFG.RebirthCashBonus * 100)
+	local total = math.round(math.min(nextRebirth * CFG.RebirthCashBonus, CFG.RebirthCashBonusMax) * 100)
+	local rows = {
+		{ icon = TEXTS.InfoCashIcon, color = Color3.new(1, 1, 1), text = TEXTS.InfoCash:format(percent, total) },
+	}
+	for _, branch in ipairs(SkillDefinitions.branchesAt(nextRebirth)) do
+		table.insert(rows, { icon = branch.icon, color = branch.color, text = TEXTS.InfoBranch:format(branch.title) })
+	end
+	for _, itemId in ipairs(ItemDefinitions.shopOrder) do
+		local def = ItemDefinitions.get(itemId)
+		if def and (def :: any).requiresRebirth == nextRebirth then
+			table.insert(rows, { icon = def.icon or "", color = Color3.new(1, 1, 1), text = TEXTS.InfoItem:format(string.upper(def.name)) })
+		end
+	end
+	-- Zawsze na końcu, jeśli jest miejsce: co zostaje (żeby nikt nie bał się rebirthu).
+	if #rows < 3 then
+		table.insert(rows, { icon = SkillDefinitions.icons.rebirth, color = Color3.fromRGB(180, 180, 190), text = TEXTS.InfoKeep })
+	end
+	return rows
+end
+
 local function refreshRebirth()
 	local complete, have, need = SkillDefinitions.isComplete(owned, rebirths)
-	SkillTreeFx.setRebirth(if complete then TEXTS.Rebirth else TEXTS.RebirthProgress:format(have, need), complete)
+	SkillTreeFx.setRebirth(TEXTS.Rebirth, complete, if need > 0 then have / need else 1, TEXTS.RebirthProgress:format(have, need))
+	SkillTreeFx.setRebirthInfo(TEXTS.RebirthInfoTitle:format(rebirths + 1), rewardRows(rebirths + 1))
 end
 
 local function refreshDetails(animate: boolean)

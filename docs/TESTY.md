@@ -1,5 +1,115 @@
 # CO PRZETESTOWAĆ
 
+## Pociąg, niska grawitacja, hak EPIC — 24.11 (tunele, model pociągu i usunięte kozły przez MCP — Cmd+S wymagany)
+
+Tryb dev w rundzie: **T** = pociąg, **N** = niska grawitacja. Agent w Play (obserwacja): jazda na dachu przez oba tunele, uderzenie 60% HP i grawitacja działają; odrzut i dach poprawione już po Play. Do sprawdzenia:
+- [ ] Tunele na obu końcach torów: wyglądają dobrze, czerń bez prześwitów, pociąg wyjeżdża i znika, nic nie wystaje za ścianą mapy ani nad tunelem (popatrz z dachu hotelu i ze szkoły).
+- [ ] T: napis z odliczaniem 5 → 1, potem pociąg wyjeżdża z losowej strony.
+- [ ] Stań na torach: pociąg zabiera 60 HP, odrzuca do przodu i w bok (nie spada w miejscu), ragdoll. Śmierć nikomu nie daje „YOU KILLED”, chyba że ktoś cię tam chwilę wcześniej pchnął.
+- [ ] Zeskocz na dach wagonu: stoisz i jedziesz, można chodzić; w tunelach budynków głowa nie zaczepia. Przy ścianie mapy bariera cię zatrzymuje, a pociąg wjeżdża w tunel.
+- [ ] Dach wagonu od spodu nie blokuje; nie da się wejść do środka i zostać nietkniętym.
+- [ ] Dwóch graczy na jednym wagonie widzi się w dobrych miejscach; jazda nie karze za „speedhack”.
+- [ ] Zburz kawałek torów bombą i naciśnij T: pociąg nie przyjeżdża i nie ma napisu (log `[Train] tory zburzone`). Po rundzie tory wracają.
+- [ ] Drabina stawiana, gdy pociąg przejeżdża przed kursorem, nie przykleja się do niego.
+- [ ] N: skok ~3× wyższy, wolne opadanie, niebieskawy odcień, napis odlicza do końca; upadek z dachu nie boli; po końcu wszystko normalnie (także po śmierci w trakcie).
+- [ ] Grawitacja i bomba / pchnięcie: leci się dalej, anty-cheat nie zabija. Hak, drabina i lawa działają w trakcie.
+- [ ] Hak na mapie: fioletowy, snop światła, rzadziej niż bomba.
+- [ ] Cała runda 80 s: czy 5–6 wydarzeń to nie za gęsto.
+
+## Wydarzenia w rundzie: zrzut i nalot — 24.11 (modele, markery i HUD.EventMessage przez MCP — Cmd+S wymagany)
+
+Agent w Play (jedna sesja, obserwacja — nie werdykt): opadanie, lądowanie, otwarcie i 3 itemy działają; nalot uderza o czasie, rani, nie daje zabójstwa, kolaps częściowy; po końcu rundy brak wybuchów w lobby. Wyglądu, dźwięku, telefonu i kilku graczy nie sprawdzono. Do sprawdzenia:
+
+W trybie dev, w trakcie rundy: **L** = zrzut teraz, **J** = nalot teraz (nie trzeba czekać). Bez klawiszy przy testowej rundzie 240 s: zrzut ~26–36 s, nalot ~53–60 s, pociąg ~96–103 s, zrzut ~120–127 s, w połowie rund drugi nalot ~139–146 s, grawitacja ~180–187 s.
+- [ ] L: napis „SUPPLY DROP!”, skrzynia opada na spadochronie na dach, słup światła widać z ulicy i z innych dachów. Siada prosto, spadochron się składa.
+- [ ] E przy skrzyni: otwiera od razu, 3 różne itemy wylatują łukiem dookoła (zawsze co najmniej jeden RPG albo drabina) i da się je podnieść; żaden nie wisi w powietrzu ani nie wpada w ścianę.
+- [ ] Dwie osoby przy skrzyni naciskają E naraz — otwiera jedna, itemy są tylko raz.
+- [ ] E spod dachu (piętro niżej) NIE otwiera skrzyni.
+- [ ] Wybuch dachu pod skrzynią: skrzynia spada niżej i dalej da się ją otworzyć; nad lawą znika.
+- [ ] Stanąć dokładnie tam, gdzie ląduje skrzynia: nie wystrzeliwuje w powietrze, kolizja włącza się po odejściu.
+- [ ] J: syrena i „AIR RAID! MISSILES HIT A BUILDING IN 8” z odliczaniem, nigdzie nie widać, który budynek; rakiety na niebie ~2 s przed zerem, pierwsza uderza równo z końcem odliczania, potem „TAKE COVER!”.
+- [ ] Budynek po nalocie: dziury w dachu i ścianach, część pięter może spaść, reszta stoi. Dwa razy na różnych budynkach. Z Output wkleić linie `[Airstrike]`, `[Destr]`, `[Collapse]`.
+- [ ] Trafienie rani i przewraca (osłona za ścianą mniej), śmierć nikomu nie daje „YOU KILLED”.
+- [ ] Uciec z budynku w czasie syreny — cel wybrany w chwili alarmu nie goni gracza.
+- [ ] Kilka nalotów z kolegami na telefonach: FPS i opóźnienia podczas salwy.
+- [ ] SKIP ROUND / lobby: brak syreny i napisu. SPECTATE: są.
+- [ ] Koniec rundy w trakcie syreny albo z rakietami w powietrzu: syrena cichnie, nic nie wybucha w lobby ani w odbudowanej mapie.
+- [ ] Napis nie nachodzi na licznik czasu ani na „YOU KILLED”, także na telefonie.
+
+## Pasek zdrowia — 15.11 (HUD.HealthBar przez MCP — Cmd+S wymagany)
+
+Agent w Play (15.11, obserwacja): w lobby schowany, w rundzie widoczny „100 / 100”, domyślny pasek Robloxa wyłączony; po 35 + 45 obrażeń: „20 / 100”, ghost postał i zjechał, potrząśnięcie, czerwony kolor, puls przy 20%. Do sprawdzenia:
+- [ ] Wygląd i miejsce nad kasą — nie nachodzi na kasę ani boczne przyciski, czytelny na telefonie. Od 15.11 pasek jest w ramce kasy: na pełnym ekranie (np. 1920×1080) też tuż nad kasą, bez nachodzenia.
+
+## Pasek lawy po prawej — 15.11 (HUD.LavaMeter przez MCP — Cmd+S wymagany)
+
+Agent w Play (obserwacja): w lobby schowany, w rundzie widoczny; głowa awatara na wysokości gracza (ulica ~10% paska), lawa rośnie od dołu; przy lawie 6 studów pod głową czerwona obwódka i puls. Zrzuty: `artifacts/lava-meter/`. Do sprawdzenia:
+- [ ] Wejdź na dach — znacznik idzie w górę paska, zejdź — w dół.
+- [ ] Czy ostrzeżenie nie odpala za wcześnie na ulicy, gdy lawa jest jeszcze w kanale (od 15.11 v2: stopy bliżej niż 4 studa, `Config.LavaMeter.WarnDistance`).
+- [ ] (v2) Bieg po płaskim i stanie: znacznik się nie buja (pomiar agenta w miejscu: 0 ruchu); lawa na starcie = 15% paska, ulica ≈ 25%.
+- [ ] Podpowiedź detonatora C4 (przesunięta w lewo) nie nachodzi na pasek.
+- [ ] Telefon: pasek nie nachodzi na przycisk skoku.
+
+## Rebirth: pasek postępu i rozpiska nagród — 15.11 (UI przez MCP — Cmd+S wymagany)
+
+Agent w Play (obserwacja): przycisk „REBIRTH” z paskiem 3/5; rozpiska (włączona ręcznie, bez kursora) „REBIRTH 1 GIVES: +5% CASH FOREVER (TOTAL +5%), NEW BRANCH: LAVA SKIN, YOU KEEP…”. Zrzuty: `artifacts/skilltree/rebirth_progress_1511.jpg`, `rebirth_info_1511.jpg`. Do sprawdzenia:
+- [ ] Najechanie kursorem na REBIRTH pokazuje rozpiskę, zjechanie przywraca szczegóły pola.
+- [ ] Po kupieniu wszystkich pól pasek znika, napis wraca na środek, przycisk lawowy.
+- [ ] Po rebirthcie rozpiska pokazuje następny (REBIRTH 2 → TOUGHNESS, suma +10%).
+- [ ] Zamknięcie panelu z kursorem na REBIRTH i ponowne otwarcie — widać szczegóły, nie rozpiskę.
+
+## Własny prompt E + snop do sufitu — 15.11 (PromptTemplate przez MCP — Cmd+S wymagany)
+
+Agent w Play (obserwacja): sklep → prompt „SELLER / E SHOP”, item → „BANDAGE / E PICK UP” w kolorze rzadkości; E podniósł bandaż (27 → 26 itemów, komunikat „+1 BANDAGE”); 3 snopy kończą się pod stropem. Prompt w świecie nie był na zrzucie (MCP nie rysuje BillboardGui) — wygląd widziany na kopii w UI: `artifacts/item-fx/6_prompt_preview.jpg`. Do sprawdzenia:
+- [ ] Prompt nad itemem / sprzedawcą / przebieralnią / magiem: czytelny, nie za duży, klawisz E wciska się przy naciśnięciu.
+- [ ] Szybkie podnoszenie kilku itemów pod rząd — prompt znika i pojawia się płynnie.
+- [ ] Telefon: dotknięcie promptu podnosi item / otwiera sklep.
+- [ ] Gamepad: na klawiszu litera przycisku (X).
+- [ ] Snop RPG/drabiny nie wychodzi przez sufit do pokoju wyżej.
+
+## Aura itemów wg rzadkości — 15.11 (sam kod)
+
+Agent w Play (obserwacja): aura i światło na wszystkich 27 itemach (COMMON 2 drobinki/s … LEGENDARY 14), 4 snopy na 4 itemach RPG/drabina, obrysy tylko na itemach w 70 studach (3 z 27). Wyglądu nie oglądałem. Do sprawdzenia:
+- [ ] Kolory: napój/bandaż/hak szare, bomba/C4 niebieskie, RPG fioletowe, drabina złota — czytelne, nie przesadzone.
+- [ ] Snop nad dachem widać z daleka przy RPG i drabinie; w budynku nie razi.
+- [ ] Obrys pojawia się z bliska i nie świeci przez ściany.
+- [ ] GRAPHICS LOW: mniej drobinek, bez spadku FPS przy 27 itemach.
+
+## Więcej itemów i kasy, rozmiary — 15.11 (markery przez MCP — Cmd+S wymagany)
+
+Agent w Play (obserwacja): 43 spoty, w rundzie 27 itemów — po 3 w każdym z 9 budynków; kasa 50 paczek; rozmiary (najdłuższy bok): bandaż 1,5, napój 1,6, C4 2,2, bomba 2,4, hak 2,4, drabina 3,2, RPG 4,6. Do sprawdzenia:
+- [ ] Rozmiary wyglądają dobrze obok siebie (bandaż i napój nie za duże, RPG nie za mały).
+- [ ] Bomby / RPG / C4 trafiają się częściej niż wcześniej, ale napój dalej najczęstszy.
+- [ ] 27 itemów i 50 paczek kasy to nie za dużo (balans) — liczby: `Config.ItemPickup.PerBuilding`, `Config.Cash.SpawnFraction`.
+- [ ] CyanOffice: czy da się dostać do itemów (hak przez okno/dach, wybicie ściany) — jeśli nie, zdjąć atrybut lub markery.
+
+## Skalowanie UI — 15.11 (MCP — Cmd+S wymagany)
+
+Agent w Play (okno Studio 1133×577, obserwacja): pasek zdrowia dokładnie na górnej krawędzi kasy, paski odnowienia 59 px nad hotbarem, panele w skali 0,5. Na ekranach telefonu nie sprawdzone (Studio nie zmieni okna przez MCP) — do sprawdzenia w Device Emulator:
+- [ ] Edit: wklej `HUD_PREVIEW.luau` do Command Bar → kasa, hotbar i przyciski wyglądają jak w Play.
+- [ ] Pełny ekran 1920×1080: pasek zdrowia tuż nad kasą, paski odnowienia nad hotbarem (np. po rzucie bomby).
+- [ ] Device Emulator, telefon poziomo (np. iPhone 14): INVENTORY i drzewko u maga mieszczą się w pionie; paski odnowienia nie wchodzą na hotbar.
+- [ ] INVENTORY → DETAILS: wysuwanie paneli dalej równe (przesunięcie liczone ze skali panelu).
+- [ ] Upadek / wybuch: liczba spada, jasny kawałek chwilę stoi i zjeżdża, pasek drga mocniej przy dużym trafieniu.
+- [ ] Lawa (obrażenia co chwilę): bez ciągłego trzęsienia, ghost zjeżdża płynnie.
+- [ ] Bandaż: pasek rośnie, bez ghosta.
+- [ ] Poniżej 25% pulsuje na czerwono.
+- [ ] Śmierć: pasek pokazuje 0 jeszcze ~1 s i znika; w lobby i po SKIP ROUND go nie ma; następna runda — znów pełny.
+- [ ] Bonusy HP z drzewka (jeśli zmieniają MaxHealth) — liczba po prawej się zgadza.
+
+## Itemy na mapie — 13.11 (markery i HUD.PickupMessage przez MCP — Cmd+S wymagany)
+
+Agent w Play (13.11, obserwacja): 20 spotów wczytanych, runda wystawiła 10 itemów, podniesienie napoju promptem dało +1 w inventory i komunikat „+1 ENERGY DRINK / SAVED TO INVENTORY”. Wygląd, wrażenie i reszta — do sprawdzenia:
+- [ ] Na start rundy na piętrach leżą itemy, kręcą się i lekko kołyszą; co rundę w innych miejscach.
+- [ ] Podejdź i naciśnij E → item leci do ciebie, znika u wszystkich, komunikat na środku nie gryzie się z innymi napisami.
+- [ ] Item, który masz w slocie (np. bomba) → „READY IN SLOT N”, licznik w slocie +1, rzucasz od razu.
+- [ ] Item spoza slotów → „SAVED TO INVENTORY”; w lobby jest w INVENTORY.
+- [ ] Przez strop / ścianę nie da się podnieść (prompt nie powinien się pokazać z piętra niżej).
+- [ ] Wybuch pod itemem albo zawalone piętro → item znika, nie wisi w powietrzu.
+- [ ] Rzadkość: przez kilka rund napoje / bandaże / haki częste, drabina i RPG rzadkie.
+- [ ] Czy spoty są „nie aż tak łatwe”, ale osiągalne (hak, drabina, okna, schody w SandBuilding)? RPG wygląda na mały (model 6 studów zmniejszony) — ocenić.
+- [ ] Dwóch graczy naraz na jednym itemie → dostaje jeden.
+
 ## Kasa i spawny — 13.11 (MCP — Cmd+S wymagany) — NIEPRZETESTOWANE
 
 Liczba kasy na rundę: `Config.Cash.SpawnFraction` (0.6 = 30 z 50).

@@ -96,6 +96,13 @@ Config.Dev = {
 	-- E (ProximityPrompt).
 	SkipKey = Enum.KeyCode.K,     -- skip bieżącej fazy/stanu (LOBBY→ROUND w 2 klik)
 	EndRoundKey = Enum.KeyCode.O, -- natychmiastowy koniec rundy (restore mapy, nagrody)
+	-- Wydarzenia rundy na żądanie (24.11) — bez nich test nalotu to czekanie minuty na rundę.
+	EventKeys = {
+		SupplyDrop = Enum.KeyCode.L,
+		Airstrike = Enum.KeyCode.J,
+		Train = Enum.KeyCode.T,
+		LowGravity = Enum.KeyCode.N,
+	} :: { [string]: Enum.KeyCode },
 }
 
 Config.Game = {
@@ -513,6 +520,9 @@ Config.UI = {
 	ScaledGuis = { "HUD", "Inventory", "ShopUI", "Settings", "SkillTree" }, -- 21.10: + sklep; 26.10: + ustawienia; 09.11: + drzewko
 	MinScale = 0.5,         -- safety: nie zmniejszaj HUD poniżej połowy (mikro-okna)
 	MaxScale = 2.0,         -- safety: nie rozdmuchuj powyżej 2× (ultra-tall porty)
+	-- Panele z atrybutem `FitHeight` (INVENTORY, drzewko u maga) zajmują najwyżej tyle wysokości
+	-- ekranu — na telefonie (skala HUD na minimum) inaczej wystawały poza ekran (15.11).
+	FitHeightFraction = 0.94,
 
 	-- Numer wersji w prawym dolnym rogu (HUD.Version.VersionLabel, 27.10). Podbijać przy
 	-- publikacji — gracz na zrzucie z błędem od razu pokazuje, na której wersji grał.
@@ -788,9 +798,9 @@ Config.Cash = {
 	-- Każda zebrana paczka cash daje Value$. Kacper zatwierdził 10$/pickup.
 	Value = 10,
 	-- Frakcja spawn pointów które się aktywują na rundę. 1.0 = wszystkie.
-	-- 13.11 (Kacper): 50 markerów w CashSpawns, co rundę losowo 30 (0.6) — kasa za każdym
-	-- razem w innych miejscach. Zmniejsz, jeśli rundy będą za bogate.
-	SpawnFraction = 0.6,
+	-- 13.11 (Kacper): 50 markerów w CashSpawns, co rundę losowo 30 (0.6). 15.11 (Kacper: „daj
+	-- więcej pieniędzy na mapie”): wszystkie 50 w każdej rundzie. Zmniejsz, jeśli rundy będą za bogate.
+	SpawnFraction = 1.0,
 	-- Promień w stud w którym cash leci do gracza (magnet trigger).
 	MagnetRange = 8,
 	-- Czas trwania client-side animacji łuku pickup w sekundach. Dłuższy = bardziej
@@ -1801,6 +1811,439 @@ Config.AntiCheat = {
 
 -- Komunikat „YOU KILLED <nick>” dla zabójcy (KillMessageController, 10.10, projekt z Figmy).
 -- Wygląd w Studio (`HUD.KillMessage`); tu tylko czasy i kolor słowa „KILLED”.
+-- PASEK LAWY (15.11, decyzje Kacpra): pionowy pasek po prawej w rundzie — poziom lawy i twoja
+-- głowa. Tylko ty, znacznik = miniatura głowy, blisko lawy pulsuje na czerwono. LavaMeterController.
+Config.LavaMeter = {
+	-- 15.11 v3 (Kacper: „max 90% paska — limit gry”): poziom lawy na KOŃCU rundy (start +
+	-- RoundDuration × (SpeedStart+SpeedEnd)/2, dziś ~Y 122, ponad najwyższym dachem 109) = 90%.
+	-- Nad nim jeszcze AboveEndRange studów do samej góry paska.
+	LavaEndFrac = 0.9,
+	AboveEndRange = 20,
+	FallbackBottomY = 2.5, -- gdy tafli lawy nie ma w Workspace
+	-- Skala nierówna (15.11): start lawy = 15% paska, poziom ulicy = 25%, koniec lawy = 90%.
+	LavaStartFrac = 0.15,
+	StreetFrac = 0.25,
+	StreetY = 9.5,         -- podłoga ulicy/chodnika (pomiar mapy: 9–10)
+	-- Spokój (15.11, „buja się przy chodzeniu”): czas dojazdu znacznika i lawy (s) i martwa
+	-- strefa znacznika (ułamek paska) — drobne zmiany wysokości go nie ruszają.
+	MarkerSmoothTime = 0.2,
+	MarkerDeadZone = 0.004,
+	LavaSmoothTime = 0.6,
+	-- Ostrzeżenie: STOPY bliżej lawy niż tyle studów → czerwona obwódka i puls (mocniejszy bliżej).
+	WarnDistance = 4,
+	WarnColor = Color3.fromRGB(255, 40, 30),
+	PulseHz = 2.5,
+	PulseScale = 0.15,
+}
+
+-- PASEK ZDROWIA (15.11, decyzje Kacpra): własny pasek w lewym dolnym rogu nad kasą zamiast
+-- domyślnego paska Robloxa (CoreGui Health wyłącza init.client). Widoczny tylko, gdy gracz
+-- jest uczestnikiem rundy (`Config.Spectate.ParticipantAttribute`). HealthBarController.
+Config.HealthBar = {
+	-- Kolor wypełnienia od ułamka HP: punkty płynnie przechodzą jeden w drugi.
+	Colors = {
+		{ 0.0, Color3.fromRGB(225, 35, 35) },
+		{ 0.3, Color3.fromRGB(240, 70, 40) },
+		{ 0.55, Color3.fromRGB(255, 200, 40) },
+		{ 0.8, Color3.fromRGB(85, 220, 70) },
+	},
+	-- Wypełnienie dojeżdża do nowej wartości (s); leczenie tak samo.
+	FillTime = 0.12,
+	-- „Ghost”: jasny kawałek straconego HP stoi GhostDelay s, potem zjeżdża przez GhostTime s.
+	-- Kolejne trafienie w trakcie przedłuża postój (seria obrażeń czyta się jako jeden spadek).
+	GhostDelay = 0.45,
+	GhostTime = 0.4,
+	-- Potrząśnięcie przy trafieniu: maks. przesunięcie w px projektu, siła rośnie z obrażeniami
+	-- aż do ShakeFullDamage (i więcej). Poniżej ShakeMinDamage bez potrząśnięcia (np. lawa co tick).
+	ShakeMax = 9,
+	ShakeTime = 0.3,
+	ShakeFullDamage = 40,
+	ShakeMinDamage = 3,
+	-- Niskie HP: poniżej LowFraction pasek pulsuje (skala i jasność) z częstotliwością PulseHz.
+	LowFraction = 0.25,
+	PulseHz = 2.2,
+	PulseScale = 0.045,
+	-- Po śmierci pasek z zerem zostaje jeszcze chwilę, zanim zniknie (s).
+	HideDelayAfterDeath = 1.2,
+}
+
+-- ITEMY NA MAPIE (13.11, decyzje Kacpra): ~20 spotów na piętrach budynków
+-- (`Workspace.Map.Locked.ItemSpawns`), co rundę losowo część z nich. Podniesienie na E,
+-- item idzie do inventory (trwale, jak kupiony). Użyć od razu da się tylko, jeśli jest już
+-- w jednym z 3 slotów — slotów w rundzie nie zmieniamy (decyzja: „tylko inventory”).
+-- ItemPickupService (serwer) + ItemPickupController (klient).
+Config.ItemPickup = {
+	-- 15.11 (Kacper: „na 1 budynek z 3 itemy”): marker z atrybutem `Building` → w każdej rundzie
+	-- losowo PerBuilding spotów z każdego budynku (43 spoty w 9 budynkach → 27 itemów).
+	PerBuilding = 3,
+	-- Markery BEZ atrybutu `Building`: aktywny ułamek z nich (stara zasada, zapas na ręcznie
+	-- postawione spoty bez przypisania).
+	SpawnFraction = 0.5,
+	-- „Czym droższe, tym rzadziej”: waga = (ReferencePrice / cena) ^ RarityExponent, liczona
+	-- z cen w ItemDefinitions (zmiana ceny sama zmienia rzadkość). Przy 1.5 i cenach z 13.11:
+	-- napój 34%, bandaż 17%, hak 17%, bomba 12%, C4 9%, RPG 7%, drabina 4%.
+	-- Większy wykładnik = droższe jeszcze rzadsze.
+	RarityExponent = 1.5,
+	ReferencePrice = 25,
+	-- 15.11 (Kacper: „nieco większa szansa na bomby, RPG, C4”): mnożnik wagi z ceny.
+	-- 24.11 (Kacper: hak ma mieć lepszą rzadkość → EPIC): hak × 0,55, bo rzadkość idzie za szansą.
+	-- Teraz: napój 28%, bomba 20%, C4 15%, bandaż 14%, RPG 11%, hak 8%, drabina 4%.
+	WeightBoost = { bomb = 2, rpg = 2, c4 = 2, grapple = 0.55 } :: { [string]: number },
+	-- Id itemów, które nigdy nie leżą na mapie (np. { "rpg" }).
+	Exclude = {} :: { string },
+
+	-- Wygląd: model z ReplicatedStorage (`toolModel`), skalowany tak, żeby najdłuższy bok miał
+	-- DisplaySize (RPG 6 studów i puszka 1,4 studa wyglądają jak znaleziska tej samej wagi).
+	DisplaySize = 2.6,
+	-- 15.11 (Kacper: „bandaż za duży, RPG za mały, energy drink za duży”): najdłuższy bok osobno
+	-- dla itemu; brak wpisu = DisplaySize. Mała rzecz zostaje mała, długa zostaje długa.
+	Sizes = {
+		bomb = 2.4,
+		bridge_builder = 3.2,
+		grapple = 2.4,
+		energy_drink = 1.6,
+		rpg = 4.6,
+		c4 = 2.2,
+		bandage = 1.5,
+	} :: { [string]: number },
+	MinScale = 0.5,
+	MaxScale = 2.0,
+	-- Środek modelu nad markerem (marker stoi 0,5 nad podłogą = `MarkerHeight`).
+	HeightOffset = 1.4,
+	MarkerHeight = 0.5,
+	-- Item wysypany ze skrzyni (24.11, SupplyDropService): lot łukiem ze skrzyni na swoje miejsce.
+	BurstTime = 0.45,
+	BurstHeight = 4,
+	-- Lokalnie u klienta: kołysanie i obrót (serwer trzyma model w miejscu).
+	HoverAmplitude = 0.25,
+	HoverFrequency = 0.6,
+	SpinSpeed = 1.0, -- rad/s
+	-- Lot do gracza po podniesieniu (wszyscy widzą), s.
+	FlyTime = 0.35,
+
+	-- Prompt E. Bez wymogu linii wzroku silnika (części modelu zasłaniałyby własny prompt),
+	-- linię wzroku sprawdza serwer. Krótki zasięg, żeby prompt nie łapał przez strop.
+	PromptDistance = 7,
+	PromptKey = Enum.KeyCode.E,
+	PromptActionText = "PICK UP",
+	-- Serwer: tolerancja na lag pozycji (gracz w biegu), w studach.
+	ServerDistanceTolerance = 3,
+	-- Serwer: minimalny odstęp między podniesieniami jednego gracza (s) — ludzkie tempo z zapasem.
+	MinInterval = 0.15,
+
+	-- Item nie spawnuje się, jeśli lawa już jest bliżej niż tyle pod nim; zalany znika.
+	LavaSafetyMargin = 3,
+	-- Podłoga pod itemem zniknęła (wybuch, kolaps) → item znika, zamiast wisieć w powietrzu.
+	-- Sprawdzane SupportCheckHz razy na sekundę promieniem w dół na SupportProbe studów.
+	SupportCheckHz = 2,
+	SupportProbe = 4,
+
+	-- Komunikat „+1 RPG” dla podnoszącego (`HUD.PickupMessage`, układ jak KillMessage).
+	Message = {
+		ShowTime = 1.6,
+		FadeTime = 0.3,
+		PopScale = 1.3,
+		PopTime = 0.25,
+		SlotText = "READY IN SLOT %d",     -- item jest w slotach → można użyć od razu
+		InventoryText = "SAVED TO INVENTORY", -- poza slotami → do wzięcia w lobby
+	},
+	-- Wygląd zależnie od rzadkości (15.11, decyzje Kacpra): aura + światło dla wszystkich, siła
+	-- rośnie z rzadkością; obrys na najbliższych; snop światła tylko EPIC i LEGENDARY.
+	-- Kolory = `Config.Cosmetics.UI.Rarities[...].Accent`. ItemPickupFx.
+	FX = {
+		-- Rzadkość wg szansy na mapie (decyzja „wg szansy”); brak wpisu = Common.
+		Rarity = {
+			energy_drink = "Common",
+			bandage = "Common",
+			grapple = "Epic", -- 24.11 (było Common)
+			bomb = "Rare",
+			c4 = "Rare",
+			rpg = "Epic",
+			bridge_builder = "Legendary",
+		} :: { [string]: string },
+		-- Particles = drobinki/s; Outline = przezroczystość obrysu (0 = pełny); Pillar = snop.
+		Tiers = {
+			Common = { Particles = 2, LightBrightness = 0.6, LightRange = 6, Outline = 0.55, Pillar = false },
+			Rare = { Particles = 5, LightBrightness = 1.2, LightRange = 9, Outline = 0.3, Pillar = false },
+			Epic = { Particles = 9, LightBrightness = 2, LightRange = 12, Outline = 0.1, Pillar = true },
+			Legendary = { Particles = 14, LightBrightness = 3, LightRange = 14, Outline = 0, Pillar = true },
+		},
+		ParticleSize = 0.35,
+		ParticleLifetime = NumberRange.new(1, 1.6),
+		ParticleSpeed = NumberRange.new(0.6, 1.4),
+		ParticleRise = 1.5, -- stud/s² w górę
+		LowGraphicsParticleFactor = 0.5,
+		-- Obrys: limit silnika to 31 Highlightów na klienta, itemów jest do 27.
+		OutlineMax = 12,
+		OutlineDistance = 70,
+		OutlineUpdateHz = 4,
+		-- Snop: od podłogi w górę do pierwszego stropu (15.11: nie przebija sufitu), pod gołym
+		-- niebem na PillarHeight.
+		PillarHeight = 70,
+		PillarWidth = 1.4,
+		PillarTransparency = 0.35,
+	},
+	-- Dźwięk podniesienia (puste = brak; ID poda Kacper).
+	SoundId = "",
+	SoundVolume = 0.6,
+}
+
+-- ============================================================================
+-- WYDARZENIA W RUNDZIE (24.11, pomysł Kacpra: „żeby coś się działo w rundzie”)
+-- Kiedy: RoundEventService. Co się dzieje: SupplyDropService i AirstrikeService. Napis i syrena:
+-- RoundEventController (`HUD.EventMessage`). Nowe wydarzenie = wpis tutaj i handler w RoundEventService.
+-- ============================================================================
+Config.RoundEvents = {
+	Enabled = true,
+	-- Okno startu jako UŁAMEK czasu rundy, więc ten sam plan działa przy 80 s i przy testowych
+	-- 240 s. Okna się nie nakładają — to one pilnują odstępu między wydarzeniami, osobnej logiki
+	-- nie ma. Chance = szansa, że w ogóle wystąpi (brak = zawsze).
+	-- Przy 80 s (lawa 0 → 3 stud/s; decyzja Kacpra 24.11: pociąg i grawitacja w każdej rundzie):
+	--   zrzut 9–12 s · nalot 18–20 s (uderza 8 s później) · pociąg 32–34 s (wjeżdża 5 s później,
+	--   jedzie ~9 s; tory Y 55 zalewa ~53. sekunda) · zrzut 40–42 s · w połowie rund drugi nalot
+	--   46–49 s · niska grawitacja 60–62 s przez 10 s (finał: skoki między ostatnimi dachami).
+	Schedule = {
+		{ Event = "SupplyDrop", From = 0.11, To = 0.15 },
+		{ Event = "Airstrike", From = 0.22, To = 0.25 },
+		{ Event = "Train", From = 0.40, To = 0.43 },
+		{ Event = "SupplyDrop", From = 0.50, To = 0.53 },
+		{ Event = "Airstrike", From = 0.58, To = 0.61, Chance = 0.5 },
+		{ Event = "LowGravity", From = 0.75, To = 0.78 },
+	} :: { { Event: string, From: number, To: number, Chance: number? } },
+
+	-- Napis na górze ekranu. `Info` z %d = odliczanie sekund do chwili wydarzenia; po niej
+	-- `AfterInfo` (jeśli jest) jeszcze przez AfterTime. Bez %d napis znika po ShowTime.
+	Messages = {
+		SupplyDrop = {
+			Title = "SUPPLY DROP!",
+			Info = "RARE LOOT IS FALLING ON A ROOF",
+			TitleColor = Color3.fromRGB(255, 204, 0),
+			ShowTime = 4,
+		},
+		Airstrike = {
+			Title = "AIR RAID!",
+			Info = "MISSILES HIT A BUILDING IN %d",
+			AfterInfo = "TAKE COVER!",
+			AfterTime = 3,
+			TitleColor = Color3.fromRGB(255, 60, 45),
+			Siren = true,
+		},
+		Train = {
+			Title = "TRAIN INCOMING!",
+			Info = "GET OFF THE TRACKS! %d",
+			TitleColor = Color3.fromRGB(255, 150, 40),
+		},
+		-- Tu odliczanie idzie do KOŃCA wydarzenia (grawitacja zaczyna się od razu).
+		LowGravity = {
+			Title = "LOW GRAVITY!",
+			Info = "JUMP HIGH! BACK TO NORMAL IN %d",
+			TitleColor = Color3.fromRGB(120, 210, 255),
+		},
+	},
+	Message = {
+		FadeTime = 0.35,
+		PopScale = 1.35,
+		PopTime = 0.3,
+		TickPop = 1.12, -- wskok przy każdej sekundzie odliczania
+		TickPopTime = 0.2,
+	},
+	-- Syrena nalotu: „Air Raid Siren Old Fashioned 2” (Pro Sound Effects, darmowa w Creator Store,
+	-- 24.11). Propozycja agenta — dźwięki dobiera Kacper; "" = cisza.
+	Siren = { SoundId = "rbxassetid://9113073796", Volume = 0.45, FadeOut = 1.5 },
+}
+
+-- ZRZUT ZAOPATRZENIA (24.11, decyzje Kacpra): 2 na rundę, losowy dach nad lawą, spadochron i słup
+-- światła; E otwiera od razu, 3 rzadkie itemy wysypują się dookoła i każdy może któryś złapać.
+-- SupplyDropService (serwer), SupplyDropController (klient). Markery: `Map.Locked.SupplyDropSpawns`.
+Config.SupplyDrop = {
+	CrateModel = "SupplyCrate",     -- Model w ReplicatedStorage; pivot = środek spodu skrzyni
+	ParachuteName = "Parachute",    -- Model/Folder w środku; znika po lądowaniu
+	SpawnsFolder = "SupplyDropSpawns",
+	ActiveFolder = "ActiveSupplyDrops",
+	FallTime = 8,        -- s opadania na spadochronie
+	FallHeight = 110,    -- stud nad miejscem lądowania
+	-- Dach musi wystawać nad lawę co najmniej tyle w chwili zrzutu (lawa rośnie też podczas opadania).
+	LavaMargin = 30,
+	-- Realna powierzchnia pod markerem najwyżej tyle od markera: dach zburzony = inny marker.
+	SurfaceTolerance = 5,
+	MinSpacing = 60,     -- kolejny zrzut w tej samej rundzie nie bliżej niż tyle od poprzedniego
+	-- Skrzynia, której zniknęła podłoga, spada dalej (bez spadochronu) z taką prędkością.
+	CollapseFallSpeed = 45,
+	CheckHz = 4,         -- podłoga pod skrzynią, lawa, włączenie kolizji
+	SupportProbe = 3,
+	LavaSink = 2,        -- skrzynia zalana na tyle studów znika
+
+	PromptActionText = "OPEN",
+	PromptObjectText = "SUPPLY CRATE",
+	PromptDistance = 9,
+	ServerDistanceTolerance = 3,
+
+	-- Loot: pierwszy item zawsze z `Guaranteed`, reszta z `Weights` bez powtórzeń (dziś 3 z 5;
+	-- 24.11 doszedł hak).
+	LootCount = 3,
+	Guaranteed = { "rpg", "bridge_builder" } :: { string },
+	Weights = { rpg = 35, c4 = 25, bomb = 20, bridge_builder = 20, grapple = 30 } :: { [string]: number },
+	SpillRadius = 4.5,   -- stud od skrzyni; ściana albo krawędź dachu to skraca
+	OpenLinger = 1.2,    -- s, zanim otwarta skrzynia zniknie
+
+	-- Klient
+	Color = Color3.fromRGB(255, 190, 40), -- słup, światło, nazwa w prompcie
+	SwayDegrees = 6,     -- bujanie na spadochronie
+	SwayHz = 0.35,
+	BeamHeight = 170,
+	BeamWidth = 3,
+	BeamTransparency = 0.25,
+	LightRange = 18,
+	LightBrightness = 2,
+	ParachuteFold = 0.8, -- s składania spadochronu po lądowaniu
+	DustCount = 24,
+	BurstCount = 30,
+	LandSoundId = "",    -- rbxassetid od Kacpra; "" = cisza
+	OpenSoundId = "",
+	SoundVolume = 0.8,
+}
+
+-- NALOT RAKIETOWY (24.11, decyzje Kacpra): syrena i napis ~8 s wcześniej bez podania budynku, potem
+-- 5–10 rakiet z nieba w jeden budynek („mocno: dziury i częściowe zawalenie”). Cel losowy, budynki
+-- z graczami mają większą szansę. Rani każdego w zasięgu, zabójstwo nikomu się nie liczy.
+-- AirstrikeService (serwer), AirstrikeController (klient).
+Config.Airstrike = {
+	Warning = 8,         -- s od alarmu do PIERWSZEGO uderzenia
+	FlightTime = 2.2,    -- s, przez które rakietę widać na niebie (ostatni moment na ucieczkę)
+	Speed = 110,         -- stud/s
+	MaxRange = 420,
+	TiltDegrees = 30,    -- od pionu; cała salwa z jednej strony
+	TiltJitter = 4,
+	Interval = 0.35,     -- s między rakietami
+	IntervalJitter = 0.12,
+	-- Liczba rakiet z powierzchni rzutu budynku (kebab 1640 → 5, hotel 4100 → 8, szkoła → 10).
+	AreaPerRocket = 500,
+	MinRockets = 5,
+	MaxRockets = 10,
+	-- Wybór celu: budynek z graczem waży tyle, pusty 1. „Z graczem” = w obrysie ± margines,
+	-- od parteru do tylu studów nad dachem.
+	OccupiedWeight = 4,
+	OccupiedMargin = 6,
+	OccupiedAbove = 14,
+	-- Budynek jest celem, póki dość promieni z góry trafia go wyżej niż tyle nad lawą (zburzony
+	-- albo zalany odpada).
+	MinAboveLava = 14,
+	ScanRays = 24,
+	MinStanding = 0.2,
+	-- Celowanie: kierunki salwy i próby na rakietę — bierzemy kierunek, z którego najwięcej rakiet
+	-- trafia w ten budynek, a nie w sąsiada po drodze.
+	Azimuths = 6,
+	AimTries = 6,
+	HitBackoff = 0.5,
+	-- Wybuch jednej rakiety, pola jak w ItemDefinitions (RPG 16 / 0,42 / 115, bomba 22 / 0,6 / 160).
+	Blast = {
+		id = "airstrike",
+		hurtsWithoutAttacker = true, -- BombService: rani mimo braku sprawcy
+		blastRadius = 18,
+		damagePercent = 0.5,
+		knockbackForce = 380,
+		knockbackMinT = 0.35,
+		ragdollDuration = 1.8,
+		destruction = {
+			radius = 21,
+			damage = 140,
+			impulse = 85,
+			minImpulseT = 0.1,
+			glassRadius = 28,
+		},
+	},
+
+	-- Klient
+	MissileModel = "StrikeMissile", -- Model w ReplicatedStorage; −Z PrimaryPart = kierunek lotu
+	TrailLifetime = 0.7,
+	TrailWidth = 1.6,
+	TrailColor = Color3.fromRGB(255, 200, 140),
+	SmokeRate = 45,
+	LowGraphicsSmokeFactor = 0.4,
+	SmokeColor = Color3.fromRGB(120, 115, 110),
+	LightColor = Color3.fromRGB(255, 150, 60),
+	LightRange = 20,
+	LightBrightness = 4,
+	WhistleSoundId = "", -- świst rakiety (rbxassetid od Kacpra); "" = cisza
+	WhistleVolume = 1,
+	-- Klient sprząta rakietę po czasie lotu + tyle, gdy AirstrikeRocketEnded nie doszedł.
+	VisualLinger = 1,
+}
+
+-- POCIĄG (24.11, decyzje Kacpra): raz na rundę przejeżdża po torach nad miastem. Wyjeżdża z czarnego
+-- tunelu na jednym końcu i znika w drugim. Uderzony traci 60% HP i leci do przodu; na dachu można
+-- stać i jechać. Zburzone tory = nie przyjeżdża. Tor: `TrainPath` (tunele w Studio), serwer:
+-- TrainService, klient: TrainController.
+Config.Train = {
+	TunnelsFolder = "TrainTunnels",  -- Map.Locked.<to>.<West|East>.Mouth: środek torów na wysokości szyn
+	RailsFolder = "Railway",         -- OutsideDecorations.<to>: po nim poznajemy, czy tory stoją
+	Model = "Train",                 -- ReplicatedStorage: Model z Modelami `Loco` i `Wagon`
+	RoofPartName = "Roof",           -- płyta, na której się stoi (jedyna część z kolizją)
+	Warning = 5,        -- s od napisu do wyjazdu z tunelu
+	Speed = 60,         -- stud/s (432 study torów + skład ≈ 9 s)
+	CarCount = 4,       -- lokomotywa + 3 wagony
+	CarLength = 22,
+	CarPitch = 24,      -- długość + przerwa
+	Height = 8.1,       -- dach nad szynami
+	HalfWidth = 6,      -- pół szerokości do trafień (koła stoją na szynach ±6,25)
+	-- Lawa najwyżej tyle pod szynami w chwili zapowiedzi; przez 5 + 9 s zdąży podejść.
+	LavaMargin = 16,
+	-- Tory całe: promienie w dół co tyle studów na obu szynach; przerwa = zburzone.
+	RailOffset = 6.25,
+	TrackStep = 3,
+	-- Trafienie. HitLag: serwer sprawdza pozycję pociągu sprzed chwili — pozycja gracza dochodzi
+	-- z opóźnieniem, a kto zdążył uskoczyć u siebie, ma nie oberwać.
+	HitLag = 0.1,
+	FeetOffset = 2.6,   -- HRP → stopy
+	-- Środek postaci wyżej niż dach − tyle = pasażer (nie obrywa, dach go trzyma); niżej = uderzony.
+	-- Liczone od środka, nie od stóp, żeby leżący na dachu też był pasażerem.
+	RiderMargin = 0.3,
+	Damage = 0.6,       -- ułamek MaxHealth, raz na przejazd na gracza
+	-- Ragdoll toolboxa nadaje prędkość tylko korzeniowi postaci, więc całe ciało dostaje ułamek:
+	-- Play 24.11 — z 70/42/30 zostało ~12 stud/s i gracz spadał w miejscu. Skala jak odrzut bomby (450).
+	KnockForward = 240, -- stud/s wzdłuż jazdy
+	KnockUp = 130,
+	KnockSide = 110,    -- w bok, żeby zleciał z torów, a nie leciał przed pociągiem
+	RagdollDuration = 1.8,
+	RiderGrace = 3,     -- s okna anty-cheata odnawianego pasażerowi (jedzie 60 stud/s)
+
+	-- Klient
+	VisibleMargin = 1,      -- wagon pokazuje się tyle studów przed wylotem (za czarną płytą)
+	ShakeDistance = 45,
+	ShakeMax = 0.5,
+	ShakeInterval = 0.2,
+	HornSoundId = "",       -- klakson przy zapowiedzi (rbxassetid od Kacpra); "" = cisza
+	HornVolume = 1,
+	RumbleSoundId = "",     -- dudnienie w pętli przy lokomotywie
+	RumbleVolume = 0.8,
+	SoundDistance = 500,
+}
+
+-- NISKA GRAWITACJA (24.11, decyzje Kacpra): 10 s, skok ~3× wyższy i wolne opadanie, upadki nie ranią.
+-- Tylko uczestnicy rundy i tylko ich ruch — grawitację ustawia KLIENT u siebie (fizykę postaci i tak
+-- liczy on), więc bomby, zawalenia i lawa na serwerze bez zmian. Serwer: LowGravityService (czas,
+-- wyłączenie obrażeń od upadku), klient: LowGravityController.
+Config.LowGravity = {
+	Duration = 10,
+	GravityFactor = 0.35,
+	JumpFactor = 3,      -- mnożnik JumpHeight (przy tej grawitacji prędkość wybicia zostaje zwykła)
+	-- Tyle s po końcu upadki jeszcze nie ranią: kto wisiał wysoko, zdąży spaść.
+	FallGrace = 1.5,
+	UntilAttribute = "LowGravityUntil", -- atrybut Workspace, czas serwera końca
+	TintColor = Color3.fromRGB(205, 225, 255),
+	TintBrightness = 0.03,
+	TintTime = 0.5,
+}
+
+-- WŁASNY PROMPT (15.11, decyzje Kacpra): wszystkie ProximityPrompty w stylu podpowiedzi C4 —
+-- klawisz E, nazwa nad nim, akcja obok. Wciskanie klawisza = `Config.C4.KeyPress`. PromptController.
+Config.Prompt = {
+	ShowFromScale = 0.6, -- pojawienie: od tej skali do 1 (Back)
+	ShowTime = 0.18,
+	HideTime = 0.1,
+	TriggerPop = 1.15,   -- podskok przy naciśnięciu
+}
+
 Config.KillMessage = {
 	ShowTime = 2.5,   -- s widoczności, zanim zacznie gasnąć
 	FadeTime = 0.35,  -- s wygaszania
@@ -3268,8 +3711,18 @@ Config.Skills = {
 		-- Na szarym przycisku, gdy brakuje wymagania: mam / trzeba.
 		RequirementShort = { survived = "%d/%d ROUNDS", played = "%d/%d ROUNDS", kills = "%d/%d KILLS" },
 		RebirthBadge = "REBIRTH %d",
+		-- Ikona kasy w rozpisce rebirthu = ikona licznika kasy z HUD (ten sam obrazek).
+		InfoCashIcon = "rbxassetid://90192610744649",
 		Rebirth = "REBIRTH",
-		RebirthProgress = "REBIRTH %d/%d",
+		-- 15.11 (Kacper: „REBIRTH 3/5 brzmi jak 3 rebirthy”): przycisk zawsze „REBIRTH”, a postęp
+		-- (kupione / odblokowane pola) to pasek pod napisem z liczbą obok.
+		RebirthProgress = "%d/%d",
+		-- Po najechaniu na REBIRTH: co da najbliższy rebirth (w miejscu szczegółów pola).
+		RebirthInfoTitle = "REBIRTH %d GIVES",
+		InfoCash = "+%d%% CASH FOREVER  (TOTAL +%d%%)",
+		InfoBranch = "NEW BRANCH: %s",
+		InfoItem = "NEW ITEM: %s",
+		InfoKeep = "YOU KEEP CASH, ITEMS, COSMETICS",
 		ConfirmTitle = "REBIRTH?",
 		ConfirmLose = "YOU LOSE: ALL SKILLS",
 		ConfirmKeep = "YOU KEEP: CASH, ITEMS, COSMETICS",
@@ -3391,6 +3844,11 @@ Config.Skills = {
 		RewardPopTime = 0.35,
 		RewardHold = 2.2,
 		RewardFadeTime = 0.25,
+		-- 15.11: napis REBIRTH idzie w górę o tyle px, gdy pod nim stoi pasek postępu.
+		RebirthLabelLift = 12,
+		-- Rozpiska rebirthu po najechaniu: wskok od tej skali do 1.
+		InfoPopFrom = 0.92,
+		InfoPopTime = 0.18,
 		BadgePopFrom = 1.5,
 		BadgePopTime = 0.4,
 		-- Błysk przy magu po rebirthie (lokalne cząsteczki, bez kolizji i promieni).

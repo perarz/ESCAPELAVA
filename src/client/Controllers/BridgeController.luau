@@ -190,6 +190,9 @@ local function computeAnchorPosition(unitRay: Ray): (Vector3, boolean)
 	if ghost then table.insert(excludeList, ghost) end
 	local activeCash = Workspace:FindFirstChild("ActiveCash")
 	if activeCash then table.insert(excludeList, activeCash) end
+	-- Pociąg istnieje tylko u klientów (TrainController), a ten punkt idzie do serwera (lekcja 10).
+	local train = Workspace:FindFirstChild("LocalTrain")
+	if train then table.insert(excludeList, train) end
 	rayParams.FilterDescendantsInstances = excludeList
 
 	local maxDist = 300

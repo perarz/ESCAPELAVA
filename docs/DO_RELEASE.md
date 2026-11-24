@@ -25,6 +25,7 @@ Aktualizacja: **13.11.2026** (termin 06.11 wyznaczony przez Kacpra **minął bez
 | Hak pod nogi | Agent: odrzucenie nieużytecznego lotu przed zużyciem sztuki; dotychczas odłożone. |
 | Gest pchnięcia na produkcji | **05.11 opublikowany i wpięty** (asset `128117097694041`, moderacja Approved) — zostaje test Kacpra: TESTY → „Animacja F”. |
 | Pomijanie rundy | **06.11 w kodzie** (`RoundSkipService`, mini ramka pod licznikiem). Zostaje test Kacpra z dwoma graczami: TESTY → „Pomijanie rundy”. |
+| Wydarzenia w rundzie (24.11) | **W kodzie** zrzut zaopatrzenia, nalot rakietowy, pociąg i niska grawitacja (`RoundEventService`). Zostaje test Kacpra (TESTY → „Wydarzenia w rundzie”), ocena, czy w rundzie 80 s nie jest za gęsto, i obciążenie podczas salwy na telefonach. Syrena = propozycja z Creator Store, świst rakiety, dźwięki skrzyni, klakson i dudnienie pociągu puste. |
 | Dźwięki | Kacper: ID pięciu dźwięków destrukcji i strzału RPG oraz czterech dźwięków panelu sklepu (`Config.Shop.Fx.Feedback`); agent: wpięcie. Łyk napoju opcjonalny. |
 | Bake budynków w placu | Przed TRYB 3 sprawdzić zaokrąglenia 0,001 i brak walidacji `MapRevision`; obecnie brak zapisanych danych w Edit. Po bake zweryfikować zgodność z geometrią. |
 | Uprawnienia dev po UserId | Agent + UserId Kacpra. Przed wydaniem tryb dev wyłączony niezależnie od tego zadania. |

@@ -47,8 +47,10 @@ local lastThrowAt: { [Player]: number } = {}
 local lastEquipAt: { [Player]: number } = {}
 local roundToken = 0
 
-local function log(player: Player, action: string, extra: string?)
-	print(("[Bomb] %s %s%s"):format(player.Name, action, extra and (" — " .. extra) or ""))
+-- `player` = nil: wybuch bez sprawcy (24.11, nalot rakietowy).
+local function log(player: Player?, action: string, extra: string?)
+	print(("[Bomb] %s %s%s"):format(if player then player.Name else "(bez sprawcy)", action,
+		extra and (" — " .. extra) or ""))
 end
 
 local function destroyEquipped(player: Player)
@@ -227,7 +229,7 @@ local function monitorRagdollLanding(hrp: BasePart)
 	end)
 end
 
-local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, def: any)
+local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player?, def: any)
 	-- Damage server-side (authority). Ragdoll + knockback CLIENT-SIDE przez RemoteEvent
 	-- bo character ma network ownership = klient. Server changes Motor6D są nadpisywane
 	-- przez klient prediction — dlatego sztywno wyglądał ragdoll.
@@ -279,7 +281,7 @@ local function applyDamageAndKnockback(blastCenter: Vector3, thrower: Player, de
 		-- → ragdoll → lava kill), wciąż credit dla thrower.
 		-- Własny wybuch NIE taguje: nadpisałby zabójstwo komuś, kto chwilę wcześniej trafił
 		-- rzucającego (bomba / push), a samobójstwo i tak nie daje nagrody (KillService).
-		if p ~= thrower then
+		if thrower and p ~= thrower then
 			KillService.tag(hum, thrower, weapon)
 		end
 
@@ -352,13 +354,17 @@ end
 
 -- Wybuch bez pocisku (27.09 — auto, CarService): ta sama ścieżka co bomba — destrukcja
 -- otoczenia PRZED obrażeniami (osłona), błąd destrukcji nie zjada obrażeń. `def` ma pola jak
--- ItemDefinitions.bomb. Bez sprawcy (nikt nie rzucał) tylko otoczenie: tag zabójstwa
--- i log potrzebują gracza. 20.10: woła to też RpgService (rakieta) i beczki (21.10).
+-- ItemDefinitions.bomb. Bez sprawcy (nikt nie rzucał: beczka z zawalenia, auto) tylko otoczenie —
+-- chyba że `def.hurtsWithoutAttacker` (24.11, nalot rakietowy): wtedy rani jak każdy wybuch, a
+-- zabójstwo nikomu się nie liczy. 20.10: woła to też RpgService (rakieta) i beczki (21.10).
 function BombService.explodeAt(center: Vector3, def: any, attacker: Player?)
 	if not destroyEnvironment(center, def, attacker) then return end
 	if attacker and attacker.Parent then
 		applyDamageAndKnockback(center, attacker, def)
 		log(attacker, if type(def.id) == "string" then def.id else "car", "pos=" .. tostring(center))
+	elseif def.hurtsWithoutAttacker then
+		applyDamageAndKnockback(center, nil, def)
+		log(nil, if type(def.id) == "string" then def.id else "blast", "pos=" .. tostring(center))
 	end
 end
 

@@ -123,6 +123,18 @@ local rebirthLabel: TextLabel? = nil
 local rebirthGradient: UIGradient? = nil
 local rebirthBorder: ImageLabel? = nil
 local rebirthAvailable = false
+-- Pasek postępu w przycisku REBIRTH (15.11) i rozpiska najbliższego rebirthu po najechaniu.
+local rebirthProgress: GuiObject? = nil
+local rebirthProgressFill: GuiObject? = nil
+local rebirthCountParts: { TextPart } = {}
+local rebirthLabelHome: { [TextLabel]: UDim2 } = {}
+local detailsFrame: GuiObject? = nil
+local infoFrame: GuiObject? = nil
+local infoScale: UIScale? = nil
+local infoTitleParts: { TextPart } = {}
+local infoRows: GuiObject? = nil
+local infoRowTemplate: GuiObject? = nil
+local infoShown = false
 
 local badgeLabel: TextLabel? = nil
 local badgeScale: UIScale? = nil
@@ -708,14 +720,42 @@ function SkillTreeFx.bind(gui: ScreenGui, onNode: (string) -> ())
 		unlockGradient = f and f:FindFirstChildOfClass("UIGradient")
 	end
 
+	local d = p:FindFirstChild("Details")
+	detailsFrame = if d and d:IsA("GuiObject") then d else nil
+	local info = p:FindFirstChild("RebirthInfo")
+	if info and info:IsA("GuiObject") then
+		infoFrame = info
+		info.Visible = false
+		infoScale = scaleOf(info, "Pop")
+		infoTitleParts = collectText(info, "Title")
+		local rows = info:FindFirstChild("Rows")
+		infoRows = if rows and rows:IsA("GuiObject") then rows else nil
+		local tpl = rows and rows:FindFirstChild("RowTemplate")
+		infoRowTemplate = if tpl and tpl:IsA("GuiObject") then tpl else nil
+		if infoRowTemplate then infoRowTemplate.Visible = false end
+	end
+
 	local rebirth = p:FindFirstChild("RebirthButton", true)
-	rebirthButton = hookButton(rebirth, "Hover", CFG.ButtonHoverScale)
+	rebirthButton = hookButton(rebirth, "Hover", CFG.ButtonHoverScale, function(on: boolean)
+		SkillTreeFx.showRebirthInfo(on)
+	end)
 	if rebirth then
 		local label = rebirth:FindFirstChild("Label")
 		rebirthLabel = if label and label:IsA("TextLabel") then label else nil
+		for _, name in ipairs({ "Label", "LabelShadow" }) do
+			local l = rebirth:FindFirstChild(name)
+			if l and l:IsA("TextLabel") then rebirthLabelHome[l] = l.Position end
+		end
 		local f = rebirth:FindFirstChild("Fill")
 		rebirthGradient = f and f:FindFirstChildOfClass("UIGradient")
 		rebirthBorder = imageChild(rebirth, "Border")
+		local prog = rebirth:FindFirstChild("Progress")
+		if prog and prog:IsA("GuiObject") then
+			rebirthProgress = prog
+			local pf = prog:FindFirstChild("Fill")
+			rebirthProgressFill = if pf and pf:IsA("GuiObject") then pf else nil
+			rebirthCountParts = collectText(prog, "Count")
+		end
 	end
 
 	hookButton(p:FindFirstChild("CloseButton", true), "Hover", CFG.ButtonHoverScale)
@@ -818,6 +858,7 @@ end
 
 -- `done` chowa panel. Ponowne otwarcie w trakcie zjazdu zmienia żeton, więc panel zostaje.
 function SkillTreeFx.close(done: () -> ())
+	SkillTreeFx.showRebirthInfo(false)
 	openToken += 1
 	local token = openToken
 	isOpen = false
@@ -903,11 +944,60 @@ function SkillTreeFx.select(id: string, detail: Detail, animate: boolean)
 	end
 end
 
-function SkillTreeFx.setRebirth(text: string, available: boolean)
+-- `progress` (0..1) i `count` („3/5”): pasek pod napisem, dopóki rebirth jest niedostępny.
+-- Napis idzie wtedy w górę o `RebirthLabelLift`, żeby zmieścić pasek w przycisku.
+function SkillTreeFx.setRebirth(text: string, available: boolean, progress: number?, count: string?)
 	rebirthAvailable = available
 	if rebirthLabel then rebirthLabel.Text = text end
 	setGradient(rebirthGradient, if available then COLORS.Rebirth else COLORS.Disabled)
 	if not available and rebirthBorder then rebirthBorder.Visible = false end
+	local showBar = not available and progress ~= nil
+	if rebirthProgress then rebirthProgress.Visible = showBar end
+	if rebirthProgressFill and progress then
+		rebirthProgressFill.Size = UDim2.fromScale(math.clamp(progress, 0, 1), 1)
+	end
+	if count then setText(rebirthCountParts, count) end
+	for label, home in pairs(rebirthLabelHome) do
+		label.Position = home - UDim2.fromOffset(0, if showBar then CFG.RebirthLabelLift else 0)
+	end
+end
+
+-- Rozpiska najbliższego rebirthu: tytuł i wiersze { icon, color, text }. Wiersze są klonami
+-- `RowTemplate` (UI w Studio), budowanymi od nowa przy każdej zmianie (najwyżej kilka).
+function SkillTreeFx.setRebirthInfo(title: string, rows: { { icon: string, color: Color3, text: string } })
+	setText(infoTitleParts, title)
+	local holder, tpl = infoRows, infoRowTemplate
+	if not (holder and tpl) then return end
+	for _, child in ipairs(holder:GetChildren()) do
+		if child ~= tpl and child:IsA("GuiObject") then child:Destroy() end
+	end
+	for i, row in ipairs(rows) do
+		local r = tpl:Clone()
+		r.Name = "Row" .. i
+		r.LayoutOrder = i
+		r.Visible = true
+		local icon = r:FindFirstChild("Icon")
+		if icon and icon:IsA("ImageLabel") then
+			icon.Image = row.icon
+			icon.ImageColor3 = row.color
+		end
+		for _, name in ipairs({ "Text", "TextShadow" }) do
+			local t = r:FindFirstChild(name)
+			if t and t:IsA("TextLabel") then t.Text = row.text end
+		end
+		r.Parent = holder
+	end
+end
+
+-- Najechanie na REBIRTH: rozpiska zastępuje szczegóły pola; zjechanie przywraca szczegóły.
+function SkillTreeFx.showRebirthInfo(on: boolean)
+	local info, details = infoFrame, detailsFrame
+	if not info or on == infoShown then return end
+	if on and SkillTreeFx.confirmVisible() then return end
+	infoShown = on
+	info.Visible = on
+	if details then details.Visible = not on end
+	if on then popScale(infoScale, CFG.InfoPopFrom, CFG.InfoPopTime) end
 end
 
 function SkillTreeFx.setBadge(text: string, animate: boolean)

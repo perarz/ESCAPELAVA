@@ -20,6 +20,19 @@ local REMOTE_NAMES = {
 	                      --   inventory, loadout i ustawienia. Liczy się tylko pierwszy na sesję gracza
 	"CashChanged",        -- FireClient: (balance: number, delta: number?, reason: string?)
 	"CashCollected",      -- FireAllClients: (player: Player, fromPosition: Vector3) — klient animuje pickup
+	"ItemPickedUp",       -- FireAllClients: (player: Player, itemId: string, fromPosition: Vector3) — 13.11,
+	                      --   item z mapy podniesiony (E): wszyscy widzą lot do gracza, podnoszący
+	                      --   dostaje komunikat „+1 X” (ItemPickupController). Item już jest w inventory.
+	"RoundEvent",         -- FireAllClients: (kind: "SupplyDrop"|"Airstrike"|"Train"|"LowGravity", at: number) —
+	                      --   24.11, wydarzenie w rundzie (RoundEventService): napis, odliczanie i syrena.
+	                      --   `at` = czas serwera lądowania skrzyni / pierwszego uderzenia / wyjazdu pociągu /
+	                      --   KOŃCA niskiej grawitacji. Celu nalotu NIE ma w payloadzie
+	"TrainRun",           -- FireAllClients: (reverse: boolean, departAt: number) — 24.11, przejazd pociągu
+	                      --   (false = West → East). Pozycję liczą z tego obie strony (TrainPath); trafienia serwer
+	"AirstrikeRockets",   -- FireAllClients: (rockets: {{id: number, origin: Vector3, dir: Vector3, at: number}}) —
+	                      --   24.11, cała salwa naraz; `at` = czas serwera startu. Klienci rysują rakiety po
+	                      --   tej prostej (Config.Airstrike.Speed); lot i trafienie liczy serwer
+	"AirstrikeRocketEnded", -- FireAllClients: (id: number) — rakieta trafiła; wybuch idzie przez BlastFX
 	"InventoryChanged",   -- FireClient: (inventory: {[itemId: string] = count: number})
 	"SetLoadout",         -- klient→server: FireServer(loadout: {string}) — 3 itemId, "" = pusty slot.
 	                      --   Tylko w LOBBY; serwer czyści (istniejące, bez powtórzeń) — LoadoutService
@@ -115,7 +128,8 @@ local REMOTE_NAMES = {
 	                      --   i się nie rozprzestrzenia (pożary jako mechanika poza v1.0)
 	                      --   kolaps grupy budynku v4 (CollapseService: "collapse" przy starcie
 	                      --   lotu grupy; "creak" dziś nieużywany). Klient robi pył, dźwięk i wstrząs
-	"DevCommand",         -- klient→server: FireServer(command: string) — "skip" | "endRound".
+	"DevCommand",         -- klient→server: FireServer(command: string) — "skip" | "endRound" |
+	                      --   nazwa wydarzenia z Config.Dev.EventKeys (24.11).
 	                      --   Server waliduje Dev.isDev(player); tryb dev = Config.Dev.Enabled
 	"FireGrapple",        -- klient→server: FireServer(targetPos: Vector3) — punkt, w który
 	                      --   gracz celuje z GrappleTool w ręce i hakiem w loadoucie;

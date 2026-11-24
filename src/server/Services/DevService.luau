@@ -3,7 +3,8 @@
 -- Serwerowa strona trybu testowego (Config.Dev). JEDYNE miejsce, w którym polecenia
 -- dev z klienta zamieniają się w realne akcje — i jedyne, które decyduje, czy wolno.
 --
--- Kontrakt: Remotes.DevCommand:FireServer(command: string), command ∈ {"skip", "endRound"}.
+-- Kontrakt: Remotes.DevCommand:FireServer(command: string), command ∈ {"skip", "endRound",
+-- nazwa wydarzenia z `Config.Dev.EventKeys`} (24.11: wydarzenie rundy na żądanie).
 -- Każde wywołanie przechodzi przez `Dev.isDev(player)` — hard rule #2 (server authority)
 -- obowiązuje tak samo w trybie testowym, bo ten sam kod pojedzie na produkcję z
 -- `Config.Dev.Enabled = false` i NIE może dać się obejść przez podrobiony remote.
@@ -17,6 +18,7 @@ local Config = require(ReplicatedStorage.Shared.Modules.Config)
 local Remotes = require(ReplicatedStorage.Shared.Modules.Remotes)
 local Dev = require(ReplicatedStorage.Shared.Modules.Dev)
 local GameLoopService = require(script.Parent.GameLoopService)
+local RoundEventService = require(script.Parent.RoundEventService)
 
 local DevService = {}
 
@@ -41,6 +43,9 @@ local function onDevCommand(player: Player, command: any)
 	elseif command == "endRound" then
 		local ok = GameLoopService.devEndRound()
 		print(("[Dev] %s → endRound (%s)"):format(player.Name, ok and "OK" or "nie w rundzie"))
+	elseif Config.Dev.EventKeys[command] then
+		local ok = RoundEventService.trigger(command)
+		print(("[Dev] %s → %s (%s)"):format(player.Name, command, ok and "OK" or "nie w rundzie albo brak miejsca"))
 	end
 end
 

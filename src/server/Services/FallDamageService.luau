@@ -50,6 +50,7 @@ local PlayerService = require(script.Parent.PlayerService)
 local RagdollService = require(script.Parent.RagdollService)
 local LavaService = require(script.Parent.LavaService)
 local SkillService = require(script.Parent.SkillService)
+local LowGravityService = require(script.Parent.LowGravityService)
 
 local FallDamageService = {}
 
@@ -216,6 +217,7 @@ end
 
 local function tick(dt: number)
 	local lavaY = LavaService.getSurfaceY()
+	local lowGravity = LowGravityService.suppressesFalls()
 	for _, player in ipairs(PlayerService.getAliveList()) do
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -243,7 +245,9 @@ local function tick(dt: number)
 		-- nic, co zaczęło się nad nią, nie kończy się obrażeniami — licznik upadku zaczyna się
 		-- od nowa, póki stopy są w lawie. Bez tego gracz powoli opadający na ulicę pod taflą
 		-- dostawał „upadek z dachu na ulicę”, bo promień do gruntu przelatuje przez lawę.
-		if feetY < lavaY then
+		-- 24.11: to samo w niskiej grawitacji (decyzja Kacpra: upadki nie ranią) — licznik upadku
+		-- zaczyna się od nowa co tick, więc po jej końcu liczy się tylko to, co spadnie już normalnie.
+		if lowGravity or feetY < lavaY then
 			track.airborne = false
 			track.airTime = 0
 			track.peakY = feetY

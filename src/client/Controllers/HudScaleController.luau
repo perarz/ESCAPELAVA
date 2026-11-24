@@ -43,9 +43,17 @@ local function scaleGui(gui: ScreenGui)
 		-- AbsoluteSize ScreenGui = viewport minus GUI inset — właściwa baza.
 		return math.clamp(gui.AbsoluteSize.Y / CFG.ReferenceHeight, CFG.MinScale, CFG.MaxScale)
 	end
+	-- Atrybut `FitHeight = true` (15.11, duże panele: INVENTORY, drzewko): skala nie większa niż
+	-- taka, przy której panel zajmuje `FitHeightFraction` wysokości ekranu. Na telefonie skala HUD
+	-- trzyma się minimum (`MinScale`), więc panel projektowany na 800–1060 px wystawał poza ekran.
 	local function apply(child: Instance, f: number)
 		if child:IsA("GuiObject") and child:GetAttribute("NoHudScale") ~= true then
-			ensureScale(child).Scale = f
+			local scale = f
+			local designH = child.Size.Y.Offset
+			if child:GetAttribute("FitHeight") == true and designH > 0 then
+				scale = math.min(scale, gui.AbsoluteSize.Y * CFG.FitHeightFraction / designH)
+			end
+			ensureScale(child).Scale = scale
 		end
 	end
 	local function applyAll()

@@ -7,6 +7,7 @@
 --
 --   Config.Dev.SkipKey     → pomiń bieżący stan (LOBBY → runda w kilka klików; w rundzie = koniec rundy)
 --   Config.Dev.EndRoundKey → natychmiast zakończ rundę (restore mapy + nagrody)
+--   Config.Dev.EventKeys   → wydarzenie rundy na żądanie (24.11)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -30,6 +31,12 @@ local function onInput(input: InputObject, gameProcessed: boolean)
 		Remotes.DevCommand:FireServer("skip")
 	elseif input.KeyCode == Config.Dev.EndRoundKey then
 		Remotes.DevCommand:FireServer("endRound")
+	else
+		for event, key in pairs(Config.Dev.EventKeys) do
+			if input.KeyCode == key then
+				Remotes.DevCommand:FireServer(event)
+			end
+		end
 	end
 end
 
@@ -41,9 +48,14 @@ function DevController.init()
 	if not Dev.isDev(localPlayer) then return end
 
 	UserInputService.InputBegan:Connect(onInput)
-	print(("[Dev] klawisze aktywne: %s = skip stanu, %s = koniec rundy"):format(
+	local events = {}
+	for event, key in pairs(Config.Dev.EventKeys) do
+		table.insert(events, ("%s = %s"):format(key.Name, event))
+	end
+	print(("[Dev] klawisze aktywne: %s = skip stanu, %s = koniec rundy, %s"):format(
 		Config.Dev.SkipKey.Name,
-		Config.Dev.EndRoundKey.Name
+		Config.Dev.EndRoundKey.Name,
+		table.concat(events, ", ")
 	))
 end
 
